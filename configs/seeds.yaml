@@ -1,0 +1,3 @@
+# The seeds every (arm, scale) is run over. Reported as mean ± std.
+# Drop to [0, 1, 2] if compute forces it — say so in the table caption.
+seeds: [0, 1, 2, 3, 4]

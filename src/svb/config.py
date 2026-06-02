@@ -1,0 +1,133 @@
+"""Typed, frozen configuration for a single run.
+
+A run is fully determined by ``(arm, scale, seed)`` plus the shared defaults
+here. Optimizer defaults are the XEUS-HPO-01 Trial 19 values used throughout the
+paper; they are reported verbatim in every run's dumped config.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Literal
+
+import yaml
+
+Arm = Literal["A_ssl", "B_btm_ssl", "C_btm_scratch"]
+Scale = Literal["3", "16", "64"]
+MergeStrategy = Literal["average", "ties", "dare_ties"]
+
+
+@dataclass(frozen=True)
+class ModelConfig:
+    name: str = "xeus"
+    hidden_size: int = 1024
+    # Path to the XEUS SSL checkpoint (espnet/xeus). Required for SSL-init arms
+    # (A, B); ignored for scratch init (C). May be set via $XEUS_CHECKPOINT.
+    xeus_checkpoint: str | None = None
+    blank_bias_init: float | None = None
+
+
+@dataclass(frozen=True)
+class OptimConfig:
+    # XEUS-HPO-01 Trial 19 (verbatim).
+    lr: float = 7.446693063298197e-05
+    weight_decay: float = 0.0024151339921234323
+    grad_clip: float = 0.507731238072093
+    warmup_ratio: float = 0.08544536055130553
+    batch_size: int = 8
+    accum_steps: int = 2
+
+
+@dataclass(frozen=True)
+class TrainConfig:
+    # Epoch ceilings; scratch arms typically need the larger budget to converge.
+    phase0_epochs: int = 15
+    expert_epochs: int = 9
+    finetune_epochs: int = 50
+    patience: int = 15
+    bf16: bool = True
+    grad_checkpointing: bool = True
+    max_audio_samples: int = 200_000  # ~12.5s at 16kHz; truncation guard
+    num_workers: int = 8
+
+
+@dataclass(frozen=True)
+class ExperimentConfig:
+    arm: Arm
+    scale: Scale
+    seed: int
+    merge_strategy: MergeStrategy = "average"
+    sample_rate: int = 16000
+    model: ModelConfig = field(default_factory=ModelConfig)
+    optim: OptimConfig = field(default_factory=OptimConfig)
+    train: TrainConfig = field(default_factory=TrainConfig)
+    # Held-out transfer languages (OpenSLR Indic), never in any training mix.
+    heldout_langs: tuple[str, ...] = (
+        "odia",
+        "marathi",
+        "telugu",
+        "gujarati",
+        "malayalam",
+    )
+
+    @property
+    def init(self) -> Literal["ssl", "scratch"]:
+        return "scratch" if self.arm == "C_btm_scratch" else "ssl"
+
+    @property
+    def uses_btm(self) -> bool:
+        return self.arm in ("B_btm_ssl", "C_btm_scratch")
+
+    def to_dict(self) -> dict[str, Any]:
+        return dataclasses.asdict(self)
+
+
+def _nested_update(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
+    for k, v in overrides.items():
+        if isinstance(v, dict) and isinstance(base.get(k), dict):
+            base[k] = _nested_update(base[k], v)
+        else:
+            base[k] = v
+    return base
+
+
+def load_config(
+    arm: Arm,
+    scale: Scale,
+    seed: int,
+    yaml_path: str | Path | None = None,
+    overrides: dict[str, Any] | None = None,
+) -> ExperimentConfig:
+    """Build an ExperimentConfig, layering an optional YAML then dict overrides."""
+    cfg: dict[str, Any] = {"arm": arm, "scale": scale, "seed": seed}
+    if yaml_path is not None:
+        with open(yaml_path) as f:
+            cfg = _nested_update(cfg, yaml.safe_load(f) or {})
+    if overrides:
+        cfg = _nested_update(cfg, overrides)
+
+    model_cfg = cfg.pop("model", {})
+    # Fall back to $XEUS_CHECKPOINT when the YAML leaves it unset (launcher path).
+    if not model_cfg.get("xeus_checkpoint"):
+        env_ckpt = os.environ.get("XEUS_CHECKPOINT")
+        if env_ckpt:
+            model_cfg["xeus_checkpoint"] = env_ckpt
+    model = ModelConfig(**model_cfg)
+    optim = OptimConfig(**cfg.pop("optim", {}))
+    train = TrainConfig(**cfg.pop("train", {}))
+    if "heldout_langs" in cfg:
+        cfg["heldout_langs"] = tuple(cfg["heldout_langs"])
+    return ExperimentConfig(model=model, optim=optim, train=train, **cfg)
+
+
+def dump_config(cfg: ExperimentConfig, out_dir: str | Path) -> Path:
+    """Write the fully-resolved config next to a run's results."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / "resolved_config.yaml"
+    with open(path, "w") as f:
+        yaml.safe_dump(cfg.to_dict(), f, sort_keys=False)
+    return path

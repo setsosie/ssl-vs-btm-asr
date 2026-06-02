@@ -1,0 +1,18 @@
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# data + weights are large / public — fetch via `make data`, never commit
+data/
+checkpoints/
+*.pth
+*.pt
+*.safetensors
+
+# run outputs (JSON results are reproducible; aggregated tables are committed)
+results/*
+!results/.gitkeep

@@ -1,0 +1,23 @@
+# Scale-3 preset: typologically diverse (Latin / CJK / Devanagari).
+# Matches the ABL-01-LITE 3-language set (en, ja, hi).
+# Common Voice 17 is gated on HF — accept terms once at
+# https://huggingface.co/datasets/mozilla-foundation/common_voice_17_0
+languages:
+  - code: en
+    source: commonvoice
+    hf_dataset: mozilla-foundation/common_voice_17_0
+    hf_config: en
+    text_column: sentence
+    audio_column: audio
+  - code: ja
+    source: commonvoice
+    hf_dataset: mozilla-foundation/common_voice_17_0
+    hf_config: ja
+    text_column: sentence
+    audio_column: audio
+  - code: hi
+    source: commonvoice
+    hf_dataset: mozilla-foundation/common_voice_17_0
+    hf_config: hi
+    text_column: sentence
+    audio_column: audio

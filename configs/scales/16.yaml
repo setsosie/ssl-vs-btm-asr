@@ -1,0 +1,22 @@
+# Scale-16 preset: typologically diverse Common Voice languages spanning
+# Germanic, Romance, Slavic, Indo-Aryan, Turkic, Semitic, Kartvelian, Bantu,
+# CJK and Uralic families — the spread that lets the merge×typology analysis
+# (finding #2) separate near-from-far languages. Verify each config has enough
+# train hours on the CV release you pin.
+languages:
+  - { code: en, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: en }
+  - { code: de, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: de }
+  - { code: fr, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: fr }
+  - { code: es, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: es }
+  - { code: it, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: it }
+  - { code: nl, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: nl }
+  - { code: ru, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: ru }
+  - { code: uk, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: uk }
+  - { code: pl, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: pl }
+  - { code: hi, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: hi }
+  - { code: ar, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: ar }
+  - { code: ka, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: ka }
+  - { code: tr, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: tr }
+  - { code: sw, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: sw }
+  - { code: ja, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: ja }
+  - { code: fi, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: fi }

@@ -1,0 +1,11 @@
+# Scale-64 preset.
+#
+# TODO(before the 64-lang runs): finalize this list against the CV release you
+# pin — keep only configs with sufficient train hours (the paper's 64-set was a
+# mixed-corpus PhoNet preset; the public repo restricts to Common Voice for
+# clone-and-run reproducibility, so the exact membership differs and must be
+# audited). Start from the 16-set above and add 48 more CV languages, retaining
+# typological spread. Until finalized, the 64-lang tier is the single-run scale
+# anchor (cite the existing large-scale result) rather than a fresh multi-seed
+# target — see paper/PROTOCOL.md.
+languages: []

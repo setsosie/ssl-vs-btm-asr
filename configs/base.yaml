@@ -1,0 +1,29 @@
+# Shared defaults overlaid onto every run. Anything here overrides the dataclass
+# defaults in src/svb/config.py; CLI flags override this.
+model:
+  name: xeus
+  hidden_size: 1024
+  # Path to the XEUS SSL checkpoint (espnet/xeus). Leave null to read from the
+  # $XEUS_CHECKPOINT environment variable in the launcher. Required for arms A/B.
+  xeus_checkpoint: null
+  blank_bias_init: null
+
+optim:
+  # XEUS-HPO-01 Trial 19 (verbatim). Effective batch = batch_size * accum_steps
+  # on a single GPU = 16. State this in the paper (the cluster runs used eff 64).
+  lr: 7.446693063298197e-05
+  weight_decay: 0.0024151339921234323
+  grad_clip: 0.507731238072093
+  warmup_ratio: 0.08544536055130553
+  batch_size: 8
+  accum_steps: 2
+
+train:
+  phase0_epochs: 15
+  expert_epochs: 9
+  finetune_epochs: 50
+  patience: 15
+  bf16: true
+  grad_checkpointing: true
+  max_audio_samples: 200000
+  num_workers: 8

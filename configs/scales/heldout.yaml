@@ -1,0 +1,36 @@
+# Held-out Indic transfer set — never in any training mix (finding #3).
+# OpenSLR is fully open (no gating). Configs follow the HF `openslr` dataset.
+# NOTE: these corpora ship a single split; scripts/download_data.sh creates a
+# deterministic train/validation/test partition (seeded) and the loader reads
+# those. Verify split availability on first run.
+languages:
+  - code: malayalam
+    source: openslr
+    hf_dataset: openslr
+    hf_config: SLR63
+    text_column: sentence
+    audio_column: audio
+  - code: marathi
+    source: openslr
+    hf_dataset: openslr
+    hf_config: SLR64
+    text_column: sentence
+    audio_column: audio
+  - code: telugu
+    source: openslr
+    hf_dataset: openslr
+    hf_config: SLR66
+    text_column: sentence
+    audio_column: audio
+  - code: gujarati
+    source: openslr
+    hf_dataset: openslr
+    hf_config: SLR78
+    text_column: sentence
+    audio_column: audio
+  - code: odia
+    source: openslr
+    hf_dataset: openslr
+    hf_config: SLR_odia_mucs2021   # MUCS-2021 Odia; verify config id on the Hub
+    text_column: sentence
+    audio_column: audio

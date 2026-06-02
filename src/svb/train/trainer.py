@@ -1,0 +1,132 @@
+"""Lean single-GPU CTC trainer.
+
+AdamW + linear warmup→linear decay, gradient accumulation, bf16 autocast,
+gradient clipping, and val-loss early stopping (patience). Deliberately minimal:
+no DDP, no W&B, no schedulers beyond linear — the bare minimum needed to produce
+honest numbers. Multi-GPU is left to the launcher running independent
+(arm, scale, seed) jobs in parallel rather than DDP within a job.
+"""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+from pathlib import Path
+
+import torch
+from torch.utils.data import DataLoader, Dataset
+
+from ..config import ExperimentConfig
+from ..model.xeus_ctc import XeusCTC
+
+
+@dataclass
+class TrainResult:
+    best_val_loss: float
+    best_epoch: int
+    epochs_run: int
+    checkpoint: Path
+
+
+def _lr_lambda(step: int, total: int, warmup: int) -> float:
+    if step < warmup:
+        return step / max(1, warmup)
+    return max(0.0, (total - step) / max(1, total - warmup))
+
+
+def train(
+    model: XeusCTC,
+    cfg: ExperimentConfig,
+    train_ds: Dataset,
+    val_ds: Dataset,
+    collate,
+    max_epochs: int,
+    out_dir: Path,
+    device: str = "cuda",
+) -> TrainResult:
+    """Train ``model`` on ``train_ds``, selecting the best-val checkpoint."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ckpt = out_dir / "best.pt"
+    model.to(device)
+    if cfg.train.grad_checkpointing:
+        model.encoder.gradient_checkpointing = True  # honored if encoder supports it
+
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=cfg.optim.batch_size,
+        shuffle=True,
+        num_workers=cfg.train.num_workers,
+        collate_fn=collate,
+        drop_last=True,
+        generator=torch.Generator().manual_seed(cfg.seed),
+    )
+    val_loader = DataLoader(
+        val_ds,
+        batch_size=cfg.optim.batch_size,
+        shuffle=False,
+        num_workers=cfg.train.num_workers,
+        collate_fn=collate,
+    )
+
+    opt = torch.optim.AdamW(
+        model.parameters(), lr=cfg.optim.lr, weight_decay=cfg.optim.weight_decay
+    )
+    steps_per_epoch = math.ceil(len(train_loader) / cfg.optim.accum_steps)
+    total_steps = steps_per_epoch * max_epochs
+    warmup_steps = int(total_steps * cfg.optim.warmup_ratio)
+    sched = torch.optim.lr_scheduler.LambdaLR(
+        opt, lambda s: _lr_lambda(s, total_steps, warmup_steps)
+    )
+    autocast = (
+        torch.autocast("cuda", dtype=torch.bfloat16)
+        if cfg.train.bf16 and device == "cuda"
+        else torch.autocast("cpu", enabled=False)
+    )
+
+    best_val = float("inf")
+    best_epoch = -1
+    bad = 0
+    epoch = -1
+    for epoch in range(max_epochs):
+        model.train()
+        opt.zero_grad(set_to_none=True)
+        for i, batch in enumerate(train_loader):
+            batch = {k: v.to(device) for k, v in batch.items()}
+            with autocast:
+                out = model(**batch)
+                loss = out["loss"] / cfg.optim.accum_steps
+            loss.backward()
+            if (i + 1) % cfg.optim.accum_steps == 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.optim.grad_clip)
+                opt.step()
+                sched.step()
+                opt.zero_grad(set_to_none=True)
+
+        val_loss = _validate(model, val_loader, device, autocast)
+        if val_loss < best_val:
+            best_val, best_epoch, bad = val_loss, epoch, 0
+            model.save(ckpt)
+        else:
+            bad += 1
+            if bad >= cfg.train.patience:
+                break
+
+    return TrainResult(
+        best_val_loss=best_val,
+        best_epoch=best_epoch,
+        epochs_run=epoch + 1,
+        checkpoint=ckpt,
+    )
+
+
+@torch.no_grad()
+def _validate(model: XeusCTC, loader: DataLoader, device: str, autocast) -> float:
+    model.eval()
+    total, n = 0.0, 0
+    for batch in loader:
+        batch = {k: v.to(device) for k, v in batch.items()}
+        with autocast:
+            loss = model(**batch)["loss"]
+        total += float(loss)
+        n += 1
+    return total / max(1, n)
