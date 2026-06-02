@@ -47,5 +47,12 @@ fork-free reimplementation — no ESPnet dependency.
 
 ## Status
 
-Build in progress. The pipeline-validation milestone (arm A / scale 3 / seed 0
-on a tiny fixture) gates the first real run.
+Core code complete; 15 CPU smoke tests pass (vocab, merge identities,
+sign-election, stats, collate, config). **Next (on the GPU server):**
+
+1. `uv sync` (full deps incl. torch+CUDA, torchaudio, datasets, soundfile).
+2. Set `XEUS_CHECKPOINT` to the `espnet/xeus` checkpoint.
+3. `huggingface-cli login` + accept Common Voice 17 terms; `make data`.
+4. First real run: `svb run --arm A_ssl --scale 3 --seed 0 --config configs/base.yaml`
+   — validates the XEUS 577M load + train→eval→transfer end to end.
+5. Finalize `configs/scales/64.yaml` before the 64-lang tier.
