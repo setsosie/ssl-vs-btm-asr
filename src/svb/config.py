@@ -28,6 +28,8 @@ class ModelConfig:
     # (A, B); ignored for scratch init (C). May be set via $XEUS_CHECKPOINT.
     xeus_checkpoint: str | None = None
     blank_bias_init: float | None = None
+    # XEUS encoder backend: "auto" | "espnet" (reference) | "standalone".
+    backend: str = "auto"
 
 
 @dataclass(frozen=True)

@@ -60,6 +60,7 @@ def transfer_one(
         init=init,
         checkpoint=cfg.model.xeus_checkpoint,
         hidden_size=cfg.model.hidden_size,
+        backend=cfg.model.backend,
     )
     if init_ckpt is not None:
         model.load(init_ckpt)

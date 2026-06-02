@@ -65,15 +65,23 @@ sign-election, stats, collate, config). **Next (on the GPU server):**
    — validates the XEUS 577M load + train→eval→transfer end to end.
 5. Finalize `configs/scales/64.yaml` before the 64-lang tier.
 
-## ESPnet (planned)
+## XEUS backend (reference ESPnet vs standalone)
 
-`model/xeus_standalone.py` is a fork-free reimplementation of the XEUS encoder so
-the checkpoint loads with PyTorch alone. A bespoke reimplementation is a
-correctness risk — an earlier version had E-Branchformer forward deviations from
-the reference. We plan to migrate the load + forward to the **reference ESPnet
-implementation** behind the same `load_xeus_encoder` interface (keeping the
-standalone path as a no-ESPnet fallback), so results rest on the canonical model.
-See issue tracker.
+The encoder loads through `load_xeus_encoder(init, checkpoint, backend=...)`:
+
+- `backend="espnet"` — the **reference** XEUS via ESPnet (canonical; what the
+  paper rests on). XEUS isn't in stock ESPnet yet, so install the pinned fork:
+  `uv sync --extra espnet`.
+- `backend="standalone"` — the fork-free PyTorch reimplementation
+  (`model/xeus_standalone.py`); no-ESPnet fallback, and the only path for scratch
+  (arm C) init.
+- `backend="auto"` (default) — espnet if installed, else standalone.
+
+A bespoke reimplementation is a correctness risk (an earlier version had
+E-Branchformer forward deviations from the reference). `tests/test_xeus_backend.py`
+includes a **cross-check** that asserts both backends produce equivalent features
+on the same audio — skipped in CI, run on the GPU server with the real checkpoint
+(`pytest -k feature_equivalence`). Passing it retires the reimplementation risk.
 
 ## Acknowledgements
 

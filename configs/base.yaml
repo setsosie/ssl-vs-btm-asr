@@ -7,6 +7,9 @@ model:
   # $XEUS_CHECKPOINT environment variable in the launcher. Required for arms A/B.
   xeus_checkpoint: null
   blank_bias_init: null
+  # XEUS encoder backend: auto | espnet (reference fork) | standalone (fork-free).
+  # auto uses espnet when installed (see the `espnet` extra), else standalone.
+  backend: auto
 
 optim:
   # XEUS-HPO-01 Trial 19 (verbatim). Effective batch = batch_size * accum_steps

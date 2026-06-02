@@ -40,6 +40,7 @@ def _make_model(cfg: ExperimentConfig, vocab_size: int) -> XeusCTC:
         checkpoint=cfg.model.xeus_checkpoint,
         hidden_size=cfg.model.hidden_size,
         blank_bias_init=cfg.model.blank_bias_init,
+        backend=cfg.model.backend,
     )
 
 

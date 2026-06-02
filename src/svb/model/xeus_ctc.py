@@ -20,7 +20,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .xeus_standalone import StandaloneXEUS, load_xeus_from_checkpoint
+from .xeus_backend import load_xeus_encoder
 
 HIDDEN_SIZE = 1024
 
@@ -35,14 +35,10 @@ class XeusCTC(nn.Module):
         checkpoint: str | None = None,
         hidden_size: int = HIDDEN_SIZE,
         blank_bias_init: float | None = None,
+        backend: str = "auto",
     ) -> None:
         super().__init__()
-        if init == "ssl":
-            if not checkpoint:
-                raise ValueError("init='ssl' requires a XEUS checkpoint path")
-            self.encoder: StandaloneXEUS = load_xeus_from_checkpoint(checkpoint, device="cpu")
-        else:
-            self.encoder = StandaloneXEUS()  # random init
+        self.encoder = load_xeus_encoder(init, checkpoint, backend=backend, device="cpu")
         self.hidden_size = hidden_size
         self.ctc_norm = nn.LayerNorm(hidden_size)
         self.ctc_proj = nn.Linear(hidden_size, vocab_size)

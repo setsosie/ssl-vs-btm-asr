@@ -19,6 +19,12 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.5", "mypy>=1.10"]
+# Reference XEUS backend. XEUS is not yet in stock ESPnet, so this pins the
+# author's ssl-branch fork at a fixed commit (not the moving @ssl branch) for
+# reproducibility. With this installed, backend="auto" uses the reference path.
+espnet = [
+    "espnet @ git+https://github.com/wanchichen/espnet.git@5b52d57b4f872ff7babded35316a79642e9e6c12",
+]
 
 [project.scripts]
 svb = "svb.cli:main"

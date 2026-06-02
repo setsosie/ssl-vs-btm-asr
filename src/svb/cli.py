@@ -63,7 +63,10 @@ def cmd_run(args: argparse.Namespace) -> None:
             experts, cfg.merge_strategy, out / "merged", base_ckpt=phase0
         )
         # Evaluate the merged model in-distribution on every language's test split.
-        merged_model = XeusCTC(vocab.size, init=cfg.init, checkpoint=cfg.model.xeus_checkpoint)
+        merged_model = XeusCTC(
+            vocab.size, init=cfg.init, checkpoint=cfg.model.xeus_checkpoint,
+            backend=cfg.model.backend,
+        )
         merged_model.load_state_dict(torch.load(merged_path, map_location=device))
         for spec in specs:
             test_ds = load_language(spec, "test", cfg.train.max_audio_samples)
@@ -73,7 +76,10 @@ def cmd_run(args: argparse.Namespace) -> None:
     else:
         # Arm A: independent per-language fine-tune from the SSL encoder.
         for spec in specs:
-            model = XeusCTC(vocab.size, init=cfg.init, checkpoint=cfg.model.xeus_checkpoint)
+            model = XeusCTC(
+                vocab.size, init=cfg.init, checkpoint=cfg.model.xeus_checkpoint,
+                backend=cfg.model.backend,
+            )
             lang_dir = out / "finetune" / spec.code
             tr = load_language(spec, "train", cfg.train.max_audio_samples)
             va = load_language(spec, "validation", cfg.train.max_audio_samples)
