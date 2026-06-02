@@ -64,3 +64,24 @@ sign-election, stats, collate, config). **Next (on the GPU server):**
 4. First real run: `svb run --arm A_ssl --scale 3 --seed 0 --config configs/base.yaml`
    — validates the XEUS 577M load + train→eval→transfer end to end.
 5. Finalize `configs/scales/64.yaml` before the 64-lang tier.
+
+## ESPnet (planned)
+
+`model/xeus_standalone.py` is a fork-free reimplementation of the XEUS encoder so
+the checkpoint loads with PyTorch alone. A bespoke reimplementation is a
+correctness risk — an earlier version had E-Branchformer forward deviations from
+the reference. We plan to migrate the load + forward to the **reference ESPnet
+implementation** behind the same `load_xeus_encoder` interface (keeping the
+standalone path as a no-ESPnet fallback), so results rest on the canonical model.
+See issue tracker.
+
+## Acknowledgements
+
+- **XEUS** — Chen et al., *Towards Robust Speech Representation Learning for
+  Thousands of Languages* (arXiv:2407.00837); weights at `espnet/xeus`. All
+  credit for the model and weights belongs to its authors; this repo only loads
+  and fine-tunes it.
+- **ESPnet** — the speech toolkit XEUS is built with.
+- Merge strategies follow Ilharco et al. (Task Arithmetic), Yadav et al. (TIES),
+  and Yu et al. (DARE).
+- The XEUS loader is adapted from the author's FLAIME project.

@@ -1,7 +1,14 @@
-"""Standalone XEUS model implementation (no ESPnet dependency).
+"""Standalone XEUS encoder (fork-free reimplementation).
 
-Reimplements the XEUS E-Branchformer architecture from checkpoint weights,
-removing the requirement for the ESPnet SSL fork.
+Reimplements the XEUS E-Branchformer architecture so the published checkpoint
+can be loaded with PyTorch alone — no ESPnet dependency. XEUS is the work of
+Chen et al.; this file only re-expresses its architecture to load the public
+weights.
+
+  Model:    XEUS — "Towards Robust Speech Representation Learning for Thousands
+            of Languages", Chen et al. (arXiv:2407.00837); weights: espnet/xeus.
+  Origin:   Adapted from the author's FLAIME project (same author as this repo).
+            All credit for the XEUS model and weights belongs to its authors.
 
 Architecture (577M params):
   - Frontend: 7-layer wav2vec2-style CNN (512-dim)
@@ -9,8 +16,9 @@ Architecture (577M params):
   - Encoder: 19-block E-Branchformer (1024-dim, 8 heads)
   - Convolutional positional encoding (kernel=128, groups=16)
 
-Reference: arXiv:2407.00837, HuggingFace: espnet/xeus
-Task: 26Q1-XEUS-06 - Benchmark Infrastructure
+NOTE: a bespoke reimplementation is a known correctness risk (an earlier version
+had E-Branchformer forward deviations from the ESPnet reference). See the README
+"ESPnet" note for the planned migration to the reference implementation.
 """
 
 from typing import Any
