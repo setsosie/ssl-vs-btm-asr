@@ -11,6 +11,7 @@
 set -euo pipefail
 
 : "${XEUS_CHECKPOINT:?set XEUS_CHECKPOINT to the espnet/xeus checkpoint path}"
+: "${CV_ROOT:?set CV_ROOT to the extracted Common Voice 25 directory}"
 
 uv run svb run "$@" --config configs/base.yaml --device cuda \
     --merge-strategy "${MERGE_STRATEGY:-average}"

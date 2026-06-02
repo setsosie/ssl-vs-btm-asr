@@ -1,22 +1,24 @@
-# Scale-16 preset: typologically diverse Common Voice languages spanning
+# Scale-16 preset: typologically diverse Common Voice 25 languages spanning
 # Germanic, Romance, Slavic, Indo-Aryan, Turkic, Semitic, Kartvelian, Bantu,
 # CJK and Uralic families — the spread that lets the merge×typology analysis
-# (finding #2) separate near-from-far languages. Verify each config has enough
-# train hours on the CV release you pin.
+# (finding #2) separate near-from-far languages. Keep only languages with
+# enough train hours in your CV25 download.
+#
+# CV25 is local-only: set $CV_ROOT so $CV_ROOT/<hf_config>/{train,dev,test}.tsv exist.
 languages:
-  - { code: en, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: en }
-  - { code: de, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: de }
-  - { code: fr, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: fr }
-  - { code: es, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: es }
-  - { code: it, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: it }
-  - { code: nl, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: nl }
-  - { code: ru, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: ru }
-  - { code: uk, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: uk }
-  - { code: pl, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: pl }
-  - { code: hi, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: hi }
-  - { code: ar, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: ar }
-  - { code: ka, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: ka }
-  - { code: tr, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: tr }
-  - { code: sw, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: sw }
-  - { code: ja, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: ja }
-  - { code: fi, source: commonvoice, hf_dataset: mozilla-foundation/common_voice_17_0, hf_config: fi }
+  - { code: en, source: commonvoice, hf_dataset: common_voice_25, hf_config: en, text_column: sentence }
+  - { code: de, source: commonvoice, hf_dataset: common_voice_25, hf_config: de, text_column: sentence }
+  - { code: fr, source: commonvoice, hf_dataset: common_voice_25, hf_config: fr, text_column: sentence }
+  - { code: es, source: commonvoice, hf_dataset: common_voice_25, hf_config: es, text_column: sentence }
+  - { code: it, source: commonvoice, hf_dataset: common_voice_25, hf_config: it, text_column: sentence }
+  - { code: nl, source: commonvoice, hf_dataset: common_voice_25, hf_config: nl, text_column: sentence }
+  - { code: ru, source: commonvoice, hf_dataset: common_voice_25, hf_config: ru, text_column: sentence }
+  - { code: uk, source: commonvoice, hf_dataset: common_voice_25, hf_config: uk, text_column: sentence }
+  - { code: pl, source: commonvoice, hf_dataset: common_voice_25, hf_config: pl, text_column: sentence }
+  - { code: hi, source: commonvoice, hf_dataset: common_voice_25, hf_config: hi, text_column: sentence }
+  - { code: ar, source: commonvoice, hf_dataset: common_voice_25, hf_config: ar, text_column: sentence }
+  - { code: ka, source: commonvoice, hf_dataset: common_voice_25, hf_config: ka, text_column: sentence }
+  - { code: tr, source: commonvoice, hf_dataset: common_voice_25, hf_config: tr, text_column: sentence }
+  - { code: sw, source: commonvoice, hf_dataset: common_voice_25, hf_config: sw, text_column: sentence }
+  - { code: ja, source: commonvoice, hf_dataset: common_voice_25, hf_config: ja, text_column: sentence }
+  - { code: fi, source: commonvoice, hf_dataset: common_voice_25, hf_config: fi, text_column: sentence }

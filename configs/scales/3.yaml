@@ -1,23 +1,11 @@
 # Scale-3 preset: typologically diverse (Latin / CJK / Devanagari).
 # Matches the ABL-01-LITE 3-language set (en, ja, hi).
-# Common Voice 17 is gated on HF — accept terms once at
-# https://huggingface.co/datasets/mozilla-foundation/common_voice_17_0
+#
+# Common Voice 25 is local-only (Mozilla Data Collective, post-Oct-2025). Download
+# + extract it and set $CV_ROOT so $CV_ROOT/<hf_config>/{train,dev,test}.tsv exist.
+# For the `commonvoice` source, hf_config = the CV language code (= dir name);
+# hf_dataset is just a version label.
 languages:
-  - code: en
-    source: commonvoice
-    hf_dataset: mozilla-foundation/common_voice_17_0
-    hf_config: en
-    text_column: sentence
-    audio_column: audio
-  - code: ja
-    source: commonvoice
-    hf_dataset: mozilla-foundation/common_voice_17_0
-    hf_config: ja
-    text_column: sentence
-    audio_column: audio
-  - code: hi
-    source: commonvoice
-    hf_dataset: mozilla-foundation/common_voice_17_0
-    hf_config: hi
-    text_column: sentence
-    audio_column: audio
+  - { code: en, source: commonvoice, hf_dataset: common_voice_25, hf_config: en, text_column: sentence }
+  - { code: ja, source: commonvoice, hf_dataset: common_voice_25, hf_config: ja, text_column: sentence }
+  - { code: hi, source: commonvoice, hf_dataset: common_voice_25, hf_config: hi, text_column: sentence }

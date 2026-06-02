@@ -15,7 +15,14 @@ on five held-out Indic languages the model never saw:
 
 Everything is run with **5 seeds**, reported as **mean ± std** with bootstrap
 CIs and paired-permutation tests. All hyperparameters are auto-recorded next to
-every result. Data is **public only** (OpenSLR + Common Voice).
+every result.
+
+**Data.** Held-out Indic transfer uses **OpenSLR** (open, auto-fetched from the
+HF Hub). The training scales use **Common Voice 25**, which since October 2025 is
+distributed only via [Mozilla Data Collective](https://commonvoice.mozilla.org/en/datasets)
+(account + ToS, no longer on the HF Hub). Download + extract CV25 and set
+`CV_ROOT` so `$CV_ROOT/<lang>/{train,dev,test}.tsv` exist — the loader reads that
+standard layout (`src/svb/data/commonvoice_local.py`).
 
 ## Quickstart
 
@@ -51,8 +58,9 @@ Core code complete; 15 CPU smoke tests pass (vocab, merge identities,
 sign-election, stats, collate, config). **Next (on the GPU server):**
 
 1. `uv sync` (full deps incl. torch+CUDA, torchaudio, datasets, soundfile).
-2. Set `XEUS_CHECKPOINT` to the `espnet/xeus` checkpoint.
-3. `huggingface-cli login` + accept Common Voice 17 terms; `make data`.
+2. `export XEUS_CHECKPOINT=/path/to/xeus_checkpoint.pth` (`espnet/xeus`).
+3. `export CV_ROOT=/path/to/common_voice_25` (downloaded from Mozilla Data
+   Collective); `make data` to verify split sizes.
 4. First real run: `svb run --arm A_ssl --scale 3 --seed 0 --config configs/base.yaml`
    — validates the XEUS 577M load + train→eval→transfer end to end.
 5. Finalize `configs/scales/64.yaml` before the 64-lang tier.
