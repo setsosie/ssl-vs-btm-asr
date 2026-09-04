@@ -85,4 +85,5 @@ def transfer_one(
         device=device,
         batch_size=cfg.optim.batch_size,
         save_predictions=out_dir / "predictions.json",
+        spec=lang,
     )

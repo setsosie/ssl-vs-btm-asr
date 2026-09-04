@@ -114,6 +114,7 @@ def cmd_run(args: argparse.Namespace) -> None:
                 device,
                 cfg.optim.batch_size,
                 save_predictions=_predictions_path(out, spec.code),
+                spec=spec,
             )
             results["in_distribution"][spec.code] = {"wer": r.wer, "cer": r.cer, "n": r.n}
         transfer_init: Path | None = merged_path
@@ -137,6 +138,7 @@ def cmd_run(args: argparse.Namespace) -> None:
                 device,
                 cfg.optim.batch_size,
                 save_predictions=_predictions_path(out, spec.code),
+                spec=spec,
             )
             results["in_distribution"][spec.code] = {"wer": r.wer, "cer": r.cer, "n": r.n}
         transfer_init = None  # arm A transfers from the bare SSL encoder

@@ -160,3 +160,112 @@ def test_length_sorting_can_be_turned_off() -> None:
     run_eval(model, dataset, vocab, spy, device="cpu", batch_size=2, sort_by_length=False)
 
     assert seen == [["a", "abcd"]]
+
+
+def test_hypotheses_are_normalized_before_scoring() -> None:
+    """A greedy decode emits leading, trailing and doubled spaces.
+
+    Both sides go through the same policy, so those cost nothing; without it
+    they would score as word errors the model had no way to avoid.
+    """
+    from svb.text.normalize import normalize_text
+
+    vocab, _ = build_vocab_from_texts(["a b"])
+    collate = make_ctc_collate(vocab)
+    model = FakeXeusCTC(vocab.size)
+    space = vocab.char_to_id[" "]
+    a = vocab.char_to_id["a"]
+    b = vocab.char_to_id["b"]
+    # " a  b " once CTC collapsing is done with it.
+    wav = torch.tensor([float(i) for i in (space, a, space, vocab.blank_id, space, b, space)])
+
+    result = evaluate(model, ListDataset([(wav, "a b")]), vocab, collate, device="cpu")
+
+    assert normalize_text(" a  b ") == "a b"
+    assert result.hyps == ["a b"]
+    assert result.wer == 0.0
+
+
+def test_references_that_normalize_to_empty_are_excluded_and_counted() -> None:
+    """An empty reference contributes nothing to the denominator and its whole
+    hypothesis to the numerator, so leaving it in inflates corpus WER without
+    any weight behind it. Dropping it silently would change the test set."""
+    vocab, _ = build_vocab_from_texts(["a b"])
+    collate = make_ctc_collate(vocab)
+    model = FakeXeusCTC(vocab.size)
+    dataset = ListDataset([(wav_for(vocab, "a b"), "a b"), (wav_for(vocab, "a b"), "…!?")])
+
+    result = evaluate(model, dataset, vocab, collate, device="cpu", batch_size=2)
+
+    assert result.n_empty_refs == 1
+    assert result.n == 1
+    assert result.refs == ["a b"]
+    assert result.wer == 0.0
+
+
+def test_the_sidecar_reports_the_excluded_utterances(tmp_path) -> None:
+    import json
+
+    vocab, _ = build_vocab_from_texts(["a b"])
+    collate = make_ctc_collate(vocab)
+    model = FakeXeusCTC(vocab.size)
+    dataset = ListDataset([(wav_for(vocab, "a b"), "a b"), (wav_for(vocab, "a b"), "!!!")])
+    sidecar = tmp_path / "p.json"
+
+    evaluate(model, dataset, vocab, collate, device="cpu", batch_size=2, save_predictions=sidecar)
+
+    saved = json.loads(sidecar.read_text())
+    assert saved["n"] == 1
+    assert saved["n_empty_refs"] == 1
+    assert len(saved["pairs"]) == 1
+
+
+def test_primary_metric_follows_the_language_spec() -> None:
+    from svb.data.registry import LangSpec
+    from svb.eval.evaluate import EvalResult
+
+    result = EvalResult(wer=40.0, cer=10.0, n=5)
+    spaced = LangSpec(code="de", source="commonvoice", hf_config="de")
+    unspaced = LangSpec(code="ja", source="commonvoice", hf_config="ja", word_boundary=False)
+
+    assert result.primary(spaced) == 40.0
+    assert result.primary(unspaced) == 10.0
+
+
+def test_a_language_declared_spaced_whose_text_is_not_warns() -> None:
+    """The empirical check on the preset's declaration."""
+    from svb.data.registry import LangSpec
+
+    vocab, _ = build_vocab_from_texts(["abcd"])
+    collate = make_ctc_collate(vocab)
+    model = FakeXeusCTC(vocab.size)
+    dataset = ListDataset([(wav_for(vocab, "abcd"), "abcd")] * 3)
+    mislabelled = LangSpec(code="ja", source="commonvoice", hf_config="ja")
+
+    with pytest.warns(UserWarning, match="word_boundary"):
+        evaluate(model, dataset, vocab, collate, device="cpu", spec=mislabelled)
+
+
+def test_a_correctly_declared_language_does_not_warn(recwarn) -> None:
+    from svb.data.registry import LangSpec
+
+    vocab, _ = build_vocab_from_texts(["a b"])
+    collate = make_ctc_collate(vocab)
+    model = FakeXeusCTC(vocab.size)
+    dataset = ListDataset([(wav_for(vocab, "a b"), "a b")] * 3)
+    spec = LangSpec(code="en", source="commonvoice", hf_config="en")
+
+    evaluate(model, dataset, vocab, collate, device="cpu", spec=spec)
+
+    assert not [w for w in recwarn if "word_boundary" in str(w.message)]
+
+
+def test_a_split_where_nothing_is_scoreable_fails_loudly() -> None:
+    """Reporting 0% for a split with no usable reference would be worse."""
+    vocab, _ = build_vocab_from_texts(["a b"])
+    collate = make_ctc_collate(vocab)
+    model = FakeXeusCTC(vocab.size)
+    dataset = ListDataset([(wav_for(vocab, "a b"), "!!!"), (wav_for(vocab, "a b"), "…")])
+
+    with pytest.raises(ValueError, match="nothing to score"):
+        evaluate(model, dataset, vocab, collate, device="cpu", batch_size=2)
