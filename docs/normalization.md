@@ -154,6 +154,87 @@ The removal counts are tallied by the normalizer as it works, so they describe
 the transformation that happened rather than what a scan of the input would
 guess: an intra-word apostrophe that survives is not counted as removed, and a
 rule the policy switched off removes nothing.
+
+## Whisper's normalizer, and the switch
+
+Most published multilingual ASR numbers are scored with OpenAI Whisper's
+`BasicTextNormalizer` (Radford et al. 2023, appendix C). Comparing against them
+means scoring the way they were scored, so this repository ships that
+normalizer as the `whisper-basic` policy, reproduced exactly rather than
+approximated. Every expected string in its test table was produced by running
+the upstream code, not by reading it.
+
+Upstream lowercases, deletes `<...>`, `[...]` and `(...)` spans, applies NFKC,
+replaces every character in Unicode categories M, S and P with a space,
+lowercases again, and collapses runs of whitespace. `whisper-basic-nodiacritics`
+is the `remove_diacritics=True` variant: NFKD, delete category Mn, and map the
+sixteen letters NFKD does not separate — `œ ø æ ß đ ð þ ł` and their capitals —
+through the upstream table.
+
+### The three deviations
+
+| | `svb-norm-1` (default) | `whisper-basic` |
+|---|---|---|
+| Unicode category M | kept | replaced with a space |
+| Intra-word apostrophe | kept, so `don't` is one word | replaced, so `don't` becomes `don t` |
+| Bracketed and parenthesized spans | kept | deleted, so `[noise] hello (laughs)` becomes ` hello ` |
+
+Two smaller differences follow from reproducing upstream faithfully. Whisper
+never strips, so its output routinely carries a leading or trailing space, which
+is one character of character error rate. And it uses `str.lower()` rather than
+`str.casefold()`, so German `ß` survives under `whisper-basic` and becomes `ss`
+under `whisper-basic-nodiacritics`.
+
+### What the first deviation costs
+
+Replacing every mark with a space is not a cosmetic difference for an abugida.
+An Indic vowel sign is category Mc or Mn, so the rule deletes the vowels and
+leaves the consonant skeleton, splitting one word into several:
+
+| | Hindi `यह हिंदी है।` | Malayalam `ഇത് മലയാളം ആണ്.` | vocalized Arabic `مَرْحَبًا بِٱلْعَالَم` |
+|---|---|---|---|
+| source | 12 chars, 3 words | 15 chars, 3 words | 21 chars, 2 words |
+| `svb-norm-1` | 11 chars, 3 words | 14 chars, 3 words | 13 chars, 2 words |
+| `whisper-basic` | 9 chars, 4 words | 12 chars, 4 words | 21 chars, 10 words |
+
+The Arabic row is the starkest: harakat are category Mn, so a fully vocalized
+sentence is shattered into ten single-letter tokens. This project's own rule
+deletes those marks instead of spacing them, which is why its output there is
+two words.
+
+The direction of the resulting bias is not intuitive. Because the vowel
+information is removed from the reference *and* the hypothesis, a model that
+gets every vowel sign wrong can no longer be marked wrong for it, so measured
+accuracy improves for reasons that have nothing to do with the model. Manohar,
+Pillai and Sherly ("What is lost in Normalization? Exploring Pitfalls in
+Multilingual ASR Model Evaluations", EMNLP 2024, arXiv:2409.02449) survey the
+normalizers used by Whisper, MMS, Seamless and Conformer and find this class of
+routine "fundamentally flawed when applied to Indic scripts", producing
+"artificially improved performance metrics"; they recommend normalization
+grounded in native linguistic expertise.
+
+### How to choose, and how to switch
+
+Use `whisper-basic` when the comparison is against published Whisper numbers
+**and** the languages being scored are Latin or Cyrillic, where the three
+deviations touch little: those scripts carry few combining marks once NFKC has
+composed them, so the mark rule is close to inert. Do not use it for any result
+that includes Indic or Arabic scoring — the numbers it produces there are not
+measuring what they appear to measure, and are not comparable to this project's
+own.
+
+The default stays `svb-norm-1`. Switching is one line of config:
+
+```yaml
+text:
+  policy: whisper-basic
+```
+
+The name is recorded in `resolved_config.yaml` as `policy_name`, beside the
+resolved rule set and the policy hash. The hash is what makes the choice
+visible after the fact: results produced under two different policies carry two
+different hashes and must not be pooled.
+
 ## Changing the policy
 
 Bump `NORMALIZER_VERSION` for any change in behaviour. Results produced under

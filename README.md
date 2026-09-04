@@ -115,6 +115,13 @@ while keeping combining marks and intra-word apostrophes. The full rule list and
 the reasoning behind each rule are in
 [`docs/normalization.md`](docs/normalization.md).
 
+OpenAI Whisper's `BasicTextNormalizer` is also available, reproduced exactly, as
+the `whisper-basic` policy — one line of config, for comparing against published
+Whisper numbers on Latin and Cyrillic material; it is the wrong choice for any
+result that scores Indic or Arabic, because it replaces every combining mark
+with a space. The trade-off is set out in
+[`docs/normalization.md`](docs/normalization.md#whispers-normalizer-and-the-switch).
+
 **These numbers are not comparable to the author's earlier results on this
 material.** That earlier work applied no normalization at evaluation time: its
 tokenizer case-folded training targets and emitted lowercase hypotheses while
