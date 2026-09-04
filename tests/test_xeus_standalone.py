@@ -72,7 +72,7 @@ def test_gradient_checkpointing_changes_nothing_but_memory(monkeypatch) -> None:
     block_forwards = []
     plain_forward = mod._EBranchformerBlock.forward
 
-    def counting_forward(self, x, padding_mask=None):  # type: ignore[no-untyped-def]
+    def counting_forward(self, x, padding_mask=None):
         block_forwards.append(1)
         return plain_forward(self, x, padding_mask)
 

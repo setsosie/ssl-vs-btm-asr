@@ -124,7 +124,7 @@ def evaluate(
                     "wer": result.wer,
                     "cer": result.cer,
                     "n": result.n,
-                    "pairs": list(zip(refs, hyps)),
+                    "pairs": list(zip(refs, hyps, strict=True)),
                 },
                 ensure_ascii=False,
                 indent=2,

@@ -106,7 +106,7 @@ class FakeXeusCTC(XeusCTC):
         self.ctc_proj = nn.Linear(1, vocab_size)
         self.junk_id = junk_id
 
-    def forward(  # type: ignore[override]
+    def forward(
         self,
         input_values: torch.Tensor,
         attention_mask: torch.Tensor | None = None,
@@ -143,7 +143,7 @@ class ScriptedLossCTC(XeusCTC):
         self.train_forwards = 0
         self.val_forwards = 0
 
-    def forward(  # type: ignore[override]
+    def forward(
         self,
         input_values: torch.Tensor,
         attention_mask: torch.Tensor | None = None,

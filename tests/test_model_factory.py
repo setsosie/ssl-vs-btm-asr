@@ -82,7 +82,15 @@ def test_transfer_loads_the_checkpoint_the_trainer_returned(monkeypatch, tmp_pat
 
     cfg = load_config("A_ssl", "3", seed=0)
     vocab_stub: Any = mod.CtcVocab(id_to_char=["<blank>", "<unk>", "a", "b"])
-    spec = LangSpec(code="xx", source="openslr", hf_dataset="x", hf_config="x")
+    spec = LangSpec(
+        code="xx",
+        source="openslr",
+        hf_dataset="x",
+        hf_config="x",
+        slr=63,
+        archives=("x.zip",),
+        index_files=("line_index.tsv",),
+    )
 
     mod.transfer_one(cfg, None, vocab_stub, spec, tmp_path, device="cpu")
 

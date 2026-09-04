@@ -17,7 +17,7 @@ import importlib.metadata
 import json
 import platform
 import subprocess
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -53,7 +53,7 @@ def _git(*args: str) -> str:
 def _git_sha() -> str:
     try:
         return _git("rev-parse", "HEAD")
-    except Exception:  # noqa: BLE001 — provenance must never abort a run
+    except Exception:
         return "unknown"
 
 
@@ -65,7 +65,7 @@ def _git_dirty() -> bool:
     """
     try:
         return bool(_git("status", "--porcelain"))
-    except Exception:  # noqa: BLE001 — provenance must never abort a run
+    except Exception:
         return False
 
 
@@ -102,7 +102,7 @@ def _gpu() -> dict[str, Any]:
                 "name": torch.cuda.get_device_name(0),
                 "count": torch.cuda.device_count(),
             }
-    except Exception as exc:  # noqa: BLE001 — provenance must never abort a run
+    except Exception as exc:
         return {"available": False, "error": repr(exc)}
     return {"available": False}
 
@@ -112,7 +112,7 @@ def dump_run_meta(out_dir: str | Path) -> Path:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     meta = {
-        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "timestamp_utc": datetime.now(UTC).isoformat(),
         "git_sha": _git_sha(),
         "git_dirty": _git_dirty(),
         "uv_lock_sha256": _uv_lock_sha256(_REPO_DIR.parents[1]),

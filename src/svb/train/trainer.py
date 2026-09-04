@@ -12,6 +12,7 @@ from __future__ import annotations
 import math
 import random
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -68,7 +69,7 @@ def train(
     cfg: ExperimentConfig,
     train_ds: Dataset,
     val_ds: Dataset,
-    collate,
+    collate: Callable[..., dict[str, Any]],
     max_epochs: int,
     out_dir: Path,
     device: str = "cuda",
@@ -194,7 +195,12 @@ def train(
 
 
 @torch.no_grad()
-def _validate(model: XeusCTC, loader: DataLoader, device: str, autocast) -> float:
+def _validate(
+    model: XeusCTC,
+    loader: DataLoader,
+    device: str,
+    autocast: AbstractContextManager[Any],
+) -> float:
     """Mean validation loss per *utterance*, not per batch.
 
     The val loader keeps its last short batch, so averaging batch means would

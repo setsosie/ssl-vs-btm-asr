@@ -131,7 +131,7 @@ def test_evaluation_batches_by_length_and_reports_in_dataset_order() -> None:
 
     seen: list[list[str]] = []
 
-    def spy(batch):  # type: ignore[no-untyped-def]
+    def spy(batch):
         out = collate(batch)
         seen.append(list(out["texts"]))
         return out
@@ -152,7 +152,7 @@ def test_length_sorting_can_be_turned_off() -> None:
 
     seen: list[list[str]] = []
 
-    def spy(batch):  # type: ignore[no-untyped-def]
+    def spy(batch):
         out = collate(batch)
         seen.append(list(out["texts"]))
         return out
