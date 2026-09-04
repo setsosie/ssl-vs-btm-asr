@@ -275,3 +275,57 @@ def test_legacy_policy_reproduces_the_pre_normalization_behaviour() -> None:
     assert LEGACY_POLICY.version == "svb-norm-0"
     assert normalize_text("Hello, World!", LEGACY_POLICY) == "Hello, World!"
     assert normalize_text("café", LEGACY_POLICY) == "café"
+
+
+def test_the_apostrophe_rule_follows_the_punctuation_setting() -> None:
+    """U+0027 is category Po, so it is the punctuation rule's business.
+
+    The apostrophe branch used to run whenever *either* strip flag was on, which
+    deleted a word-final apostrophe under a policy that had punctuation removal
+    switched off.
+    """
+    keep_punctuation = NormalizerPolicy(strip_punctuation=False, strip_symbols=True)
+
+    # The "+" is a symbol and still goes; the apostrophe is punctuation and stays.
+    assert normalize_text("the students' books + more", keep_punctuation) == (
+        "the students' books more"
+    )
+
+
+def test_counts_describe_the_transformation_that_actually_happened() -> None:
+    """The protected intra-word apostrophes survive, so they are not removals."""
+    from svb.text.normalize import normalize_with_counts
+
+    out, counts = normalize_with_counts("ng'ombe, l'été!")
+
+    assert out == "ng'ombe l'été"
+    # The comma and the exclamation mark; not the two apostrophes that survived.
+    assert counts["P"] == 2
+
+
+def test_counts_are_zero_for_a_rule_the_policy_switched_off() -> None:
+    from svb.text.normalize import normalize_with_counts
+
+    out, counts = normalize_with_counts(
+        "Hello, world!", NormalizerPolicy(strip_punctuation=False, strip_symbols=False)
+    )
+
+    assert out == "hello, world!"
+    assert counts["P"] == 0 and counts["S"] == 0
+
+
+def test_arabic_marks_are_counted_where_they_are_removed() -> None:
+    from svb.text.normalize import normalize_with_counts
+
+    _, counts = normalize_with_counts("مَرْحَبًا")
+
+    assert counts["arabic_marks"] == 4
+    _, off = normalize_with_counts("مَرْحَبًا", NormalizerPolicy(strip_arabic_marks=False))
+    assert off["arabic_marks"] == 0
+
+
+def test_normalize_text_and_normalize_with_counts_agree() -> None:
+    from svb.text.normalize import normalize_with_counts
+
+    for case in ("Hello, World!", "مَرْحَبًا", "コーヒーを飲む。", "soft\xadhyphen", "…!?"):
+        assert normalize_with_counts(case)[0] == normalize_text(case)

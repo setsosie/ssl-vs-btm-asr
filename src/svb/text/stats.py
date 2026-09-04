@@ -16,7 +16,6 @@ scoreable reference, which is a silent change to the test set unless reported.
 from __future__ import annotations
 
 import statistics
-import unicodedata
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -24,9 +23,9 @@ from typing import TYPE_CHECKING, Any
 from .normalize import (
     DEFAULT_POLICY,
     NormalizerPolicy,
-    count_arabic_marks,
+    empty_removal_counts,
     has_digits,
-    normalize_text,
+    normalize_with_counts,
 )
 
 if TYPE_CHECKING:  # avoids a cycle: the vocab is built through this package
@@ -90,7 +89,7 @@ def collect_text_stats(
         A :class:`TextStats`. ``evicted_by_floor`` is left empty for the caller
         to fill from the vocabulary build.
     """
-    stats = TextStats(removed_by_category={"P": 0, "S": 0, "Cf": 0, "Cc": 0, "arabic_marks": 0})
+    stats = TextStats(removed_by_category=empty_removal_counts())
     token_counts: list[int] = []
 
     for raw in texts:
@@ -99,23 +98,16 @@ def collect_text_stats(
         if has_digits(raw):
             stats.n_utts_with_digits += 1
 
-        # Count removals against the Unicode-normalized form, which is what the
-        # policy's later steps actually see.
-        formed = unicodedata.normalize(policy.form, raw)
-        for ch in formed:
-            category = unicodedata.category(ch)
-            group = category[0]
-            if group == "P":
-                stats.removed_by_category["P"] += 1
-            elif group == "S":
-                stats.removed_by_category["S"] += 1
-            elif category in ("Cf", "Cc"):
-                stats.removed_by_category[category] += 1
-            if ch.casefold() != ch:
-                stats.case_changed_chars += 1
-        stats.removed_by_category["arabic_marks"] += count_arabic_marks(formed)
+        # Counted by the normalizer itself, as it works, so the tally can only
+        # ever describe the transformation that happened. A separate scan of the
+        # input would report the intra-word apostrophes the policy deliberately
+        # keeps as though it had removed them, and would report removals under a
+        # policy that has the rule switched off.
+        normalized, removed = normalize_with_counts(raw, policy)
+        stats.case_changed_chars += removed.pop("case_changed")
+        for category, count in removed.items():
+            stats.removed_by_category[category] += count
 
-        normalized = normalize_text(raw, policy)
         stats.n_chars_normalized += len(normalized)
         if not normalized:
             stats.n_utts_empty_after_norm += 1

@@ -21,13 +21,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .config import ExperimentConfig, TextConfig, dump_config, load_config
 from .provenance import dump_run_meta
 from .seeding import set_all_seeds
-from .text.stats import collect_text_stats
+from .text.stats import TextStats, collect_text_stats
 
 if TYPE_CHECKING:
     from .data.registry import LangSpec
@@ -94,6 +95,32 @@ def run_manifest(
     }
 
 
+# Above this share of unknown characters, the vocabulary's coverage is a fact
+# about the result rather than a footnote: it is a floor under the error rate
+# that no amount of training removes.
+UNK_RATE_WARNING = 0.001
+
+
+def _warn_on_unknown_characters(code: str, split: str, stats: TextStats) -> None:
+    """Say so when a split carries characters the vocabulary cannot represent.
+
+    The number always reaches ``text_stats.json``, but a file nobody opens is
+    not a warning. A language whose references contain characters the model has
+    no id for has an irreducible error floor, and a reader comparing its number
+    to another language's needs to know that before quoting it.
+    """
+    if stats.unk_rate <= UNK_RATE_WARNING:
+        return
+    warnings.warn(
+        f"{code}/{split}: {stats.unk_rate:.3%} of normalized reference characters "
+        f"({stats.unk_chars} of {stats.n_chars_normalized}) are absent from the vocabulary "
+        "and cannot be produced at any quality, so this language's error rate has a floor "
+        "under it; see unk_rate in text_stats.json",
+        UserWarning,
+        stacklevel=3,
+    )
+
+
 def write_text_stats(
     path: Path,
     specs: list[LangSpec],
@@ -132,6 +159,7 @@ def write_text_stats(
             stats = collect_text_stats(load_texts(spec, split), text_cfg.policy, lang_vocab)
             if split == "train":
                 stats.evicted_by_floor = lang_evicted
+            _warn_on_unknown_characters(spec.code, split, stats)
             splits[split] = stats.to_dict()
         languages[spec.code] = {
             "heldout": is_heldout,
