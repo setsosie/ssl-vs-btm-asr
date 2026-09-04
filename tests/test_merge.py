@@ -1,5 +1,7 @@
 """Merge strategies: identities, sign election, trimming, seeding, head scope."""
 
+import re
+
 import pytest
 import torch
 
@@ -163,3 +165,18 @@ def test_merge_experts_threads_the_run_seed(tmp_path):
         merged.append(torch.load(out, weights_only=True)["w"])
 
     assert not torch.allclose(merged[0], merged[1])
+
+
+def test_merge_head_false_refuses_a_base_that_lacks_the_head():
+    """A partial base would leave half the head coming from experts[0].
+
+    `merge_head=False` means "take the head from phase 0". Silently keeping an
+    expert's copy for any head key the base happens to lack is the same quiet
+    substitution the non-float agreement check two lines above exists to stop.
+    """
+    base = _sd(w=[0.0, 0.0])  # no ctc_proj.* at all
+    e1 = {**_sd(w=[1.0, 1.0]), **_sd(**{"ctc_proj.weight": [1.0, 1.0]})}
+    e2 = {**_sd(w=[3.0, 3.0]), **_sd(**{"ctc_proj.weight": [3.0, 3.0]})}
+
+    with pytest.raises(ValueError, match=re.escape("ctc_proj.weight")):
+        average([e1, e2], base=base, merge_head=False)
