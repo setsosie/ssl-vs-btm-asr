@@ -7,6 +7,7 @@ index to the name declared in the config.
 """
 
 import json
+import re
 import zipfile
 
 import pytest
@@ -159,3 +160,59 @@ def test_config_reader_yields_only_openslr_languages(fetch_openslr, pytestconfig
 def test_archive_url_uses_the_openslr_resources_layout(fetch_openslr):
     url = fetch_openslr.archive_url(63, "ml_in_female.zip")
     assert url == "https://openslr.trmal.net/resources/63/ml_in_female.zip"
+
+
+# --- cross-archive collisions -------------------------------------------------
+
+
+def test_a_wav_name_in_two_archives_of_one_language_is_refused(fetch_openslr, tmp_path):
+    """The flat layout only works because the archives use disjoint prefixes.
+
+    Male and female archives of a language extract into one directory. The
+    design assumes the index is the only name they share, which happens to hold
+    because the FileIDs carry an `mlf_`/`mlm_` prefix — but nothing checked it.
+    A shared wav name would silently overwrite one archive's audio with the
+    other's, leaving the row counts and the manifest entirely consistent.
+    """
+    dest = tmp_path / "SLR63"
+    seen: set[str] = set()
+    fetch_openslr.extract_archive(
+        _make_archive(tmp_path / "f.zip", ["shared_1_1"]), dest, "line_index_female.tsv", seen=seen
+    )
+
+    with pytest.raises(ValueError, match=re.escape("shared_1_1.wav")):
+        fetch_openslr.extract_archive(
+            _make_archive(tmp_path / "m.zip", ["shared_1_1"]),
+            dest,
+            "line_index_male.tsv",
+            seen=seen,
+        )
+
+
+def test_disjoint_archives_still_share_a_directory(fetch_openslr, tmp_path):
+    """The collision check must not reject the layout the real corpora use."""
+    dest = tmp_path / "SLR63"
+    seen: set[str] = set()
+    fetch_openslr.extract_archive(
+        _make_archive(tmp_path / "f.zip", ["mlf_1_1"]), dest, "line_index_female.tsv", seen=seen
+    )
+    fetch_openslr.extract_archive(
+        _make_archive(tmp_path / "m.zip", ["mlm_2_1"]), dest, "line_index_male.tsv", seen=seen
+    )
+
+    assert len(list(dest.glob("*.wav"))) == 2
+    assert seen == {"mlf_1_1.wav", "mlm_2_1.wav"}
+
+
+def test_the_renamed_index_never_counts_as_a_collision(fetch_openslr, tmp_path):
+    """Every archive holds `line_index.tsv`; renaming is the whole point."""
+    dest = tmp_path / "SLR63"
+    seen: set[str] = set()
+    for archive, index in (("f.zip", "line_index_female.tsv"), ("m.zip", "line_index_male.tsv")):
+        ids = ["mlf_1_1"] if archive == "f.zip" else ["mlm_2_1"]
+        fetch_openslr.extract_archive(
+            _make_archive(tmp_path / archive, ids), dest, index, seen=seen
+        )
+
+    assert (dest / "line_index_female.tsv").exists()
+    assert (dest / "line_index_male.tsv").exists()
