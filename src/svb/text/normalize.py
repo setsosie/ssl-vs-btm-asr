@@ -122,7 +122,17 @@ class NormalizerPolicy:
     # Set True for an orthography that writes a glottal stop as an apostrophe,
     # where a word-initial or word-final one is a letter rather than a quote.
     apostrophe_is_letter: bool = False
-    digits: Literal["keep", "drop_utterance"] = "keep"
+    # Digits are kept as characters: they are not spelled out, and utterances
+    # containing them are not dropped. The field exists to make that choice
+    # explicit in the dumped config and the policy hash rather than leave it
+    # implicit in the absence of a rule.
+    #
+    # Deliberately a single value. Dropping digit-bearing utterances is the
+    # obvious ablation, but it changes the test set rather than the text, so it
+    # belongs to whatever assembles a split — not here. An accepted second value
+    # that `normalize_text` never read would have changed the policy hash, and
+    # so marked results incomparable, while changing not one character.
+    digits: Literal["keep"] = "keep"
 
     def policy_hash(self) -> str:
         """Short digest over every field, for the resolved config and env.json."""

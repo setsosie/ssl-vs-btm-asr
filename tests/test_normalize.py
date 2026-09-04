@@ -228,15 +228,33 @@ def test_policy_hash_is_stable_and_tracks_every_field() -> None:
     for changed in (
         NormalizerPolicy(form="NFC"),
         NormalizerPolicy(case="lower"),
-        NormalizerPolicy(digits="drop_utterance"),
+        NormalizerPolicy(strip_symbols=False),
         NormalizerPolicy(apostrophe_is_letter=True),
         NormalizerPolicy(turkish_dotted_i=False),
     ):
         assert changed.policy_hash() != baseline.policy_hash()
 
 
+def test_the_default_policy_hash_is_pinned() -> None:
+    """Results under different policy hashes must not be pooled, so the default
+    policy's hash is part of this repository's published interface. Changing it
+    silently splits every result produced before the change from every result
+    produced after; this test makes that a decision rather than an accident."""
+    assert NormalizerPolicy().policy_hash() == "205fefc26d0e"
+
+
+def test_the_only_digit_policy_is_the_one_that_is_implemented() -> None:
+    """A policy field is hashed into every run's provenance, so a value that
+    changes the hash without changing the text would mark results incomparable
+    for no reason. Dropping digit-bearing utterances changes the test set, not
+    the transcript, so it is not a normalizer setting."""
+    from typing import get_args, get_type_hints
+
+    assert get_args(get_type_hints(NormalizerPolicy)["digits"]) == ("keep",)
+
+
 def test_policy_round_trips_through_a_dict() -> None:
-    policy = NormalizerPolicy(case="lower", digits="drop_utterance")
+    policy = NormalizerPolicy(case="lower", malayalam_chillu="keep")
 
     assert NormalizerPolicy.from_dict(policy.to_dict()) == policy
     assert policy.to_dict()["version"] == NORMALIZER_VERSION
