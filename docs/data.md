@@ -1,12 +1,16 @@
 # Data
 
-Two public corpora, both read from a local directory. Nothing in this repository
-downloads at load time and nothing goes through the Hugging Face Hub.
+Everything is read from a local directory. Nothing downloads at load time.
 
 | Role | Corpus | Env var | Fetched by |
 |---|---|---|---|
 | Training / in-distribution eval | Common Voice 25 | `CV_ROOT` | you, manually |
+| Training / in-distribution eval | 18 other public corpora | `CORPORA_ROOT` | `scripts/prepare_<corpus>.py` |
 | Held-out transfer | OpenSLR Indic (SLR63, 64, 66, 78) | `OPENSLR_ROOT` | `scripts/fetch_openslr.py` |
+
+Which language comes from which corpus, with hours and licences, is in
+[`languages.md`](languages.md); the corpus records themselves are in
+[`../configs/corpora.yaml`](../configs/corpora.yaml).
 
 Check what is reachable and how big each split is with `python scripts/check_data.py`.
 It reads transcripts and manifests only and never decodes audio.
@@ -107,6 +111,83 @@ tests rather than assumed: `validated_minus_eval` is a **superset** of
 [Mozilla Foundation release notes](https://www.mozillafoundation.org/en/blog/common-voice-18-dataset-release/).
 The terms you accept at download time govern your use; confirm them against the
 release you actually downloaded rather than against this file.
+
+## The other corpora (`CORPORA_ROOT`)
+
+Common Voice cannot reach 64 languages at 50 training hours — it reaches 44 — so
+the large tier draws on eighteen more corpora. They ship in about ten different
+shapes: per-utterance XML, JSONL with word-level alignments, Kaldi-ish flat
+directories, STM and VTT, one `.txt` per `.wav`. Ten dataset classes would be
+ten places to get a split wrong.
+
+So each corpus is converted **once**, by a preparer, into one layout that a
+single loader reads:
+
+```
+$CORPORA_ROOT/<corpus id>/<language>/manifest.tsv
+$CORPORA_ROOT/<corpus id>/<language>/<audio, wherever the manifest says>
+```
+
+`manifest.tsv` is tab-separated with a header and exactly five columns:
+
+| Column | Meaning |
+|---|---|
+| `utt_id` | stable, unique within the language; orders the rows, digests the test set, and is the fallback grouping key |
+| `path` | audio path relative to the language directory |
+| `text` | the transcript, already extracted from whatever the corpus shipped |
+| `speaker` | speaker id, or empty |
+| `split` | `train`, `validation`, `test`, or empty |
+
+Two rules make the split describable afterwards. **Either every row carries a
+split or none does** — a manifest that is part shipped and part derived is
+refused, because the resulting partition could not be written down in a results
+file. And **an empty `speaker` on any row** drops that whole language to an
+utterance-level split, because a partition that is speaker-disjoint for most
+rows is not speaker-disjoint. Every run records which policy it got, and a
+digest of the exact test utterance list, the same way the held-out set does.
+
+Where a corpus ships no usable split, `svb.data.splits` derives one — the same
+speaker-disjoint 80/10/10 derivation the held-out four use, now shared rather
+than duplicated. Two corpora ship an incomplete one and re-derive: Kannada has
+no dev split, and Zeroth's shipped test is 1.2 hours, under the 2-hour bar. In
+both cases the published division is not the one a run uses, and a write-up has
+to say so.
+
+### The preparer contract
+
+A preparer fetches what `configs/corpora.yaml` lists and writes the manifest.
+It may do anything to get there; it owns the per-corpus knowledge, which is why
+that knowledge is not in the loader. The shared parts — resumable download,
+integrity checking, zip and tar extraction, and a Hugging Face snapshot path —
+are in `scripts/corpus_fetch.py`, which stays standard library only except on
+the Hub path so a preparer can run on a machine with no project install.
+
+```bash
+export CORPORA_ROOT=/path/to/corpora
+python scripts/prepare_google_crowdsourced.py --root $CORPORA_ROOT          # jv su si ne bn
+python scripts/prepare_google_crowdsourced.py --root $CORPORA_ROOT --langs jv
+```
+
+Only that one is implemented. The other nine are documented stubs that raise
+`NotImplementedError` and carry their corpus's format notes:
+`prepare_nchlt.py` (zu xh nso ts ve), `prepare_ksc.py` (kk),
+`prepare_zeroth.py` (ko), `prepare_samromur.py` (is), `prepare_taltech.py` (et),
+`prepare_armenian.py` (hy), `prepare_tibmd.py` (bo),
+`prepare_kannada_mile.py` (kn) and `prepare_parlaspeech.py` (hr).
+
+### Licences, and a caveat about the mix
+
+Every corpus's verbatim licence name and URL is in `configs/corpora.yaml`, read
+on its own source page. The set mixes CC0, CC BY 2.0, 3.0 and 4.0 and
+CC BY-SA 4.0; ShareAlike over a training corpus is not settled law with respect
+to model weights, and the paper should take a position rather than say nothing.
+Anything behind a gate, a form or an email request is excluded on principle,
+however large; `languages.md` lists what that ruled out.
+
+**The mix is less domain-diverse than 64 languages sounds.** The additions are
+almost entirely read prompts or parliamentary speech. NCHLT's prompts are
+scripted and its published test side is an 8-speaker suite. A result that
+improves on read speech should not be reported as improving on speech.
 
 ## OpenSLR held-out Indic (`OPENSLR_ROOT`)
 
