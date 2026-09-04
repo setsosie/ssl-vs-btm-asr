@@ -60,6 +60,7 @@ class CommonVoiceLocal(Dataset):
         text_column: str = "sentence",
         max_samples: int | None = None,
     ):
+        self.lang = lang
         base = _cv_root(root) / lang
         tsv = base / _SPLIT_FILE[split]
         if not tsv.exists():
@@ -71,7 +72,7 @@ class CommonVoiceLocal(Dataset):
     def __len__(self) -> int:
         return len(self._rows)
 
-    def __getitem__(self, idx: int) -> tuple[torch.Tensor, str]:
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, str, str]:
         import torchaudio
 
         fname, text = self._rows[idx]
@@ -81,7 +82,7 @@ class CommonVoiceLocal(Dataset):
             wav = torchaudio.functional.resample(wav, sr, TARGET_SR)
         if self._max is not None and wav.shape[0] > self._max:
             wav = wav[: self._max]
-        return wav.float(), text
+        return wav.float(), text, self.lang
 
 
 def load_cv_texts(

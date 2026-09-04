@@ -34,7 +34,7 @@ def _cfg(**train_overrides: object) -> ExperimentConfig:
 
 
 def _data(n: int) -> ListDataset:
-    return ListDataset([(torch.ones(2000), "abc") for _ in range(n)])
+    return ListDataset([(torch.ones(2000), "abc", "en") for _ in range(n)])
 
 
 def test_a_checkpoint_exists_even_when_every_epoch_is_nan(tmp_path) -> None:
@@ -196,11 +196,11 @@ def test_dropped_training_pairs_reach_the_result_not_only_the_log(tmp_path) -> N
     # b2: 640 samples, max_audio_samples 400 -> hits audio guard.
     train_ds = ListDataset(
         [
-            (torch.ones(320), "aa"),
-            (torch.ones(640), "a"),
+            (torch.ones(320), "aa", "en"),
+            (torch.ones(640), "a", "en"),
         ]
     )
-    val_ds = ListDataset([(torch.ones(320), "a")])
+    val_ds = ListDataset([(torch.ones(320), "a", "en")])
 
     collate = make_ctc_collate(
         vocab,

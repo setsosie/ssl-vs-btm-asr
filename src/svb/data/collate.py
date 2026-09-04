@@ -65,12 +65,12 @@ def make_ctc_collate(
     """
     active_policy = policy or vocab.policy
 
-    def collate(batch: list[tuple[torch.Tensor, str]]) -> dict[str, Any]:
-        kept: list[tuple[torch.Tensor, str, list[int]]] = []
+    def collate(batch: list[tuple[torch.Tensor, str, str]]) -> dict[str, Any]:
+        kept: list[tuple[torch.Tensor, str, str, list[int]]] = []
         n_dropped = 0
         n_empty_text = 0
         n_at_audio_guard = 0
-        for wav, raw_text in batch:
+        for wav, raw_text, code in batch:
             n_samples = int(wav.shape[0])
             text = normalize_text(raw_text, active_policy)
             ids = vocab.encode(text)
@@ -83,9 +83,9 @@ def make_ctc_collate(
             if drop_overlong and len(ids) > max_label_len_for_samples(n_samples):
                 n_dropped += 1
                 continue
-            kept.append((wav, text, ids))
+            kept.append((wav, text, code, ids))
 
-        wavs = [w for w, _, _ in kept]
+        wavs = [w for w, _, _, _ in kept]
         max_len = max((int(w.shape[0]) for w in wavs), default=0)
         padded = torch.zeros(len(kept), max_len, dtype=torch.float32)
         attn = torch.zeros(len(kept), max_len, dtype=torch.long)
@@ -93,16 +93,17 @@ def make_ctc_collate(
             padded[i, : w.shape[0]] = w
             attn[i, : w.shape[0]] = 1
 
-        max_lab = max(1, max((len(ids) for _, _, ids in kept), default=1))
+        max_lab = max(1, max((len(ids) for _, _, _, ids in kept), default=1))
         labels = torch.full((len(kept), max_lab), -100, dtype=torch.long)
-        for i, (_, _, ids) in enumerate(kept):
+        for i, (_, _, _, ids) in enumerate(kept):
             labels[i, : len(ids)] = torch.tensor(ids, dtype=torch.long)
 
         return {
             "input_values": padded,
             "attention_mask": attn,
             "labels": labels,
-            "texts": [t for _, t, _ in kept],
+            "texts": [t for _, t, _, _ in kept],
+            "codes": [c for _, _, c, _ in kept],
             "n_dropped": n_dropped,
             "n_empty_text": n_empty_text,
             "n_at_audio_guard": n_at_audio_guard,

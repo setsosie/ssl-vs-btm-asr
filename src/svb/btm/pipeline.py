@@ -68,10 +68,10 @@ def run_phase0(
     collate = make_ctc_collate(
         vocab, max_audio_samples=cfg.train.max_audio_samples, drop_overlong=True, drop_empty=True
     )
-    train_ds: ConcatDataset[tuple[Tensor, str]] = ConcatDataset(
+    train_ds: ConcatDataset[tuple[Tensor, str, str]] = ConcatDataset(
         [load_language(s, "train", cfg.train.max_audio_samples) for s in specs]
     )
-    val_ds: ConcatDataset[tuple[Tensor, str]] = ConcatDataset(
+    val_ds: ConcatDataset[tuple[Tensor, str, str]] = ConcatDataset(
         [load_language(s, "validation", cfg.train.max_audio_samples) for s in specs]
     )
     model = make_model(cfg, vocab.size)

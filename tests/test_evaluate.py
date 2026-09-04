@@ -14,17 +14,21 @@ from svb.model.ctc_vocab import build_vocab_from_texts
 
 from .conftest import FakeXeusCTC, wav_for
 
+# Every dataset item carries the language it came from, so the collate can
+# normalize it under that language's policy.
+LANG = "en"
+
 
 class ListDataset(Dataset):
     """In-memory (waveform, text) pairs."""
 
-    def __init__(self, items: list[tuple[torch.Tensor, str]]) -> None:
+    def __init__(self, items: list[tuple[torch.Tensor, str, str]]) -> None:
         self.items = items
 
     def __len__(self) -> int:
         return len(self.items)
 
-    def __getitem__(self, idx: int) -> tuple[torch.Tensor, str]:
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, str, str]:
         return self.items[idx]
 
 
@@ -41,7 +45,7 @@ def test_hypothesis_is_independent_of_padding() -> None:
 
     padded = evaluate(
         model,
-        ListDataset([(wav_for(vocab, "ab"), "ab"), (wav_for(vocab, "abc"), "abc")]),
+        ListDataset([(wav_for(vocab, "ab"), "ab", LANG), (wav_for(vocab, "abc"), "abc", LANG)]),
         vocab,
         collate,
         device="cpu",
@@ -49,7 +53,7 @@ def test_hypothesis_is_independent_of_padding() -> None:
     )
     alone = evaluate(
         model,
-        ListDataset([(wav_for(vocab, "ab"), "ab")]),
+        ListDataset([(wav_for(vocab, "ab"), "ab", LANG)]),
         vocab,
         collate,
         device="cpu",
@@ -72,7 +76,7 @@ def test_reference_keeps_characters_absent_from_the_vocab() -> None:
     vocab, _ = build_vocab_from_texts(["a b"])
     collate = make_ctc_collate(vocab)
     model = FakeXeusCTC(vocab.size)
-    dataset = ListDataset([(wav_for(vocab, "a b"), "a b c")])
+    dataset = ListDataset([(wav_for(vocab, "a b"), "a b c", LANG)])
 
     result = evaluate(model, dataset, vocab, collate, device="cpu", batch_size=1)
 
@@ -92,7 +96,9 @@ def test_predictions_sidecar_carries_every_utterance(tmp_path) -> None:
     vocab, _ = build_vocab_from_texts(["ab", "abc"])
     collate = make_ctc_collate(vocab)
     model = FakeXeusCTC(vocab.size)
-    dataset = ListDataset([(wav_for(vocab, "ab"), "ab"), (wav_for(vocab, "abc"), "abc")])
+    dataset = ListDataset(
+        [(wav_for(vocab, "ab"), "ab", LANG), (wav_for(vocab, "abc"), "abc", LANG)]
+    )
     sidecar = tmp_path / "predictions" / "xx.json"
 
     result = evaluate(
@@ -123,9 +129,9 @@ def test_evaluation_batches_by_length_and_reports_in_dataset_order() -> None:
     model = FakeXeusCTC(vocab.size)
     dataset = ListDataset(
         [
-            (wav_for(vocab, "a"), "a"),
-            (wav_for(vocab, "abcd"), "abcd"),
-            (wav_for(vocab, "ab"), "ab"),
+            (wav_for(vocab, "a"), "a", LANG),
+            (wav_for(vocab, "abcd"), "abcd", LANG),
+            (wav_for(vocab, "ab"), "ab", LANG),
         ]
     )
 
@@ -148,7 +154,9 @@ def test_length_sorting_can_be_turned_off() -> None:
     vocab, _ = build_vocab_from_texts(["abcd"])
     collate = make_ctc_collate(vocab)
     model = FakeXeusCTC(vocab.size)
-    dataset = ListDataset([(wav_for(vocab, "a"), "a"), (wav_for(vocab, "abcd"), "abcd")])
+    dataset = ListDataset(
+        [(wav_for(vocab, "a"), "a", LANG), (wav_for(vocab, "abcd"), "abcd", LANG)]
+    )
 
     seen: list[list[str]] = []
 
@@ -179,7 +187,7 @@ def test_hypotheses_are_normalized_before_scoring() -> None:
     # " a  b " once CTC collapsing is done with it.
     wav = torch.tensor([float(i) for i in (space, a, space, vocab.blank_id, space, b, space)])
 
-    result = evaluate(model, ListDataset([(wav, "a b")]), vocab, collate, device="cpu")
+    result = evaluate(model, ListDataset([(wav, "a b", LANG)]), vocab, collate, device="cpu")
 
     assert normalize_text(" a  b ") == "a b"
     assert result.hyps == ["a b"]
@@ -193,7 +201,9 @@ def test_references_that_normalize_to_empty_are_excluded_and_counted() -> None:
     vocab, _ = build_vocab_from_texts(["a b"])
     collate = make_ctc_collate(vocab)
     model = FakeXeusCTC(vocab.size)
-    dataset = ListDataset([(wav_for(vocab, "a b"), "a b"), (wav_for(vocab, "a b"), "…!?")])
+    dataset = ListDataset(
+        [(wav_for(vocab, "a b"), "a b", LANG), (wav_for(vocab, "a b"), "…!?", LANG)]
+    )
 
     result = evaluate(model, dataset, vocab, collate, device="cpu", batch_size=2)
 
@@ -209,7 +219,9 @@ def test_the_sidecar_reports_the_excluded_utterances(tmp_path) -> None:
     vocab, _ = build_vocab_from_texts(["a b"])
     collate = make_ctc_collate(vocab)
     model = FakeXeusCTC(vocab.size)
-    dataset = ListDataset([(wav_for(vocab, "a b"), "a b"), (wav_for(vocab, "a b"), "!!!")])
+    dataset = ListDataset(
+        [(wav_for(vocab, "a b"), "a b", LANG), (wav_for(vocab, "a b"), "!!!", LANG)]
+    )
     sidecar = tmp_path / "p.json"
 
     evaluate(model, dataset, vocab, collate, device="cpu", batch_size=2, save_predictions=sidecar)
@@ -239,7 +251,7 @@ def test_a_language_declared_spaced_whose_text_is_not_warns() -> None:
     vocab, _ = build_vocab_from_texts(["abcd"])
     collate = make_ctc_collate(vocab)
     model = FakeXeusCTC(vocab.size)
-    dataset = ListDataset([(wav_for(vocab, "abcd"), "abcd")] * 3)
+    dataset = ListDataset([(wav_for(vocab, "abcd"), "abcd", LANG)] * 3)
     mislabelled = LangSpec(code="ja", source="commonvoice", hf_config="ja")
 
     with pytest.warns(UserWarning, match="word_boundary"):
@@ -252,7 +264,7 @@ def test_a_correctly_declared_language_does_not_warn(recwarn) -> None:
     vocab, _ = build_vocab_from_texts(["a b"])
     collate = make_ctc_collate(vocab)
     model = FakeXeusCTC(vocab.size)
-    dataset = ListDataset([(wav_for(vocab, "a b"), "a b")] * 3)
+    dataset = ListDataset([(wav_for(vocab, "a b"), "a b", LANG)] * 3)
     spec = LangSpec(code="en", source="commonvoice", hf_config="en")
 
     evaluate(model, dataset, vocab, collate, device="cpu", spec=spec)
@@ -265,7 +277,9 @@ def test_a_split_where_nothing_is_scoreable_fails_loudly() -> None:
     vocab, _ = build_vocab_from_texts(["a b"])
     collate = make_ctc_collate(vocab)
     model = FakeXeusCTC(vocab.size)
-    dataset = ListDataset([(wav_for(vocab, "a b"), "!!!"), (wav_for(vocab, "a b"), "…")])
+    dataset = ListDataset(
+        [(wav_for(vocab, "a b"), "!!!", LANG), (wav_for(vocab, "a b"), "…", LANG)]
+    )
 
     with pytest.raises(ValueError, match="nothing to score"):
         evaluate(model, dataset, vocab, collate, device="cpu", batch_size=2)
@@ -284,9 +298,9 @@ def test_a_collate_that_drops_rows_is_refused_when_sorting_by_length() -> None:
     model = FakeXeusCTC(vocab.size)
     dataset = ListDataset(
         [
-            (wav_for(vocab, "a"), "a"),
-            (wav_for(vocab, "abcd"), "abcd"),
-            (wav_for(vocab, "ab"), "ab"),
+            (wav_for(vocab, "a"), "a", LANG),
+            (wav_for(vocab, "abcd"), "abcd", LANG),
+            (wav_for(vocab, "ab"), "ab", LANG),
         ]
     )
 
