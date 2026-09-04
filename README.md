@@ -23,14 +23,18 @@ permutation tests available from the per-utterance predictions every run writes.
 ## Status
 
 **No GPU run has been executed against this code.** Everything below is
-implemented and covered by 404 CPU tests; none of it has yet produced a number
-from real audio. Two other gaps are open by design rather than by oversight:
+implemented and covered by 422 CPU tests; none of it has yet produced a number
+from real audio. Three other gaps are open by design rather than by oversight:
 
 - `configs/scales/64.yaml` is a placeholder and lists no languages. Loading it
   raises rather than training on nothing, so the 64-language tier cannot be run
   until the list is finalized.
 - Odia is not in the held-out set. See [Held-out data](#held-out-data) below —
   the set is **four** languages, and any write-up should say four.
+- The encoder has not been checked against the reference implementation. The
+  check exists and is described in
+  [Encoder cross-check](#encoder-cross-check-separate-environment); it needs the
+  checkpoint, which is not available here.
 
 ## Quickstart
 
@@ -216,7 +220,13 @@ Things a reader should know before quoting a number:
   steps) on a single GPU. Any comparison to numbers produced at a different
   effective batch should say so.
 - **The encoder is a fork-free reimplementation**, not the reference
-  implementation. See Acknowledgements.
+  implementation, and it has **not yet been checked against the reference**.
+  `scripts/crosscheck_espnet.py` is the check — it loads one checkpoint into
+  both and compares features on a single utterance and on a padded batch — but
+  running it needs the checkpoint and a separate Python 3.10 environment, and it
+  has not been run. Until `docs/espnet-crosscheck-report.json` exists, the
+  encoder's fidelity to the reference is an assumption. See
+  [`docs/espnet-crosscheck.md`](docs/espnet-crosscheck.md).
 
 ## Layout
 
@@ -241,6 +251,37 @@ make check       # everything CI runs: ruff, format, mypy, pytest
 make precommit   # the git hooks, over the whole tree
 ```
 
+## Encoder cross-check (separate environment)
+
+The encoder in this repository is a reimplementation. `scripts/crosscheck_espnet.py`
+verifies it against the reference by loading one checkpoint into both and
+comparing features, on a single utterance and on a padded batch of two.
+
+The reference needs a fork of ESPnet pinned to `numpy<1.24`, which has no wheel
+for Python 3.12 and cannot build from source there. **It therefore lives in its
+own Python 3.10 environment**, never in this project's, and nothing about it
+appears in `pyproject.toml` — declaring it even as an optional extra makes
+`uv sync` unsatisfiable for everyone, because uv resolves extras universally.
+
+```bash
+uv venv --python 3.10 .venv-espnet
+uv pip install --python .venv-espnet -r scripts/espnet-crosscheck/requirements.txt
+
+.venv-espnet/bin/python scripts/crosscheck_espnet.py \
+    --checkpoint "$XEUS_CHECKPOINT" --device cuda \
+    --out docs/espnet-crosscheck-report.json
+```
+
+Add `--torch-backend cpu` to the install and `--device cpu` to the run on a
+machine without a GPU. Exit code is 0 within tolerance, 1 outside it, 2 if the
+reference could not be loaded.
+
+**This has not been run.** The dependency set was verified to resolve on Python
+3.10, but the check itself needs the published XEUS checkpoint, which is not
+available here. Commit the passing report as `docs/espnet-crosscheck-report.json`.
+Details, including how to read the per-utterance deltas, are in
+[`docs/espnet-crosscheck.md`](docs/espnet-crosscheck.md).
+
 ## Acknowledgements
 
 - **XEUS** — Chen et al., *Towards Robust Speech Representation Learning for
@@ -252,7 +293,10 @@ make precommit   # the git hooks, over the whole tree
   `numpy<1.24`, which cannot be installed on the Python version this project
   targets, so `model/xeus_standalone.py` reimplements the encoder in PyTorch
   alone and mirrors the reference's behaviour — including its unmasked
-  convolutions — rather than depending on it.
+  convolutions — rather than depending on it. The reimplementation is checked
+  against the reference by `scripts/crosscheck_espnet.py`, run from a separate
+  Python 3.10 environment: see
+  [`docs/espnet-crosscheck.md`](docs/espnet-crosscheck.md).
 - Merge strategies follow Ilharco et al. (task arithmetic), Yadav et al. (TIES)
   and Yu et al. (DARE).
 - The XEUS loader is adapted from the author's FLAIME project.
