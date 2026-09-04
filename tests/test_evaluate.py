@@ -269,3 +269,30 @@ def test_a_split_where_nothing_is_scoreable_fails_loudly() -> None:
 
     with pytest.raises(ValueError, match="nothing to score"):
         evaluate(model, dataset, vocab, collate, device="cpu", batch_size=2)
+
+
+def test_a_collate_that_drops_rows_is_refused_when_sorting_by_length() -> None:
+    """The length sort is undone by index, so every row must come back.
+
+    A collate that drops utterances — the training one does, for transcripts
+    that no longer fit their audio — would leave the restored lists misaligned:
+    hypothesis i attributed to reference j. Refuse it by name rather than
+    scoring a shuffled corpus.
+    """
+    vocab, _ = build_vocab_from_texts(["abcd"])
+    collate = make_ctc_collate(vocab)
+    model = FakeXeusCTC(vocab.size)
+    dataset = ListDataset(
+        [
+            (wav_for(vocab, "a"), "a"),
+            (wav_for(vocab, "abcd"), "abcd"),
+            (wav_for(vocab, "ab"), "ab"),
+        ]
+    )
+
+    def dropping(batch):
+        out = collate(batch[:1])  # silently discards the rest of the batch
+        return out
+
+    with pytest.raises(ValueError, match="dropped"):
+        evaluate(model, dataset, vocab, dropping, device="cpu", batch_size=2)
