@@ -67,7 +67,9 @@ class TextStats:
         return self.n_utts > 0 and self.median_tokens_per_utt <= _UNSPACED_MEDIAN_TOKENS
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        # ``looks_unspaced`` is a property, so it would not survive ``asdict``;
+        # it is the conclusion a reader wants, not a field to recompute.
+        return {**asdict(self), "looks_unspaced": self.looks_unspaced}
 
 
 def collect_text_stats(
