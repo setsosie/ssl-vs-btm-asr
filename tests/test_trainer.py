@@ -183,3 +183,37 @@ def test_worker_seeding_is_per_worker_and_reproducible() -> None:
 
     assert first != second
     assert first == again
+
+
+def test_dropped_training_pairs_reach_the_result_not_only_the_log(tmp_path) -> None:
+    """A pair whose transcript cannot be aligned to its audio is removed from
+    training, and an utterance clipped by the audio guard is trained on
+    truncated. Both are properties of the run, so they belong in an artifact
+    rather than in scrollback nobody keeps.
+
+    Counted over the first epoch only: later epochs see the same split and would
+    multiply one dropped pair by the epoch count.
+    """
+    vocab, _ = build_vocab_from_texts(["abc"])
+    inner = make_ctc_collate(vocab)
+
+    def collate(batch: list[tuple[torch.Tensor, str]]) -> dict[str, object]:
+        out = inner(batch)
+        out["n_dropped"] = 1
+        out["n_at_audio_guard"] = 2
+        return out
+
+    result = train(
+        ScriptedLossCTC([5.0, 4.0]),
+        _cfg(),
+        _data(4),
+        _data(2),
+        collate,
+        max_epochs=2,
+        out_dir=tmp_path,
+        device="cpu",
+    )
+
+    # Two batches of two in the first epoch, so one drop and two guard hits each.
+    assert result.n_dropped_unalignable == 2
+    assert result.n_at_audio_guard == 4

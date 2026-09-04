@@ -126,3 +126,28 @@ def test_an_unpopulated_preset_stops_before_the_run_directory_exists(
     # One line the reader can act on, not a traceback.
     assert "not populated" in str(excinfo.value)
     assert list(tmp_path.rglob("*")) == []
+
+
+def test_a_training_record_carries_what_the_run_actually_trained_on() -> None:
+    """The split a reader can count is not the data the model saw: pairs whose
+    transcript cannot be aligned are dropped, and long audio is truncated."""
+    from pathlib import Path as _Path
+
+    from svb.cli import training_record
+    from svb.train.trainer import TrainResult
+
+    record = training_record(
+        TrainResult(
+            best_val_loss=1.5,
+            best_epoch=3,
+            epochs_run=5,
+            checkpoint=_Path("best.pt"),
+            n_dropped_unalignable=7,
+            n_at_audio_guard=11,
+        )
+    )
+
+    assert record["n_dropped_unalignable"] == 7
+    assert record["n_at_audio_guard"] == 11
+    assert record["best_epoch"] == 3
+    assert "checkpoint" not in record  # a local path is not provenance

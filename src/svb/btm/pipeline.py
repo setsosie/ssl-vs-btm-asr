@@ -23,7 +23,7 @@ from ..data.registry import LangSpec
 from ..merge.strategy import MERGE_STRATEGIES
 from ..model.ctc_vocab import CtcVocab, build_vocab_from_texts, require_space_token
 from ..model.xeus_ctc import make_model
-from ..train.trainer import train
+from ..train.trainer import TrainResult, train
 
 
 def build_training_vocab(
@@ -58,8 +58,13 @@ def run_phase0(
     vocab: CtcVocab,
     out_dir: Path,
     device: str = "cuda",
-) -> Path:
-    """Joint multilingual CTC training; returns the best checkpoint path."""
+) -> TrainResult:
+    """Joint multilingual CTC training.
+
+    Returns the whole :class:`TrainResult`, not just its checkpoint path: how
+    many pairs training dropped is part of what the run did, and a function that
+    returns only the path throws that away where no caller can recover it.
+    """
     collate = make_ctc_collate(
         vocab, max_audio_samples=cfg.train.max_audio_samples, drop_overlong=True, drop_empty=True
     )
@@ -70,8 +75,7 @@ def run_phase0(
         [load_language(s, "validation", cfg.train.max_audio_samples) for s in specs]
     )
     model = make_model(cfg, vocab.size)
-    result = train(model, cfg, train_ds, val_ds, collate, cfg.train.phase0_epochs, out_dir, device)
-    return result.checkpoint
+    return train(model, cfg, train_ds, val_ds, collate, cfg.train.phase0_epochs, out_dir, device)
 
 
 def train_experts(
@@ -81,22 +85,21 @@ def train_experts(
     vocab: CtcVocab,
     out_dir: Path,
     device: str = "cuda",
-) -> dict[str, Path]:
+) -> dict[str, TrainResult]:
     """Fine-tune one expert per language, each branched from phase 0."""
     collate = make_ctc_collate(
         vocab, max_audio_samples=cfg.train.max_audio_samples, drop_overlong=True, drop_empty=True
     )
-    experts: dict[str, Path] = {}
+    experts: dict[str, TrainResult] = {}
     for spec in specs:
         model = make_model(cfg, vocab.size)
         model.load(phase0_ckpt)
         lang_dir = out_dir / f"expert_{spec.code}"
         train_ds = load_language(spec, "train", cfg.train.max_audio_samples)
         val_ds = load_language(spec, "validation", cfg.train.max_audio_samples)
-        result = train(
+        experts[spec.code] = train(
             model, cfg, train_ds, val_ds, collate, cfg.train.expert_epochs, lang_dir, device
         )
-        experts[spec.code] = result.checkpoint
     return experts
 
 

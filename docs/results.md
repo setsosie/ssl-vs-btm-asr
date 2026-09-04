@@ -43,6 +43,15 @@ the code when the tree was dirty, which is why the flag sits beside it.
 `test_files_sha1`, because those corpora ship no partition: which utterances
 were scored is part of the number, and the digest pins it.
 
+It also holds a `training` section, one entry per stage — `phase0`,
+`expert_<lang>` for the BTM arms, `finetune_<lang>` for arm A. Each records the
+best validation loss and the epoch it came from, how many epochs actually ran,
+and two counts that separate the split from what the model saw:
+`n_dropped_unalignable` (pairs whose transcript is longer than the encoder's
+frame budget, which CTC cannot align) and `n_at_audio_guard` (utterances the
+training-time truncation guard clipped). Both are counted over the first epoch,
+which is the size of the effect on the split.
+
 **`text_stats.json`** is the evidence for the normalization policy, per language
 and split: utterance and character counts before and after, how many utterances
 normalized to nothing, the median whitespace tokens per utterance beside the

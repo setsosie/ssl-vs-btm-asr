@@ -33,6 +33,7 @@ from .text.stats import TextStats, collect_text_stats
 if TYPE_CHECKING:
     from .data.registry import LangSpec
     from .model.ctc_vocab import CtcVocab
+    from .train.trainer import TrainResult
 
 DEFAULT_RESULTS_ROOT = Path("results")
 ARMS = ("A_ssl", "B_btm_ssl", "C_btm_scratch")
@@ -99,6 +100,22 @@ def run_manifest(
 # about the result rather than a footnote: it is a floor under the error rate
 # that no amount of training removes.
 UNK_RATE_WARNING = 0.001
+
+
+def training_record(result: TrainResult) -> dict[str, Any]:
+    """What one training stage did, for ``results.json``.
+
+    The dropped-pair and audio-guard counts were only ever printed. They are the
+    difference between the split a reader can count and the data the model
+    actually saw, so they belong in an artifact rather than in scrollback.
+    """
+    return {
+        "best_val_loss": result.best_val_loss,
+        "best_epoch": result.best_epoch,
+        "epochs_run": result.epochs_run,
+        "n_dropped_unalignable": result.n_dropped_unalignable,
+        "n_at_audio_guard": result.n_at_audio_guard,
+    }
 
 
 def _warn_on_unknown_characters(code: str, split: str, stats: TextStats) -> None:
@@ -240,9 +257,15 @@ def cmd_run(args: argparse.Namespace) -> None:
     )
     eval_collate = make_ctc_collate(vocab)
 
+    results["training"] = {}
     if cfg.uses_btm:
-        phase0 = run_phase0(cfg, specs, vocab, out / "phase0", device)
-        experts = train_experts(cfg, phase0, specs, vocab, out / "experts", device)
+        phase0_result = run_phase0(cfg, specs, vocab, out / "phase0", device)
+        phase0 = phase0_result.checkpoint
+        results["training"]["phase0"] = training_record(phase0_result)
+        expert_results = train_experts(cfg, phase0, specs, vocab, out / "experts", device)
+        for code, expert in expert_results.items():
+            results["training"][f"expert_{code}"] = training_record(expert)
+        experts = {code: expert.checkpoint for code, expert in expert_results.items()}
         merged_path = merge_experts(
             experts,
             cfg.merge_strategy,
@@ -283,6 +306,7 @@ def cmd_run(args: argparse.Namespace) -> None:
             res = train(
                 model, cfg, tr, va, train_collate, cfg.train.finetune_epochs, lang_dir, device
             )
+            results["training"][f"finetune_{spec.code}"] = training_record(res)
             model.load(res.checkpoint)
             test_ds = load_language(spec, "test", None)
             r = evaluate(
