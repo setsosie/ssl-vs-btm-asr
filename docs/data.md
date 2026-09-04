@@ -99,12 +99,18 @@ time. It is derived from a stable SHA-1 rather than by shuffling with a seed:
 a library's shuffle is only reproducible for a pinned version of that library,
 which is not something a results file records.
 
-The split is **speaker-disjoint** at 80/10/10. FileIDs have the form
-`<corpus-prefix>_<speaker>_<utterance>` — in SLR63's female index, 2103
-utterances carry only 24 distinct middle fields (160, 142, 140 … rows each)
-while every third field is unique, which is what identifies the middle field as
-a speaker. Test speakers are therefore never seen in training, which is what a
-transfer number should measure.
+The split is **speaker-disjoint** at a nominal 80/10/10, whenever the FileIDs
+carry a speaker field. They have the form `<corpus-prefix>_<speaker>_<utterance>`
+— in SLR63's female index, 2103 utterances carry only 24 distinct middle fields
+(160, 142, 140 … rows each) while every third field is unique, which is what
+identifies the middle field as a speaker. Test speakers are then never seen in
+training, which is what a transfer number should measure.
+
+That inspection was done on SLR63's female index only. The other three corpora
+are documented the same way on openslr.org and are expected to match, but the
+loader does not assume it: it parses the ids at load time and reports which
+policy it ended up with, so a corpus that turns out to be shaped differently
+says so rather than quietly producing a split of another kind.
 
 Speakers are ordered by SHA-1 of the speaker key, then each is given to whichever
 split has the largest remaining shortfall. Bucketing by hash alone would be far
@@ -114,13 +120,15 @@ whole speakers are indivisible, the realised proportions drift from 80/10/10 —
 more so the fewer speakers a language has.
 
 If FileIDs do not parse that way, or a language has fewer than three speakers,
-the split degrades to utterance level. That case is reported as
-`split_policy == "utterance"` on the dataset and printed by `check_data.py`, and
-it carries an obvious caveat: the same speaker then appears in train and test, so
-the result is not speaker-independent. None of the four languages above hits it.
+the split degrades to utterance level. That case carries an obvious caveat: the
+same speaker then appears in train and test, so the result is not
+speaker-independent.
 
-Each dataset also exposes `test_files_sha1`, the SHA-1 of its test FileID list,
-so a run's provenance can pin the exact held-out set it scored on.
+Which policy was used is never left to be assumed. `check_data.py` prints it per
+language, and every run records it — together with `test_files_sha1`, the SHA-1
+of the test FileID list — under `transfer.<language>` in its `results.json`. So
+a held-out number always sits beside both the policy that produced it and a
+digest pinning the exact set of utterances scored.
 
 ### Odia — decision pending
 
