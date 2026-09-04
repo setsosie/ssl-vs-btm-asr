@@ -75,7 +75,13 @@ def slr_root(tmp_path: Path, fixtures_dir: Path) -> Path:
 
 
 def _load_script(root: Path, name: str) -> ModuleType:
-    """Load a file under `scripts/` as a module without touching sys.path."""
+    """Load a file under `scripts/` as a module without touching sys.path.
+
+    The module is registered in ``sys.modules`` before it executes, which the
+    importlib recipe leaves out and `@dataclass` needs: it resolves a class's
+    module out of ``sys.modules`` to evaluate the annotations, and fails on the
+    ``None`` an unregistered module leaves there.
+    """
     path = root / "scripts" / f"{name}.py"
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec is not None and spec.loader is not None
@@ -102,6 +108,11 @@ def run_matrix(pytestconfig: pytest.Config) -> ModuleType:
 @pytest.fixture
 def crosscheck_espnet(pytestconfig: pytest.Config) -> ModuleType:
     return _load_script(Path(pytestconfig.rootpath), "crosscheck_espnet")
+
+
+@pytest.fixture
+def select_languages(pytestconfig: pytest.Config) -> ModuleType:
+    return _load_script(Path(pytestconfig.rootpath), "select_languages")
 
 
 # --------------------------------------------------------------------------- #
