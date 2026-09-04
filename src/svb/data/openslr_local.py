@@ -107,7 +107,7 @@ def _assign_groups(ordered: list[str], groups: dict[str, list[Row]]) -> dict[str
     """Give each group to the split with the largest remaining shortfall."""
     total = sum(len(groups[k]) for k in ordered)
     targets = {name: frac * total for name, frac in zip(SPLITS, _FRACTIONS, strict=True)}
-    counts = {name: 0 for name in SPLITS}
+    counts = dict.fromkeys(SPLITS, 0)
     assigned: dict[str, list[str]] = {name: [] for name in SPLITS}
 
     for key in ordered:
@@ -211,7 +211,7 @@ class OpenSLRLocal(Dataset):
         return len(self.rows)
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, str]:
-        import soundfile as sf  # type: ignore[import-untyped]
+        import soundfile as sf
 
         file_id, text = self.rows[idx]
         data, sr = sf.read(str(self.base / f"{file_id}.wav"), dtype="float32", always_2d=False)
@@ -219,7 +219,7 @@ class OpenSLRLocal(Dataset):
         if wav.dim() > 1:  # soundfile yields (frames, channels)
             wav = wav.mean(dim=1)
         if sr != TARGET_SR:
-            import torchaudio  # type: ignore[import-untyped]
+            import torchaudio
 
             wav = torchaudio.functional.resample(wav, sr, TARGET_SR)
         if self._max is not None and wav.shape[0] > self._max:

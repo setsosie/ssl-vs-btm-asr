@@ -36,7 +36,7 @@ import os
 import shutil
 import sys
 import zipfile
-from datetime import datetime, timezone  # `datetime.UTC` needs 3.11; this repo targets 3.10
+from datetime import UTC, datetime  # `datetime.UTC` needs 3.11; this repo targets 3.10
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.error import HTTPError
@@ -209,7 +209,7 @@ def write_manifest(
         "slr": slr,
         "license": license,
         "source": f"https://openslr.org/{slr}/",
-        "downloaded_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "downloaded_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "archives": archives,
         "index_files": list(index_files),
         "index_rows": {r["index_file"]: r["index_rows"] for r in reports},

@@ -33,7 +33,7 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
-import yaml  # type: ignore[import-untyped]  # drop once types-PyYAML is a dev dep
+import yaml
 
 # Repo root: src/svb/data/registry.py -> parents[3]
 _CONFIGS = Path(__file__).resolve().parents[3] / "configs"

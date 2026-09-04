@@ -5,10 +5,9 @@ description = "Is it SSL pretraining or Branch-Train-Merge that carries low-reso
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
-# Upper bounds are deliberate, not cautious boilerplate. Several of these
+# Upper bounds are deliberate, not cautious boilerplate. Some of these
 # packages change *semantics* across majors, which silently changes reported
-# numbers: jiwer 3.x raises on an empty reference where 4.x scores it, and
-# `datasets` 2/3/5 disagree about whether script-based corpora load at all.
+# numbers: jiwer 3.x raises on an empty reference where 4.x scores it.
 # A multi-seed ablation cannot pin its conclusions to an unpinned resolver.
 dependencies = [
     "torch>=2.1,<3",
@@ -67,7 +66,6 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Staged exemptions for findings in modules owned by other in-flight branches.
 # Each line is one branch's to fix and delete; do not add to this block.
-"src/svb/data/datasets.py" = ["SIM105"]      # -> held-out data source branch
 "src/svb/eval/evaluate.py" = ["B905"]        # -> eval-correctness branch
 "src/svb/model/ctc_vocab.py" = ["SIM102", "RUF005"]  # -> text-normalization branch
 "src/svb/provenance.py" = ["UP017"]          # -> provenance/run-metadata branch
@@ -81,7 +79,7 @@ no_implicit_optional = true
 
 [[tool.mypy.overrides]]
 # Third-party packages that ship no stubs and no py.typed marker.
-module = ["torchaudio.*", "datasets.*", "soundfile.*", "jiwer.*"]
+module = ["torchaudio.*", "soundfile.*", "jiwer.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
@@ -93,7 +91,6 @@ disallow_untyped_defs = true
 
 [[tool.mypy.overrides]]
 module = [
-    "svb.data.datasets",   # -> held-out data source branch
     "svb.train.trainer",   # -> eval-correctness branch
     "svb.eval.evaluate",   # -> eval-correctness branch
     "svb.btm.pipeline",    # -> eval-correctness branch

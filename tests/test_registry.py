@@ -16,8 +16,8 @@ def _slr() -> LangSpec:
         code="malayalam",
         source="openslr",
         slr=63,
-        archives=["ml_in_female.zip", "ml_in_male.zip"],
-        index_files=["line_index_female.tsv", "line_index_male.tsv"],
+        archives=("ml_in_female.zip", "ml_in_male.zip"),
+        index_files=("line_index_female.tsv", "line_index_male.tsv"),
         license="CC-BY-SA-4.0",
     )
 

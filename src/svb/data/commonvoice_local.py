@@ -72,7 +72,7 @@ class CommonVoiceLocal(Dataset):
         return len(self._rows)
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, str]:
-        import torchaudio  # type: ignore[import-untyped]
+        import torchaudio
 
         fname, text = self._rows[idx]
         wav, sr = torchaudio.load(str(self._clips / fname))  # (channels, time)
