@@ -28,6 +28,8 @@ from typing import TYPE_CHECKING, Any
 from .config import ExperimentConfig, TextConfig, dump_config, load_config
 from .provenance import dump_run_meta
 from .seeding import set_all_seeds
+from .text.normalize import policy_name
+from .text.registry import policies_for_specs
 from .text.stats import TextStats, collect_text_stats
 
 if TYPE_CHECKING:
@@ -161,19 +163,25 @@ def write_text_stats(
     """
     from .data.datasets import load_texts
     from .model.ctc_vocab import expand_vocab
+    from .text.registry import policy_for_language
 
     languages: dict[str, Any] = {}
     for spec in [*specs, *heldout]:
         is_heldout = spec in heldout
+        policy = policy_for_language(spec.code, text_cfg.override or spec.normalizer)
         lang_vocab = vocab
         lang_evicted: dict[str, int] = {}
         if is_heldout:
             lang_vocab, _, lang_evicted = expand_vocab(
-                vocab, load_texts(spec, "train"), min_char_count=text_cfg.min_char_count
+                vocab,
+                load_texts(spec, "train"),
+                spec.code,
+                policy,
+                min_char_count=text_cfg.min_char_count,
             )
         splits: dict[str, Any] = {}
         for split in SPLITS:
-            stats = collect_text_stats(load_texts(spec, split), text_cfg.policy, lang_vocab)
+            stats = collect_text_stats(load_texts(spec, split), policy, lang_vocab)
             if split == "train":
                 stats.evicted_by_floor = lang_evicted
             _warn_on_unknown_characters(spec.code, split, stats)
@@ -181,12 +189,16 @@ def write_text_stats(
         languages[spec.code] = {
             "heldout": is_heldout,
             "word_boundary": spec.word_boundary,
+            # Which rules produced the numbers below. Removal tallies are not
+            # comparable across languages that ran under different policies, so
+            # a reader grouping them has to group by this.
+            "policy": policy_name(policy),
+            "policy_hash": policy.policy_hash(),
             "splits": splits,
         }
 
     payload = {
-        "normalizer_version": text_cfg.policy.version,
-        "policy_hash": text_cfg.policy.policy_hash(),
+        "override": text_cfg.override,
         "min_char_count": text_cfg.min_char_count,
         "training_vocab_evicted": evicted,
         "languages": languages,
@@ -241,8 +253,8 @@ def cmd_run(args: argparse.Namespace) -> None:
 
     out = _run_dir(results_root(args.results_root), cfg.arm, cfg.scale, cfg.seed)
     out.mkdir(parents=True, exist_ok=True)
-    dump_config(cfg, out)
-    dump_run_meta(out, policy=cfg.text.policy)
+    dump_config(cfg, out, [*specs, *heldout])
+    dump_run_meta(out, policies=policies_for_specs([*specs, *heldout], cfg.text.override))
     set_all_seeds(cfg.seed)
 
     vocab, evicted = build_training_vocab(specs, cfg.text)

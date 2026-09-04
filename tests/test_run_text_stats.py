@@ -15,7 +15,8 @@ import pytest
 from svb.cli import write_text_stats
 from svb.config import TextConfig
 from svb.data.registry import LangSpec
-from svb.model.ctc_vocab import build_vocab_from_texts
+from svb.model.ctc_vocab import build_vocab_from_labelled_texts
+from svb.text.registry import policies_for_specs
 
 # Every split's characters appear in its language's training split, as a real
 # corpus split of one language mostly does. Anything else would make the
@@ -45,8 +46,14 @@ def stub_texts(monkeypatch):
 
 def _specs() -> tuple[list[LangSpec], list[LangSpec]]:
     training = [
-        LangSpec(code="en", source="commonvoice", hf_config="en"),
-        LangSpec(code="ja", source="commonvoice", hf_config="ja", word_boundary=False),
+        LangSpec(code="en", source="commonvoice", hf_config="en", normalizer="whisper-basic"),
+        LangSpec(
+            code="ja",
+            source="commonvoice",
+            hf_config="ja",
+            word_boundary=False,
+            normalizer="ja-cer",
+        ),
     ]
     heldout = [
         LangSpec(
@@ -55,6 +62,7 @@ def _specs() -> tuple[list[LangSpec], list[LangSpec]]:
             slr=66,
             archives=("te.zip",),
             index_files=("line_index.tsv",),
+            normalizer="indic-vistaar",
         )
     ]
     return training, heldout
@@ -63,14 +71,15 @@ def _specs() -> tuple[list[LangSpec], list[LangSpec]]:
 def _write(tmp_path: Path, min_char_count: int = 1) -> dict:
     training, heldout = _specs()
     text_cfg = TextConfig(min_char_count=min_char_count)
-    vocab, evicted = build_vocab_from_texts(
+    policies = policies_for_specs(training, text_cfg.override)
+    vocab, evicted = build_vocab_from_labelled_texts(
         [
-            t
+            (code, t)
             for (code, split), texts in CORPUS.items()
             if code in ("en", "ja") and split == "train"
             for t in texts
         ],
-        policy=text_cfg.policy,
+        policies,
         min_char_count=min_char_count,
     )
     path = write_text_stats(
@@ -90,9 +99,11 @@ def test_every_language_and_split_is_covered(tmp_path, stub_texts) -> None:
 def test_the_policy_is_named_so_the_file_stands_alone(tmp_path, stub_texts) -> None:
     data = _write(tmp_path)
 
-    assert data["normalizer_version"] == TextConfig().policy.version
-    assert data["policy_hash"] == TextConfig().policy.policy_hash()
+    assert data["override"] is None
     assert data["min_char_count"] == 1
+    assert data["languages"]["en"]["policy"] == "whisper-basic"
+    assert data["languages"]["telugu"]["policy"] == "indic-vistaar"
+    assert data["languages"]["en"]["policy_hash"] != data["languages"]["telugu"]["policy_hash"]
 
 
 def test_the_declared_word_boundary_is_recorded_next_to_the_measurement(
@@ -155,9 +166,9 @@ def test_a_vocabulary_that_cannot_spell_a_split_warns(tmp_path, monkeypatch) -> 
 
     training, heldout = _specs()
     text_cfg = TextConfig()
-    vocab, evicted = build_vocab_from_texts(
-        [t for (code, split), texts in CORPUS.items() if split == "train" for t in texts],
-        policy=text_cfg.policy,
+    vocab, evicted = build_vocab_from_labelled_texts(
+        [(code, t) for (code, split), texts in CORPUS.items() if split == "train" for t in texts],
+        policies_for_specs([*training, *heldout]),
     )
 
     with pytest.warns(UserWarning, match=r"en/test:.*absent from the vocabulary"):

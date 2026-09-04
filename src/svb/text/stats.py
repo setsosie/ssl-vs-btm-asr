@@ -108,7 +108,11 @@ def collect_text_stats(
         for category, count in removed.items():
             stats.removed_by_category[category] += count
         stats.n_chars_normalized += len(normalized)
-        if not normalized:
+        # Blank, not just empty. A policy that does not strip its output —
+        # whisper-basic is faithful to upstream in not doing so — turns a
+        # punctuation-only row into a single space, which is neither a CTC
+        # target nor a scoreable reference any more than "" is.
+        if not normalized.strip():
             stats.n_utts_empty_after_norm += 1
             continue
 

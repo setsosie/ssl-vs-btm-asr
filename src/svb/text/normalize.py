@@ -936,3 +936,18 @@ def module_sha256() -> str:
     that reads them.
     """
     return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+
+
+def registry_digest() -> str:
+    """One digest over every named policy.
+
+    Two runs with the same digest normalized every language the same way,
+    whichever languages they happened to use, so text equivalence can be checked
+    without walking the per-language table.
+    """
+    payload = json.dumps(
+        {name: policy.to_dict() for name, policy in sorted(POLICIES.items())},
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]

@@ -31,6 +31,12 @@ from pathlib import Path
 
 from ..text.normalize import DEFAULT_POLICY, LEGACY_POLICY, NormalizerPolicy, normalize_text
 
+# The key a single-policy vocabulary stores its policy under, and the fallback
+# ``policy_for`` uses when a language has no entry of its own. Named rather than
+# implicit so a vocabulary built over one language, or loaded from a file
+# written before policies were per-language, says which case it is.
+ANY_LANGUAGE = "*"
+
 BLANK = "<blank>"
 UNK = "<unk>"
 
@@ -43,7 +49,12 @@ VOCAB_FILE_FORMAT = 1
 class CtcVocab:
     id_to_char: list[str]
     char_to_id: dict[str, int] = field(default_factory=dict)
-    policy: NormalizerPolicy = DEFAULT_POLICY
+    # One policy per language. A language's characters were derived under its
+    # own policy, so encoding its targets or scoring its hypotheses under
+    # another would put them in a form the vocabulary does not hold.
+    policies: dict[str, NormalizerPolicy] = field(
+        default_factory=lambda: {ANY_LANGUAGE: DEFAULT_POLICY}
+    )
 
     def __post_init__(self) -> None:
         if not self.char_to_id:
@@ -60,6 +71,23 @@ class CtcVocab:
     @property
     def unk_id(self) -> int:
         return 1
+
+    def policy_for(self, code: str) -> NormalizerPolicy:
+        """The policy this language's text is normalized under.
+
+        Raises:
+            KeyError: When the vocabulary has no policy for that language and no
+                single-policy fallback. Loud, because the alternative is
+                encoding one language's targets under another's rules.
+        """
+        if code in self.policies:
+            return self.policies[code]
+        if ANY_LANGUAGE in self.policies:
+            return self.policies[ANY_LANGUAGE]
+        known = ", ".join(sorted(self.policies)) or "none"
+        raise KeyError(
+            f"this vocabulary has no normalization policy for {code!r}; it holds: {known}"
+        )
 
     def encode(self, text: str) -> list[int]:
         """Map already-normalized text to ids.
@@ -84,7 +112,7 @@ class CtcVocab:
     def save(self, path: str | Path) -> None:
         payload = {
             "format": VOCAB_FILE_FORMAT,
-            "policy": self.policy.to_dict(),
+            "policies": {code: p.to_dict() for code, p in sorted(self.policies.items())},
             "id_to_char": self.id_to_char,
         }
         Path(path).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -96,10 +124,17 @@ class CtcVocab:
             # Written before this policy existed: NFC on the targets, nothing
             # else. Load it, and let it say so rather than claim the current
             # policy produced it.
-            return cls(id_to_char=raw, policy=LEGACY_POLICY)
+            return cls(id_to_char=raw, policies={ANY_LANGUAGE: LEGACY_POLICY})
+        if "policy" in raw:
+            # One policy for the whole vocabulary, which is what files written
+            # before policies were per-language carry.
+            return cls(
+                id_to_char=raw["id_to_char"],
+                policies={ANY_LANGUAGE: NormalizerPolicy.from_dict(raw["policy"])},
+            )
         return cls(
             id_to_char=raw["id_to_char"],
-            policy=NormalizerPolicy.from_dict(raw["policy"]),
+            policies={code: NormalizerPolicy.from_dict(p) for code, p in raw["policies"].items()},
         )
 
 
@@ -120,34 +155,39 @@ def require_space_token(vocab: CtcVocab) -> None:
         raise ValueError("vocabulary id 0 is reserved for the CTC blank, not the space character")
 
 
-def _counts(texts: Iterable[str], policy: NormalizerPolicy) -> Counter[str]:
+def _counts(
+    items: Iterable[tuple[str, str]], policies: dict[str, NormalizerPolicy]
+) -> Counter[str]:
+    """Count characters over (language, transcript) pairs, each under its own policy."""
     counts: Counter[str] = Counter()
-    for text in texts:
+    for code, text in items:
+        policy = policies.get(code) or policies[ANY_LANGUAGE]
         counts.update(normalize_text(text, policy))
     return counts
 
 
-def build_vocab_from_texts(
-    texts: Iterable[str],
-    policy: NormalizerPolicy = DEFAULT_POLICY,
+def build_vocab_from_labelled_texts(
+    items: Iterable[tuple[str, str]],
+    policies: dict[str, NormalizerPolicy],
     min_char_count: int = 1,
 ) -> tuple[CtcVocab, dict[str, int]]:
-    """Build a char vocab from training transcripts (sorted for determinism).
+    """Build a char vocab over several languages, each under its own policy.
+
+    The languages share one character inventory but not one set of rules, so the
+    text is normalized per language *before* the characters are pooled. Pooling
+    first and normalizing after would apply one language's rules to another's
+    script, which is the whole thing the per-script policies exist to avoid.
 
     Args:
-        texts: Raw transcripts; they are normalized here, under ``policy``.
-        policy: The normalization policy, stored on the returned vocab.
-        min_char_count: Corpus-wide occurrences a character needs to earn a
-            vocabulary slot. The default keeps everything, which is right for
-            smoke runs where a legitimate character may also be rare; a full run
-            raises it to evict the stray characters that arrive in corpora with
-            no collection-time validation.
+        items: ``(language code, raw transcript)`` pairs.
+        policies: One policy per language code. A ``"*"`` entry serves any
+            language without one of its own.
+        min_char_count: Corpus-wide occurrences a character needs to earn a slot.
 
     Returns:
-        The vocab, and the ``{character: count}`` map of what the floor evicted
-        so the run can record it rather than change the vocabulary silently.
+        The vocab, and the ``{character: count}`` map of what the floor evicted.
     """
-    counts = _counts(texts, policy)
+    counts = _counts(items, policies)
     evicted = {c: n for c, n in counts.items() if n < min_char_count}
     kept = sorted(c for c, n in counts.items() if n >= min_char_count)
     if not kept:
@@ -155,12 +195,24 @@ def build_vocab_from_texts(
             f"min_char_count={min_char_count} evicted every character "
             f"({len(counts)} distinct seen); refusing to build a degenerate vocab"
         )
-    return CtcVocab(id_to_char=[BLANK, UNK, *kept], policy=policy), evicted
+    return CtcVocab(id_to_char=[BLANK, UNK, *kept], policies=dict(policies)), evicted
+
+
+def build_vocab_from_texts(
+    texts: Iterable[str],
+    policy: NormalizerPolicy = DEFAULT_POLICY,
+    min_char_count: int = 1,
+) -> tuple[CtcVocab, dict[str, int]]:
+    """One language, or several sharing one policy. See the labelled form."""
+    return build_vocab_from_labelled_texts(
+        ((ANY_LANGUAGE, t) for t in texts), {ANY_LANGUAGE: policy}, min_char_count
+    )
 
 
 def expand_vocab(
     vocab: CtcVocab,
     new_texts: Iterable[str],
+    code: str = ANY_LANGUAGE,
     policy: NormalizerPolicy | None = None,
     min_char_count: int = 1,
 ) -> tuple[CtcVocab, list[int], dict[str, int]]:
@@ -169,31 +221,38 @@ def expand_vocab(
     Args:
         vocab: The training vocab whose head rows must keep their meaning.
         new_texts: Raw transcripts for the new language.
-        policy: Defaults to the vocab's own. Passing a different one is refused:
-            the new language's characters would enter the head in one form while
+        code: The language being added. Its policy joins the vocabulary's map,
+            so a held-out language is scored under the rules its own characters
+            were derived from rather than under a training language's.
+        policy: Defaults to whatever the vocab already holds for ``code``.
+            Passing a different one for a language the vocab already knows is
+            refused: its characters would enter the head in one form while
             scoring produced another, and nothing would fail.
         min_char_count: Floor for *new* characters only. A character the head
             already has a row for is never evicted, since dropping it would
             renumber ids the checkpoint depends on.
 
     Returns:
-        The expanded vocab, the newly added ids (so the caller can random-init
-        exactly those rows), and what the floor evicted.
+        The expanded vocab, the newly added ids, and what the floor evicted.
     """
-    policy = policy or vocab.policy
-    if policy.policy_hash() != vocab.policy.policy_hash():
+    known = vocab.policies.get(code)
+    policy = policy or known or vocab.policy_for(code)
+    if known is not None and policy.policy_hash() != known.policy_hash():
         raise ValueError(
-            f"policy mismatch: the vocab was built with {vocab.policy.version}/"
-            f"{vocab.policy.policy_hash()} and expansion asked for {policy.version}/"
-            f"{policy.policy_hash()}; the new language's characters would be stored in a "
+            f"policy mismatch for {code!r}: the vocab was built with {known.version}/"
+            f"{known.policy_hash()} and expansion asked for {policy.version}/"
+            f"{policy.policy_hash()}; that language's characters would be stored in a "
             "different form than scoring produces"
         )
 
     existing = set(vocab.id_to_char)
-    counts = _counts(new_texts, policy)
+    counts = _counts(((code, t) for t in new_texts), {code: policy, ANY_LANGUAGE: policy})
     fresh = {c: n for c, n in counts.items() if c not in existing}
     evicted = {c: n for c, n in fresh.items() if n < min_char_count}
     added_chars = sorted(c for c, n in fresh.items() if n >= min_char_count)
 
-    new_vocab = CtcVocab(id_to_char=[*vocab.id_to_char, *added_chars], policy=policy)
+    new_vocab = CtcVocab(
+        id_to_char=[*vocab.id_to_char, *added_chars],
+        policies={**vocab.policies, code: policy},
+    )
     return new_vocab, [new_vocab.char_to_id[c] for c in added_chars], evicted

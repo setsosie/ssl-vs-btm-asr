@@ -18,6 +18,9 @@ guessing, and a wrong guess silently destroys a corpus.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+from typing import Any
+
 from .normalize import NormalizerPolicy, get_policy
 
 # Language code to ISO 15924 script. Common Voice codes, plus the OpenSLR
@@ -181,3 +184,21 @@ def policy_for_language(code: str, explicit: str | None = None) -> NormalizerPol
             "policy because its conventions disagree with each other; name one in "
             "the preset's `normalizer:` field"
         ) from None
+
+
+def policies_for_specs(
+    specs: Iterable[Any], override: str | None = None
+) -> dict[str, NormalizerPolicy]:
+    """The policy map a vocabulary is built with, one entry per language.
+
+    Args:
+        specs: Language specs, each carrying its ``code`` and its optional
+            ``normalizer`` name.
+        override: A policy name that replaces every language's own. This is the
+            switch for scoring an entire run the way one published system
+            scores, at the cost of whatever that system's rules do to the
+            scripts it was not designed for.
+    """
+    return {
+        spec.code: policy_for_language(spec.code, override or spec.normalizer) for spec in specs
+    }

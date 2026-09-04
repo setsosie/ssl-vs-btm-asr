@@ -84,6 +84,7 @@ def test_transfer_loads_the_checkpoint_the_trainer_returned(monkeypatch, tmp_pat
     vocab_stub: Any = mod.CtcVocab(id_to_char=["<blank>", "<unk>", "a", "b"])
     spec = LangSpec(
         code="xx",
+        normalizer="latin-marks",
         source="openslr",
         hf_dataset="x",
         hf_config="x",

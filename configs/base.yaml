@@ -30,22 +30,13 @@ train:
   num_workers: 8
 
 text:
-  # svb-norm-1. Anything changed here changes every reported number, so the
-  # policy and its hash are dumped beside each run's results; two runs under
-  # different hashes are not comparable.
-  policy:
-    version: svb-norm-1
-    form: NFKC
-    case: casefold
-    malayalam_chillu: atomic
-    strip_invisibles: true
-    strip_arabic_marks: true
-    turkish_dotted_i: true
-    unify_apostrophes: true
-    strip_punctuation: true
-    strip_symbols: true
-    apostrophe_is_letter: false
-    digits: keep
+  # No global policy. Each language is normalized under the policy its preset
+  # names, which is chosen for the script it is written in; see
+  # docs/normalization.md. Set `override:` to a policy name to force every
+  # language onto one — useful for comparing against a published system's
+  # numbers, at the cost of whatever that system's rules do to the scripts it
+  # was not designed for.
+  override: null
   # A full run's corpora are large enough that a character occurring under five
   # times corpus-wide is a stray from another script, not a letter of any of the
   # languages. Smoke runs leave this at the code default of 1, where a real

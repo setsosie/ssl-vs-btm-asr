@@ -25,13 +25,12 @@ import torch
 
 from ..model.ctc_vocab import CtcVocab
 from ..model.xeus_standalone import max_label_len_for_samples
-from ..text.normalize import NormalizerPolicy, normalize_text
+from ..text.normalize import normalize_text
 
 
 def make_ctc_collate(
     vocab: CtcVocab,
     *,
-    policy: NormalizerPolicy | None = None,
     max_audio_samples: int | None = None,
     drop_overlong: bool = False,
     drop_empty: bool = False,
@@ -39,9 +38,11 @@ def make_ctc_collate(
     """Return a collate_fn closed over a vocab and its normalization policy.
 
     Args:
-        vocab: Character vocab used to encode targets.
-        policy: Normalization policy; defaults to the vocab's own, which is the
-            one its characters were derived from.
+        vocab: Character vocab used to encode targets. It carries one policy per
+            language, and each item is normalized under the policy of the
+            language it came from — the joint phase-0 loader mixes languages
+            inside a single batch, so a batch-level policy would be wrong for
+            most of it.
         max_audio_samples: The training-time truncation guard, in samples. Only
             used to count how many utterances reach it; the truncation itself
             happens in the dataset. Pass ``None`` for evaluation, where no
@@ -63,7 +64,6 @@ def make_ctc_collate(
     DataLoader workers run in separate processes and their counters would never
     reach the caller.
     """
-    active_policy = policy or vocab.policy
 
     def collate(batch: list[tuple[torch.Tensor, str, str]]) -> dict[str, Any]:
         kept: list[tuple[torch.Tensor, str, str, list[int]]] = []
@@ -72,11 +72,11 @@ def make_ctc_collate(
         n_at_audio_guard = 0
         for wav, raw_text, code in batch:
             n_samples = int(wav.shape[0])
-            text = normalize_text(raw_text, active_policy)
+            text = normalize_text(raw_text, vocab.policy_for(code))
             ids = vocab.encode(text)
             if max_audio_samples is not None and n_samples >= max_audio_samples:
                 n_at_audio_guard += 1
-            if not text:
+            if not text.strip():
                 n_empty_text += 1
                 if drop_empty:
                     continue
