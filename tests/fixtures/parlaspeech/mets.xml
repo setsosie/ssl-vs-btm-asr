@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Trimmed verbatim from
+     https://www.clarin.si/repository/xmlui/metadata/handle/11356/1494/mets.xml
+     Checksums, sizes and hrefs are the published ones. The descriptive section
+     keeps only the rights fields, and the README bitstream keeps its nested
+     <mets:Local><mets:file> element with the body shortened: that nested element
+     has the same local name as a real bitstream entry and is the reason the
+     parser matches on an href rather than on the tag alone. -->
+<mets:METS xmlns:mets="http://www.loc.gov/METS/" xmlns:xlink="http://www.w3.org/TR/xlink/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:dim="http://www.dspace.org/xmlns/dspace/dim" PROFILE="DSPACE METS SIP Profile 1.0" LABEL="DSpace Item" OBJID="/repository/xmlui/handle/11356/1494" ID="hdl:11356/1494">
+<mets:dmdSec ID="dmdSec_1">
+<mets:mdWrap MDTYPE="OTHER" OTHERMDTYPE="DIM">
+<mets:xmlData>
+<dim:dim>
+<dim:field mdschema="dc" language="*" element="title">ASR training dataset for Croatian ParlaSpeech-HR v1.0</dim:field>
+<dim:field qualifier="uri" mdschema="dc" language="*" element="identifier">http://hdl.handle.net/11356/1494</dim:field>
+<dim:field qualifier="iso" mdschema="dc" language="*" element="language">hrv</dim:field>
+<dim:field mdschema="dc" language="*" element="rights">Creative Commons - Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)</dim:field>
+<dim:field qualifier="uri" mdschema="dc" language="*" element="rights">https://creativecommons.org/licenses/by-sa/4.0/</dim:field>
+<dim:field qualifier="label" mdschema="dc" language="*" element="rights">PUB</dim:field>
+<dim:field mdschema="dc" language="*" element="type">corpus</dim:field>
+</dim:dim>
+</mets:xmlData>
+</mets:mdWrap>
+</mets:dmdSec>
+<mets:fileSec>
+<mets:fileGrp USE="CONTENT">
+<mets:file GROUPID="group_file_4348" CHECKSUM="271ef6589623facd86527b1e05b740f4" MIMETYPE="application/octet-stream" SIZE="712525343" ID="file_4348" CHECKSUMTYPE="MD5">
+<mets:FLocat LOCTYPE="URL" xlink:label="Corpus in JSON Lines format" xlink:href="/repository/xmlui/bitstream/handle/11356/1494/ParlaSpeech-HR.v1.0.jsonl?sequence=3&amp;isAllowed=y" xlink:type="locator" xlink:title="ParlaSpeech-HR.v1.0.jsonl"/>
+<mets:Local/>
+</mets:file>
+<mets:file GROUPID="group_file_4353" CHECKSUM="71a7479a87e107510c99bc2602e1076e" MIMETYPE="text/plain" SIZE="1097" ID="file_4353" CHECKSUMTYPE="MD5">
+<mets:FLocat LOCTYPE="URL" xlink:label="README" xlink:href="/repository/xmlui/bitstream/handle/11356/1494/ParlaSpeech-HR.v1.0.txt?sequence=8&amp;isAllowed=y" xlink:type="locator" xlink:title="ParlaSpeech-HR.v1.0.txt"/>
+<mets:Local>
+<mets:file>ASR training dataset for Croatian ParlaSpeech-HR v1.0
+split: either "train", "dev", or "test", or "null" if multiple speakers</mets:file>
+</mets:Local>
+</mets:file>
+<mets:file GROUPID="group_file_4349" CHECKSUM="84076b62f51eb1da9870c1f6c4da436b" MIMETYPE="application/octet-stream" SIZE="52428800000" ID="file_4349" CHECKSUMTYPE="MD5">
+<mets:FLocat LOCTYPE="URL" xlink:label="Speech in FLAC format, slice 0" xlink:href="/repository/xmlui/bitstream/handle/11356/1494/ParlaSpeech-HR.flac.tgz.0?sequence=4&amp;isAllowed=y" xlink:type="locator" xlink:title="ParlaSpeech-HR.flac.tgz.0"/>
+<mets:Local/>
+</mets:file>
+<mets:file GROUPID="group_file_4350" CHECKSUM="8123e76721d437837a2439dd662a973b" MIMETYPE="application/octet-stream" SIZE="52428800000" ID="file_4350" CHECKSUMTYPE="MD5">
+<mets:FLocat LOCTYPE="URL" xlink:label="Speech in FLAC format, slice 1" xlink:href="/repository/xmlui/bitstream/handle/11356/1494/ParlaSpeech-HR.flac.tgz.1?sequence=5&amp;isAllowed=y" xlink:type="locator" xlink:title="ParlaSpeech-HR.flac.tgz.1"/>
+<mets:Local/>
+</mets:file>
+<mets:file GROUPID="group_file_4351" CHECKSUM="cd8e71d1d93a3b89d10a208c288c824e" MIMETYPE="application/octet-stream" SIZE="20321039259" ID="file_4351" CHECKSUMTYPE="MD5">
+<mets:FLocat LOCTYPE="URL" xlink:label="Speech in FLAC format, slice 2" xlink:href="/repository/xmlui/bitstream/handle/11356/1494/ParlaSpeech-HR.flac.tgz.2?sequence=6&amp;isAllowed=y" xlink:type="locator" xlink:title="ParlaSpeech-HR.flac.tgz.2"/>
+<mets:Local/>
+</mets:file>
+</mets:fileGrp>
+</mets:fileSec>
+</mets:METS>
