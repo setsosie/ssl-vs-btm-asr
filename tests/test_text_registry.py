@@ -11,6 +11,7 @@ import pytest
 
 from svb.text.registry import (
     LANGUAGE_SCRIPTS,
+    NO_SPACE_POLICIES,
     SCRIPT_POLICIES,
     policy_for_language,
     script_for_language,
@@ -37,15 +38,29 @@ def test_the_latin_default_is_the_mark_preserving_one() -> None:
     assert SCRIPT_POLICIES["Latn"] == "latin-marks"
 
 
-def test_the_arabic_script_has_no_default_and_says_why() -> None:
+def test_the_arabic_script_has_no_default_and_says_why(monkeypatch) -> None:
     """Its two conventions fold letters in opposite directions, so there is no
     safe guess: Arabic folds the Persian letters onto the Arabic ones and
-    Perso-Arabic folds them back."""
+    Perso-Arabic folds them back.
+
+    Every Arabic-script language currently in use names its policy in the
+    language table, so this exercises the mechanism on one that does not.
+    """
+    from svb.text.registry import SCRIPT_POLICIES
+
     assert "Arab" not in SCRIPT_POLICIES
+    monkeypatch.setitem(LANGUAGE_SCRIPTS, "zz", "Arab")
 
     with pytest.raises(ValueError, match="no default normalization policy"):
-        policy_for_language("ar")
-    assert policy_for_language("ar", "arabic-ouaal").version == "arabic-ouaal"
+        policy_for_language("zz")
+    assert policy_for_language("zz", "arabic-ouaal").version == "arabic-ouaal"
+
+
+def test_the_arabic_script_languages_each_name_their_own_policy() -> None:
+    """They do not share one: Arabic and Perso-Arabic disagree by design."""
+    assert policy_for_language("ar").version == "arabic-ouaal"
+    assert policy_for_language("fa").version == "perso-arabic"
+    assert policy_for_language("ug").version == "uyghur-ug"
 
 
 def test_an_unknown_language_is_refused_rather_than_guessed() -> None:
@@ -160,8 +175,11 @@ def test_japanese_is_the_only_preset_language_scored_on_characters(pytestconfig)
         unspaced = {s.code for s in specs if not s.word_boundary}
         assert unspaced <= {"ja"}
         for spec in specs:
-            if spec.normalizer == "ja-cer":
-                assert not spec.word_boundary
+            # Extends to every policy whose script is written without word
+            # separators, so a regenerated preset that adds Thai or Chinese
+            # cannot quietly leave word error rate as their primary metric.
+            if spec.normalizer in NO_SPACE_POLICIES:
+                assert not spec.word_boundary, spec.code
 
 
 def test_an_unknown_normalizer_in_a_preset_is_refused() -> None:
