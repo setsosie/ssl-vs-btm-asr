@@ -102,19 +102,24 @@ class _Source:
     licence: str = LICENCE
     md5: str | None = None
     drop_audio: tuple[str, ...] = ()
+    #: Nine of the ten real archives wrap everything in `nchlt_<iso>/` and
+    #: isiZulu's does not, so both shapes have to be servable.
+    wrap: str = ""
     served: list[str] = field(default_factory=list)
 
     def archive(self) -> bytes:
         members = [m for m in _audio_members(self.trn, self.tst) if m not in self.drop_audio]
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w") as zf:
-            zf.writestr("LICENSE.txt", b"Creative Commons Attribution 3.0 Unported")
-            zf.writestr("README.txt", b"README: NCHLT Speech Corpus")
-            zf.writestr("transcriptions/nchlt_zul.trn.xml", self.trn)
-            zf.writestr("transcriptions/nchlt_zul.tst.xml", self.tst)
-            zf.writestr("transcriptions/nchlt_zul.trn.dtd", b"<!ELEMENT corpus ( speaker+ )>")
+            zf.writestr(f"{self.wrap}LICENSE.txt", b"Creative Commons Attribution 3.0 Unported")
+            zf.writestr(f"{self.wrap}README.txt", b"README: NCHLT Speech Corpus")
+            zf.writestr(f"{self.wrap}transcriptions/nchlt_zul.trn.xml", self.trn)
+            zf.writestr(f"{self.wrap}transcriptions/nchlt_zul.tst.xml", self.tst)
+            zf.writestr(
+                f"{self.wrap}transcriptions/nchlt_zul.trn.dtd", b"<!ELEMENT corpus ( speaker+ )>"
+            )
             for member in members:
-                zf.writestr(member, b"RIFF____WAVEfmt ")
+                zf.writestr(f"{self.wrap}{member}", b"RIFF____WAVEfmt ")
         return buffer.getvalue()
 
     def payloads(self) -> dict[str, bytes]:
@@ -266,6 +271,38 @@ def test_the_audio_path_drops_the_component_the_archive_does_not_have(
     assert all(row["path"].startswith("audio/") for row in rows)
     for row in rows:
         assert (manifest.parent / row["path"]).exists(), row["path"]
+
+
+def test_both_archive_layouts_produce_paths_that_resolve(
+    prepare_nchlt: ModuleType, fixtures_dir: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Nine of the ten real archives wrap everything in `nchlt_<iso>/` and
+    isiZulu's does not — checked by reading the first local file header of all
+    ten. Assuming either shape leaves nine languages, or one, with a manifest
+    whose every path is wrong, so the root is detected after extraction."""
+    _Source(
+        trn=_fixture_xml(fixtures_dir, "trn"),
+        tst=_fixture_xml(fixtures_dir, "tst"),
+        wrap="nchlt_zul/",
+    ).install(prepare_nchlt, monkeypatch)
+
+    manifest = _prepare(prepare_nchlt, tmp_path)
+    rows = _rows(manifest)
+
+    assert all(row["path"].startswith("nchlt_zul/audio/") for row in rows)
+    for row in rows:
+        assert (manifest.parent / row["path"]).exists(), row["path"]
+    payload = json.loads((manifest.parent / "fetch_manifest.json").read_text(encoding="utf-8"))
+    assert payload["archive_root"] == "nchlt_zul/"
+
+
+def test_the_unwrapped_layout_records_the_root_it_found(
+    prepare_nchlt: ModuleType, source: _Source, tmp_path: Path
+) -> None:
+    manifest = _prepare(prepare_nchlt, tmp_path)
+    payload = json.loads((manifest.parent / "fetch_manifest.json").read_text(encoding="utf-8"))
+
+    assert payload["archive_root"] == "."
 
 
 def test_the_transcript_and_the_speaker_come_out_of_the_xml(

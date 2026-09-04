@@ -442,10 +442,14 @@ def prepare(
     # the loader discover an unresolvable path hours into a run.
     kept = [u for u in utterances if PurePosixPath(u.path).name in written]
     manifest = write_manifest(dest, kept)
-    hours = {
-        name: round(sum(u.seconds for u in kept if u.split == name) / 3600, 2)
+    # Seconds is what was measured; hours is the readable form of it. Both are
+    # recorded because rounding hours to two places loses a small corpus
+    # entirely, and the audit is supposed to survive a small corpus.
+    seconds = {
+        name: round(sum(u.seconds for u in kept if u.split == name), 3)
         for name in SPLIT_NAMES.values()
     }
+    hours = {name: round(value / 3600, 2) for name, value in seconds.items()}
     print(
         f"    {len(kept)} utterances written, hours {hours}, {len(utterances) - len(kept)} "
         "rows without audio"
@@ -463,6 +467,7 @@ def prepare(
             "split_policy": "shipped",
             "published_counts": PUBLISHED_COUNTS,
             "counts": counts,
+            "seconds": seconds,
             "hours": hours,
             "speakers": {
                 name: len({u.speaker for u in kept if u.split == name})

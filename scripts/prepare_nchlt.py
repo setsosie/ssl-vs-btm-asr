@@ -19,14 +19,21 @@ zip's ``_links.content.href``. The same JSON carries ``dc.rights.license``,
 time rather than trusted from ``configs/corpora.yaml``. NCHLT is the only corpus
 in this repository that publishes a checksum; the archive is checked against it.
 
-**Layout**, verified by reading one archive's central directory over HTTP Range
-rather than downloading it, and confirmed by the ``README.txt`` inside::
+**Layout**, verified by reading archives' central directories over HTTP Range
+rather than downloading them, and confirmed by the ``README.txt`` inside::
 
-    LICENSE.txt
-    README.txt
-    audio/<spk_id>/nchlt_<iso>_<spk_id><gender>_<file_number>.wav
-    transcriptions/nchlt_<iso>.trn.xml   (+ .trn.dtd)
-    transcriptions/nchlt_<iso>.tst.xml   (+ .tst.dtd)
+    [nchlt_<iso>/]LICENSE.txt
+    [nchlt_<iso>/]README.txt
+    [nchlt_<iso>/]audio/<spk_id>/nchlt_<iso>_<spk_id><gender>_<file_number>.wav
+    [nchlt_<iso>/]transcriptions/nchlt_<iso>.trn.xml   (+ .trn.dtd)
+    [nchlt_<iso>/]transcriptions/nchlt_<iso>.tst.xml   (+ .tst.dtd)
+
+That leading component is optional because **the ten archives are not packed the
+same way**. Nine wrap everything in ``nchlt_<iso>/``, which is what the README
+documents; isiZulu's puts ``audio/`` and ``transcriptions/`` at the root. Checked
+on all ten by reading the first local file header of each. So the root is
+detected after extraction rather than assumed either way — assuming would leave
+nine languages, or one, with a manifest whose every path is wrong.
 
 ``<iso>`` is ISO 639-3 and is *not* the language code the preset uses: isiZulu is
 ``zul`` in the archive and ``zu`` in the manifest tree. The transcripts are one
@@ -38,9 +45,9 @@ XML file per side, shaped by the shipped DTD::
                    md5sum="..." duration="3.12" pdp_score="-0.6875">
           <orth>ulwazi oluthile mayelana</orth>
 
-The ``audio`` attribute carries a leading ``nchlt_<iso>/`` component that the zip
-itself does not have — the archive unpacks to ``audio/...``, not
-``nchlt_zul/audio/...`` — so that component is stripped rather than trusted.
+The ``audio`` attribute always carries the ``nchlt_<iso>/`` component whether or
+not the archive does, so it is stripped from the attribute and the prefix the
+archive really used is put back.
 
 **Split.** Only two sides ship: ``.trn`` and ``.tst``. The README states the test
 suite is speaker ids 500-507, eight speakers, and this preparer asserts the two
@@ -234,12 +241,31 @@ def check_published_md5(archive: Path, bitstream: dict[str, Any]) -> str | None:
 # --- the transcripts ----------------------------------------------------------
 
 
+def corpus_root(dest: Path, iso: str) -> Path:
+    """Where the archive actually unpacked to.
+
+    **The ten archives are not packed the same way.** Nine wrap everything in an
+    ``nchlt_<iso>/`` directory, which is what the shared README documents.
+    isiZulu's does not: its members are ``audio/``, ``transcriptions/``,
+    ``LICENSE.txt`` and ``README.txt`` at the root. Verified by reading the first
+    local file header of all ten over HTTP Range. Assuming either shape would
+    leave nine languages, or one, with a manifest whose every path is wrong.
+    """
+    for candidate in (dest / f"nchlt_{iso}", dest):
+        if (candidate / "audio").is_dir() and (candidate / "transcriptions").is_dir():
+            return candidate
+    raise FileNotFoundError(
+        f"neither {dest / f'nchlt_{iso}'} nor {dest} holds both audio/ and transcriptions/ "
+        "after extraction; the archive layout has changed"
+    )
+
+
 def strip_corpus_prefix(audio: str, iso: str) -> str:
     """``nchlt_zul/audio/001/x.wav`` -> ``audio/001/x.wav``.
 
-    The XML names every file under a top-level directory the zip does not
-    contain. Stripping it by string prefix rather than by taking the last two
-    components keeps a future archive that *does* nest that way readable.
+    The transcripts name every file under an ``nchlt_<iso>/`` component whether or
+    not the archive has one, so the attribute is normalised here and the prefix
+    the archive really used is put back by the caller.
     """
     parts = PurePosixPath(audio).parts
     if parts and parts[0] == f"nchlt_{iso}":
@@ -252,13 +278,17 @@ def strip_corpus_prefix(audio: str, iso: str) -> str:
     return str(PurePosixPath(*parts))
 
 
-def read_corpus_xml(path: Path, iso: str) -> list[Utterance]:
+def read_corpus_xml(path: Path, iso: str, prefix: str = "") -> list[Utterance]:
     """Utterances of one ``nchlt_<iso>.{trn,tst}.xml``.
 
     Speaker and transcript both come from the file: ``<speaker id>`` is the
     directory number the audio sits in, and ``<orth>`` is the orthographic
     prompt. Whitespace in the prompt is collapsed because the manifest is TSV and
     a stray tab there would shift every column after it.
+
+    Args:
+        prefix: What the archive unpacked under, ``""`` or ``"nchlt_<iso>/"``, so
+            the manifest's paths are relative to the language directory.
     """
     root = ElementTree.parse(path).getroot()
     utterances: list[Utterance] = []
@@ -276,7 +306,7 @@ def read_corpus_xml(path: Path, iso: str) -> list[Utterance]:
             utterances.append(
                 Utterance(
                     utt_id=PurePosixPath(relative).stem,
-                    path=relative,
+                    path=f"{prefix}{relative}",
                     text=text,
                     speaker=speaker_id,
                 )
@@ -363,9 +393,11 @@ def prepare(corpus: Corpus, root: Path, *, keep_archives: bool = False) -> Path:
     if not keep_archives:
         archive.unlink(missing_ok=True)
 
-    transcriptions = dest / "transcriptions"
-    train_side = read_corpus_xml(transcriptions / f"nchlt_{corpus.iso}.trn.xml", corpus.iso)
-    test_side = read_corpus_xml(transcriptions / f"nchlt_{corpus.iso}.tst.xml", corpus.iso)
+    root = corpus_root(dest, corpus.iso)
+    prefix = "" if root == dest else f"{root.name}/"
+    transcriptions = root / "transcriptions"
+    train_side = read_corpus_xml(transcriptions / f"nchlt_{corpus.iso}.trn.xml", corpus.iso, prefix)
+    test_side = read_corpus_xml(transcriptions / f"nchlt_{corpus.iso}.tst.xml", corpus.iso, prefix)
 
     # Drop rows whose audio is not on disk before deriving anything, so the
     # partition is over what the manifest will actually hold. A path that does
@@ -398,6 +430,7 @@ def prepare(corpus: Corpus, root: Path, *, keep_archives: bool = False) -> Path:
             "licence": licence,
             "description": description,
             "published_md5": published_md5,
+            "archive_root": prefix or ".",
             "split_policy": "published test suite, derived speaker-disjoint dev",
             "counts": counts,
             "speakers": {

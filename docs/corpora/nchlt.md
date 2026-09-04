@@ -105,11 +105,24 @@ nchlt_<ISO 639-3>
    └── nchlt_<ISO 639-3>.tst.xml
 ```
 
-The archive itself has no `nchlt_zul/` wrapper: its members are `LICENSE.txt`,
-`README.txt`, `audio/<spk_id>/…` and `transcriptions/…` at the root. The
-transcripts, however, name audio *with* that component, so the preparer strips it
-rather than copying the attribute through — a manifest built the naive way would
-point every row at a path that does not exist.
+**The ten archives are not packed the same way.** Reading the first local file
+header of each shows nine with the `nchlt_<iso>/` wrapper the README documents
+and one without:
+
+| Archive | First member |
+|---|---|
+| `nchlt.speech.corpus.zul.zip` | `audio/` |
+| the other nine | `nchlt_afr/`, `nchlt_nbl/`, `nchlt_nso/`, `nchlt_ssw/`, `nchlt_sot/`, `nchlt_tsn/`, `nchlt_tso/`, `nchlt_ven/`, `nchlt_xho/` |
+
+isiZulu's members are `LICENSE.txt`, `README.txt`, `audio/<spk_id>/…` and
+`transcriptions/…` at the root. So the preparer detects the root after extraction
+rather than assuming either shape; assuming would leave nine languages, or one,
+with a manifest whose every path is wrong. The root it found is recorded as
+`archive_root` in `fetch_manifest.json`.
+
+The transcripts, separately, always name audio *with* the `nchlt_<iso>/`
+component whether or not the archive has one, so it is stripped from the
+attribute and the prefix the archive really used is put back.
 
 The transcript format, from the `.dtd` the archive ships beside each `.xml`:
 

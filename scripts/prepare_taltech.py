@@ -406,12 +406,14 @@ def prepare(root: Path, *, keep_archives: bool = False) -> Path:
         name: sum(1 for s in segments if s.split == name and s.utt_id in audio)
         for name in SPLIT_NAMES.values()
     }
-    hours = {
-        name: round(
-            sum(s.seconds for s in segments if s.split == name and s.utt_id in audio) / 3600, 2
-        )
+    # Seconds is what was measured; hours is the readable form of it. Both are
+    # recorded because rounding hours to two places loses a small corpus
+    # entirely, and the audit is supposed to survive a small corpus.
+    seconds = {
+        name: round(sum(s.seconds for s in segments if s.split == name and s.utt_id in audio), 3)
         for name in SPLIT_NAMES.values()
     }
+    hours = {name: round(value / 3600, 2) for name, value in seconds.items()}
     print(f"    {len(audio)} utterances cut {counts}, hours {hours}")
 
     write_fetch_manifest(
@@ -423,6 +425,7 @@ def prepare(root: Path, *, keep_archives: bool = False) -> Path:
             "licence": licence,
             "split_policy": "shipped",
             "counts": counts,
+            "seconds": seconds,
             "hours": hours,
             "speakers": {
                 name: len({s.speaker for s in segments if s.split == name and s.utt_id in audio})

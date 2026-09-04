@@ -337,8 +337,8 @@ def test_the_hours_per_split_are_measured_from_the_segment_bounds(
     manifest = prepare_parlaspeech.prepare(tmp_path)
     payload = json.loads((manifest.parent / "fetch_manifest.json").read_text(encoding="utf-8"))
 
-    assert payload["hours"]["validation"] == round(20.0 / 3600, 2)
-    assert payload["hours"]["test"] == round(9.0 / 3600, 2)
+    assert payload["seconds"] == {"train": 40.0, "validation": 20.0, "test": 9.0}
+    assert payload["hours"]["train"] == 0.01
 
 
 def test_the_sample_rate_is_read_out_of_the_flac_rather_than_assumed(

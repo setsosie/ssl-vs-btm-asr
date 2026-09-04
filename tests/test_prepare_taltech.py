@@ -414,7 +414,9 @@ def test_the_hours_per_split_are_measured_from_the_segment_bounds(
     manifest = prepare_taltech.prepare(tmp_path)
     payload = json.loads((manifest.parent / "fetch_manifest.json").read_text(encoding="utf-8"))
 
-    assert payload["hours"]["validation"] == round(4.75 / 3600, 2)
+    # 3.766 + 4.535 + 7.521 + 4.65 seconds of transcribed speech, twice over,
+    # because the fixture recording appears under two subsets.
+    assert payload["seconds"] == {"train": 40.944, "validation": 4.75, "test": 6.5}
     assert payload["counts"] == {"train": 8, "validation": 1, "test": 1}
 
 
