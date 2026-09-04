@@ -253,10 +253,15 @@ class CommonVoiceLocal(Dataset):
         text_column: str = "sentence",
         max_samples: int | None = None,
         train_source: str = DEFAULT_TRAIN_SOURCE,
+        code: str | None = None,
     ):
-        # Carried on the item so the collate can normalize each transcript
-        # under its own language's policy.
-        self.lang = lang
+        # ``lang`` is the Common Voice locale directory under ``$CV_ROOT``;
+        # ``code`` is the preset's language code, which is what the policy
+        # registry is keyed by. They coincide in every shipped preset, but an
+        # item must carry the code, not the directory name, or a preset entry
+        # whose code differs from its locale would be normalized under the
+        # wrong policy — silently, since the collate resolves by this value.
+        self.lang = code or lang
         self._clips = _cv_root(root) / lang / "clips"
         self._rows = _rows_for_split(lang, split, root, text_column, train_source)
         self._max = max_samples

@@ -210,3 +210,35 @@ def test_a_row_the_wider_source_added_still_carries_its_language_code(
 
     assert {text for _, text, _ in items} == {"one", "two", "three"}
     assert {lang for _, _, lang in items} == {"en"}
+
+
+def test_an_item_carries_the_preset_code_not_the_locale_directory(
+    make_cv_lang: Callable[..., Path], monkeypatch
+) -> None:
+    """The policy registry is keyed by the preset's ``code``.
+
+    Common Voice stores a language under its locale directory (``hf_config``),
+    and the two coincide in every shipped preset — which is exactly why a
+    mismatch would go unnoticed: the item would carry the directory name, the
+    collate would resolve the policy by it, and a code that differs from its
+    locale would be normalized under the wrong policy without any error.
+    """
+    import torchaudio
+
+    from svb.data.datasets import load_language
+    from svb.data.registry import LangSpec
+
+    monkeypatch.setenv("CV_ROOT", str(make_cv_lang(lang="en")))
+    monkeypatch.setattr(torchaudio, "load", lambda path: (torch.zeros(1, 160), 16000))
+
+    spec = LangSpec(
+        code="en-preset",
+        source="commonvoice",
+        hf_dataset="common_voice_25",
+        hf_config="en",
+        normalizer="whisper-basic",
+    )
+    dataset = load_language(spec, "train", train_source="train")
+    assert isinstance(dataset, CommonVoiceLocal)
+    codes = {dataset[i][2] for i in range(len(dataset))}
+    assert codes == {"en-preset"}
