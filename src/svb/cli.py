@@ -271,21 +271,15 @@ def cmd_run(args: argparse.Namespace) -> None:
 
 
 def cmd_aggregate(args: argparse.Namespace) -> None:
-    from .stats.analysis import aggregate_seeds
+    from .report.aggregate import aggregate_runs, load_runs, to_json, to_markdown
 
-    rows: dict[str, list[float]] = {}
-    base = results_root(args.results_root) / args.arm / args.scale
-    seeds = sorted(p for p in base.glob("seed*") if (p / "results.json").exists())
-    for p in seeds:
-        data = json.loads((p / "results.json").read_text())
-        for section in ("in_distribution", "transfer"):
-            for lang, m in data.get(section, {}).items():
-                rows.setdefault(f"{section}/{lang}", []).append(m["wer"])
-    print(f"# {args.arm} scale={args.scale}  ({len(seeds)} seeds)")
-    print(f"{'metric':32s} {'mean':>8s} {'std':>7s}  n")
-    for k in sorted(rows):
-        agg = aggregate_seeds(rows[k])
-        print(f"{k:32s} {agg.mean:8.2f} {agg.std:7.2f}  {agg.n_seeds}")
+    agg = aggregate_runs(load_runs(results_root(args.results_root), args.arm, args.scale))
+    if args.as_json:
+        # Nothing else on stdout, so the command can be piped straight into a
+        # parser without a filtering step that would have to know the layout.
+        print(json.dumps(to_json(agg), ensure_ascii=False, indent=2))
+        return
+    print(to_markdown(agg), end="")
 
 
 def _add_results_root(parser: argparse.ArgumentParser) -> None:
@@ -328,11 +322,17 @@ def build_parser() -> argparse.ArgumentParser:
     _add_results_root(r)
     r.set_defaults(func=cmd_run)
 
-    a = sub.add_parser("aggregate", help="mean±std across seeds")
+    a = sub.add_parser("aggregate", help="mean±std across seeds (WER, CER, primary)")
     # Same choices as `run`: unvalidated, a misspelled arm printed an empty
     # table, which reads like a run that has not happened rather than a typo.
     a.add_argument("--arm", required=True, choices=ARMS)
     a.add_argument("--scale", required=True, choices=SCALES)
+    a.add_argument(
+        "--json",
+        dest="as_json",
+        action="store_true",
+        help="emit JSON on stdout instead of the Markdown table",
+    )
     _add_results_root(a)
     a.set_defaults(func=cmd_aggregate)
 
