@@ -104,3 +104,22 @@ def test_env_json_omits_a_policy_hash_it_was_not_given(tmp_path: Path) -> None:
 def test_text_config_is_frozen() -> None:
     with pytest.raises(dataclasses.FrozenInstanceError):
         TextConfig().min_char_count = 3  # type: ignore[misc]
+
+
+def test_the_config_does_not_carry_its_own_heldout_list() -> None:
+    """`get_heldout()` reads configs/scales/heldout.yaml and is the only source.
+
+    A second copy on the dataclass was dead code that `to_dict` still wrote into
+    every run's resolved_config.yaml. When the held-out set was cut to four
+    languages in the YAML, that copy went on recording five, so the run's own
+    machine-readable protocol record contradicted the data it evaluated.
+    """
+    cfg = load_config("A_ssl", "3", 0)
+
+    assert not hasattr(cfg, "heldout_langs")
+    assert "heldout_langs" not in cfg.to_dict()
+
+
+def test_an_unread_sample_rate_is_not_offered_as_a_knob() -> None:
+    """16 kHz is hardcoded in both loaders; a config field implied it was a choice."""
+    assert not hasattr(load_config("A_ssl", "3", 0), "sample_rate")

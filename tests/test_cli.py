@@ -55,3 +55,28 @@ def test_aggregate_accepts_the_same_names_as_run() -> None:
 
     assert args.arm == "B_btm_ssl"
     assert args.scale == "64"
+
+
+def test_run_manifest_records_both_resolved_language_sets() -> None:
+    """The held-out set is a fact of the results file, not an inference from it.
+
+    Reading it off the keys of `transfer` cannot distinguish "four languages
+    were configured" from "five were configured and one crashed".
+    """
+    from svb.cli import run_manifest
+    from svb.config import load_config
+    from svb.data.registry import LangSpec
+
+    specs = [LangSpec(code="hi", source="commonvoice", hf_config="hi")]
+    heldout = [
+        LangSpec(
+            code="telugu", source="openslr", slr=66, archives=("a.zip",), index_files=("i.tsv",)
+        )
+    ]
+
+    manifest = run_manifest(load_config("A_ssl", "3", 0), specs, heldout)
+
+    assert manifest["languages"] == ["hi"]
+    assert manifest["heldout_langs"] == ["telugu"]
+    assert manifest["in_distribution"] == {}
+    assert (manifest["arm"], manifest["scale"], manifest["seed"]) == ("A_ssl", "3", 0)

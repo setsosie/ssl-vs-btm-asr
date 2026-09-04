@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from .config import TextConfig, dump_config, load_config
+from .config import ExperimentConfig, TextConfig, dump_config, load_config
 from .provenance import dump_run_meta
 from .seeding import set_all_seeds
 from .text.stats import collect_text_stats
@@ -60,6 +60,28 @@ def _predictions_path(out: Path, code: str) -> Path:
 
 
 SPLITS = ("train", "validation", "test")
+
+
+def run_manifest(
+    cfg: ExperimentConfig, specs: list[LangSpec], heldout: list[LangSpec]
+) -> dict[str, Any]:
+    """The identifying header of a run's ``results.json``.
+
+    The two language lists belong here rather than in ``resolved_config.yaml``.
+    They are *resolved* from ``configs/scales/*.yaml`` at run time, not set by
+    the run, and the dumped config is the configuration as it was rather than
+    what it went on to select. Recording them makes the held-out set a fact of
+    the results file, so a reader never has to infer it from which keys happen
+    to appear under ``transfer``.
+    """
+    return {
+        "arm": cfg.arm,
+        "scale": cfg.scale,
+        "seed": cfg.seed,
+        "languages": [spec.code for spec in specs],
+        "heldout_langs": [spec.code for spec in heldout],
+        "in_distribution": {},
+    }
 
 
 def write_text_stats(
@@ -155,6 +177,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     vocab.save(out / "vocab.json")
     heldout = get_heldout()
     write_text_stats(out / "text_stats.json", specs, heldout, cfg.text, vocab, evicted)
+    results = run_manifest(cfg, specs, heldout)
     # Two collates: training truncates long audio and drops the transcripts that
     # no longer fit, evaluation does neither — a truncated test utterance scored
     # against its full reference is a fabricated error rate.
@@ -162,7 +185,6 @@ def cmd_run(args: argparse.Namespace) -> None:
         vocab, max_audio_samples=cfg.train.max_audio_samples, drop_overlong=True, drop_empty=True
     )
     eval_collate = make_ctc_collate(vocab)
-    results: dict = {"arm": cfg.arm, "scale": cfg.scale, "seed": cfg.seed, "in_distribution": {}}
 
     if cfg.uses_btm:
         phase0 = run_phase0(cfg, specs, vocab, out / "phase0", device)
