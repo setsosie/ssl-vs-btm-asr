@@ -22,6 +22,17 @@ def _run_dir(arm: str, scale: str, seed: int) -> Path:
     return RESULTS_ROOT / arm / scale / f"seed{seed}"
 
 
+def _predictions_path(out: Path, code: str) -> Path:
+    """Per-utterance sidecar for one language's evaluation.
+
+    Bootstrap CIs and paired-permutation tests resample utterances, so they
+    need these pairs on disk; a corpus-level WER cannot be resampled. Held-out
+    transfer already wrote one, which left the in-distribution results — the
+    ones behind the merging findings — with no way to attach an interval.
+    """
+    return out / "predictions" / f"{code}.json"
+
+
 def cmd_run(args: argparse.Namespace) -> None:
     import torch
 
@@ -74,7 +85,15 @@ def cmd_run(args: argparse.Namespace) -> None:
         merged_model.load_state_dict(torch.load(merged_path, map_location=device))
         for spec in specs:
             test_ds = load_language(spec, "test", None)
-            r = evaluate(merged_model, test_ds, vocab, eval_collate, device, cfg.optim.batch_size)
+            r = evaluate(
+                merged_model,
+                test_ds,
+                vocab,
+                eval_collate,
+                device,
+                cfg.optim.batch_size,
+                save_predictions=_predictions_path(out, spec.code),
+            )
             results["in_distribution"][spec.code] = {"wer": r.wer, "cer": r.cer, "n": r.n}
         transfer_init: Path | None = merged_path
     else:
@@ -89,7 +108,15 @@ def cmd_run(args: argparse.Namespace) -> None:
             )
             model.load(res.checkpoint)
             test_ds = load_language(spec, "test", None)
-            r = evaluate(model, test_ds, vocab, eval_collate, device, cfg.optim.batch_size)
+            r = evaluate(
+                model,
+                test_ds,
+                vocab,
+                eval_collate,
+                device,
+                cfg.optim.batch_size,
+                save_predictions=_predictions_path(out, spec.code),
+            )
             results["in_distribution"][spec.code] = {"wer": r.wer, "cer": r.cer, "n": r.n}
         transfer_init = None  # arm A transfers from the bare SSL encoder
 

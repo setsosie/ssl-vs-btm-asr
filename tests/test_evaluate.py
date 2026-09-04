@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 import torch
 from torch.utils.data import Dataset
@@ -77,3 +79,32 @@ def test_reference_keeps_characters_absent_from_the_vocab() -> None:
     assert result.refs == ["a b c"]
     assert result.hyps == ["a b"]
     assert result.wer == pytest.approx(100.0 / 3.0)
+
+
+def test_predictions_sidecar_carries_every_utterance(tmp_path) -> None:
+    """The sidecar is the input to bootstrap CIs, so it needs the pairs.
+
+    Corpus-level WER alone cannot be resampled; the per-utterance (ref, hyp)
+    pairs are what the statistics layer reads back off disk.
+    """
+    import json
+
+    vocab = build_vocab_from_texts(["ab", "abc"])
+    collate = make_ctc_collate(vocab)
+    model = FakeXeusCTC(vocab.size)
+    dataset = ListDataset([(wav_for(vocab, "ab"), "ab"), (wav_for(vocab, "abc"), "abc")])
+    sidecar = tmp_path / "predictions" / "xx.json"
+
+    result = evaluate(
+        model, dataset, vocab, collate, device="cpu", batch_size=2, save_predictions=sidecar
+    )
+
+    saved = json.loads(sidecar.read_text())
+    assert saved["n"] == result.n == 2
+    assert [tuple(p) for p in saved["pairs"]] == list(zip(result.refs, result.hyps, strict=True))
+
+
+def test_cli_predictions_path_is_per_language() -> None:
+    from svb.cli import _predictions_path
+
+    assert _predictions_path(Path("/runs/seed0"), "hi") == Path("/runs/seed0/predictions/hi.json")
