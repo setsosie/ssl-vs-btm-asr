@@ -103,11 +103,17 @@ def average(
     return out
 
 
-def _task_vectors(
-    experts: list[StateDict], base: StateDict, keys: list[str]
-) -> dict[str, torch.Tensor]:
-    """Stack per-expert task vectors (expert - base) as (n_experts, ...)."""
-    return {k: torch.stack([e[k].float() - base[k].float() for e in experts], dim=0) for k in keys}
+def _task_vector(experts: list[StateDict], base: StateDict, key: str) -> torch.Tensor:
+    """Stack one key's per-expert task vectors (expert - base) as (n_experts, ...).
+
+    One key at a time, deliberately. Building the whole dict up front costs
+    ``n_experts`` float32 copies of the entire model on top of the experts
+    themselves: for a 577M-parameter encoder that is about 2.3 GB per expert,
+    so the 64-language tier this study targets would need roughly 150 GB for
+    the task vectors alone and would never reach the merge. Streaming holds one
+    key's stack instead, which is bounded by the largest single parameter.
+    """
+    return torch.stack([e[key].float() - base[key].float() for e in experts], dim=0)
 
 
 def _trim(tv: torch.Tensor, density: float) -> torch.Tensor:
@@ -118,6 +124,11 @@ def _trim(tv: torch.Tensor, density: float) -> torch.Tensor:
     of uniform magnitude — or one padded with the exact zeros of a parameter
     the expert never moved — would be kept in full while reporting that it had
     been trimmed to ``density``.
+
+    ``topk``'s tie-break among equal magnitudes is unspecified and may differ
+    between the CPU and CUDA kernels. That is not a live risk only because
+    merging is CPU-only by construction (``merge_experts`` refuses any other
+    device); moving it to a GPU would quietly change which entries survive.
     """
     if density >= 1.0:
         return tv
@@ -152,10 +163,9 @@ def ties(
     if base is None:
         raise ValueError("TIES requires a base (phase-0) state_dict")
     keys = _mergeable_keys(experts, merge_head)
-    tvs = _task_vectors(experts, base, keys)
     out = _scaffold(experts, base, merge_head)
     for k in keys:
-        merged = _ties_combine(_trim(tvs[k], density))
+        merged = _ties_combine(_trim(_task_vector(experts, base, k), density))
         out[k] = (base[k].float() + merged).to(experts[0][k].dtype)
     return out
 
@@ -179,11 +189,13 @@ def dare_ties(
     if base is None:
         raise ValueError("DARE-TIES requires a base (phase-0) state_dict")
     keys = _mergeable_keys(experts, merge_head)
-    tvs = _task_vectors(experts, base, keys)
     gen = torch.Generator().manual_seed(seed)
     out = _scaffold(experts, base, merge_head)
+    # The generator is consumed in `keys` order, so the mask a key receives is
+    # a function of its position. Reordering this loop would silently reassign
+    # every mask and change the merge without changing the seed.
     for k in keys:
-        tv = tvs[k]
+        tv = _task_vector(experts, base, k)
         mask = (torch.rand(tv.shape, generator=gen) >= drop_p).float()
         tv = tv * mask / (1.0 - drop_p)
         merged = _ties_combine(_trim(tv, density))
