@@ -44,6 +44,32 @@ _POS_KERNEL = 128
 _POS_GROUPS = 16
 
 
+def frontend_output_length(n_samples: int) -> int:
+    """Encoder frames produced by an ``n_samples`` waveform at 16 kHz.
+
+    Closed form of the 7-layer CNN frontend's downsampling, so callers can size
+    a CTC target without running the encoder. The convolutions are unpadded, so
+    each layer maps ``n`` to ``(n - kernel) // stride + 1``, floored at zero for
+    waveforms shorter than the receptive field.
+    """
+    n = int(n_samples)
+    for kernel, stride in zip(_FRONTEND_KERNELS, _FRONTEND_STRIDES, strict=True):
+        n = max(0, (n - kernel) // stride + 1)
+    return n
+
+
+def max_label_len_for_samples(n_samples: int) -> int:
+    """Longest CTC target that ``n_samples`` of audio can still align to.
+
+    CTC needs at least one input frame per target symbol. A target longer than
+    the frame budget cannot be aligned at all: the loss is ``inf``, and the
+    ``zero_infinity`` guard rewrites that to zero — which silences the sample's
+    gradient *and* pulls down the mean loss that checkpoint selection reads.
+    Callers use this to drop such pairs rather than let them score as perfect.
+    """
+    return frontend_output_length(n_samples)
+
+
 # ---------------------------------------------------------------------------
 # Frontend: wav2vec2 CNN feature extractor
 # ---------------------------------------------------------------------------

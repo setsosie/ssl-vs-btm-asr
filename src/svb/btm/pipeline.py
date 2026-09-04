@@ -51,7 +51,9 @@ def run_phase0(
     device: str = "cuda",
 ) -> Path:
     """Joint multilingual CTC training; returns the best checkpoint path."""
-    collate = make_ctc_collate(vocab)
+    collate = make_ctc_collate(
+        vocab, max_audio_samples=cfg.train.max_audio_samples, drop_overlong=True
+    )
     train_ds = ConcatDataset(
         [load_language(s, "train", cfg.train.max_audio_samples) for s in specs]
     )
@@ -72,7 +74,9 @@ def train_experts(
     device: str = "cuda",
 ) -> dict[str, Path]:
     """Fine-tune one expert per language, each branched from phase 0."""
-    collate = make_ctc_collate(vocab)
+    collate = make_ctc_collate(
+        vocab, max_audio_samples=cfg.train.max_audio_samples, drop_overlong=True
+    )
     experts: dict[str, Path] = {}
     for spec in specs:
         model = _make_model(cfg, vocab.size)

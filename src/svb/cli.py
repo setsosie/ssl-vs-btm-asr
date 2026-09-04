@@ -56,7 +56,13 @@ def cmd_run(args: argparse.Namespace) -> None:
     specs = get_preset(cfg.scale)
     vocab = build_training_vocab(specs)
     vocab.save(out / "vocab.json")
-    collate = make_ctc_collate(vocab)
+    # Two collates: training truncates long audio and drops the transcripts that
+    # no longer fit, evaluation does neither — a truncated test utterance scored
+    # against its full reference is a fabricated error rate.
+    train_collate = make_ctc_collate(
+        vocab, max_audio_samples=cfg.train.max_audio_samples, drop_overlong=True
+    )
+    eval_collate = make_ctc_collate(vocab)
     results: dict = {"arm": cfg.arm, "scale": cfg.scale, "seed": cfg.seed, "in_distribution": {}}
 
     if cfg.uses_btm:
@@ -67,8 +73,8 @@ def cmd_run(args: argparse.Namespace) -> None:
         merged_model = XeusCTC(vocab.size, init=cfg.init, checkpoint=cfg.model.xeus_checkpoint)
         merged_model.load_state_dict(torch.load(merged_path, map_location=device))
         for spec in specs:
-            test_ds = load_language(spec, "test", cfg.train.max_audio_samples)
-            r = evaluate(merged_model, test_ds, vocab, collate, device, cfg.optim.batch_size)
+            test_ds = load_language(spec, "test", None)
+            r = evaluate(merged_model, test_ds, vocab, eval_collate, device, cfg.optim.batch_size)
             results["in_distribution"][spec.code] = {"wer": r.wer, "cer": r.cer, "n": r.n}
         transfer_init: Path | None = merged_path
     else:
@@ -78,10 +84,12 @@ def cmd_run(args: argparse.Namespace) -> None:
             lang_dir = out / "finetune" / spec.code
             tr = load_language(spec, "train", cfg.train.max_audio_samples)
             va = load_language(spec, "validation", cfg.train.max_audio_samples)
-            res = train(model, cfg, tr, va, collate, cfg.train.finetune_epochs, lang_dir, device)
+            res = train(
+                model, cfg, tr, va, train_collate, cfg.train.finetune_epochs, lang_dir, device
+            )
             model.load(res.checkpoint)
-            test_ds = load_language(spec, "test", cfg.train.max_audio_samples)
-            r = evaluate(model, test_ds, vocab, collate, device, cfg.optim.batch_size)
+            test_ds = load_language(spec, "test", None)
+            r = evaluate(model, test_ds, vocab, eval_collate, device, cfg.optim.batch_size)
             results["in_distribution"][spec.code] = {"wer": r.wer, "cer": r.cer, "n": r.n}
         transfer_init = None  # arm A transfers from the bare SSL encoder
 

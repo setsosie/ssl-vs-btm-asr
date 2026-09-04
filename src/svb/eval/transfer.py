@@ -65,18 +65,24 @@ def transfer_one(
         model.load(init_ckpt)
     model.expand_head(new_vocab.size, seed=cfg.seed)
 
-    collate = make_ctc_collate(new_vocab)
+    train_collate = make_ctc_collate(
+        new_vocab, max_audio_samples=cfg.train.max_audio_samples, drop_overlong=True
+    )
+    eval_collate = make_ctc_collate(new_vocab)
     train_ds = load_language(lang, "train", cfg.train.max_audio_samples)
     val_ds = load_language(lang, "validation", cfg.train.max_audio_samples)
-    train(model, cfg, train_ds, val_ds, collate, cfg.train.finetune_epochs, out_dir, device)
+    train(model, cfg, train_ds, val_ds, train_collate, cfg.train.finetune_epochs, out_dir, device)
     model.load(out_dir / "best.pt")
 
-    test_ds = load_language(lang, "test", cfg.train.max_audio_samples)
+    # No truncation at test time: a clipped waveform scored against its full
+    # transcript manufactures deletions that the model never had a chance to
+    # avoid.
+    test_ds = load_language(lang, "test", None)
     return evaluate(
         model,
         test_ds,
         new_vocab,
-        collate,
+        eval_collate,
         device=device,
         batch_size=cfg.optim.batch_size,
         save_predictions=out_dir / "predictions.json",

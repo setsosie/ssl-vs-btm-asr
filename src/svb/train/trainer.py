@@ -100,7 +100,13 @@ def train(
     for epoch in range(max_epochs):
         model.train()
         opt.zero_grad(set_to_none=True)
+        n_at_guard = 0
+        n_dropped = 0
         for i, batch in enumerate(train_loader):
+            n_at_guard += int(batch.get("n_at_audio_guard", 0))
+            n_dropped += int(batch.get("n_dropped", 0))
+            if batch["input_values"].shape[0] == 0:
+                continue  # every pair in this batch was dropped as unalignable
             with autocast:
                 out = model(**_model_inputs(batch, device))
                 loss = out["loss"] / cfg.optim.accum_steps
@@ -110,6 +116,12 @@ def train(
                 opt.step()
                 sched.step()
                 opt.zero_grad(set_to_none=True)
+
+        if n_at_guard or n_dropped:
+            print(
+                f"[svb] epoch {epoch}: {n_at_guard} utterances reached the audio "
+                f"truncation guard, {n_dropped} dropped as unalignable"
+            )
 
         val_loss = _validate(model, val_loader, device, autocast)
         if val_loss < best_val:
@@ -130,11 +142,20 @@ def train(
 
 @torch.no_grad()
 def _validate(model: XeusCTC, loader: DataLoader, device: str, autocast) -> float:
+    """Mean validation loss per *utterance*, not per batch.
+
+    The val loader keeps its last short batch, so averaging batch means would
+    let a two-sample tail count as much as a full batch in the number that
+    checkpoint selection reads.
+    """
     model.eval()
     total, n = 0.0, 0
     for batch in loader:
+        n_in_batch = int(batch["input_values"].shape[0])
+        if n_in_batch == 0:
+            continue
         with autocast:
             loss = model(**_model_inputs(batch, device))["loss"]
-        total += float(loss)
-        n += 1
+        total += float(loss) * n_in_batch
+        n += n_in_batch
     return total / max(1, n)
