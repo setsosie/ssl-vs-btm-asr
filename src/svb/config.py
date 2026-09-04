@@ -87,6 +87,13 @@ class ExperimentConfig:
     scale: Scale
     seed: int
     merge_strategy: MergeStrategy = "average"
+    # Whether the CTC head is merged with the encoder, or taken from the phase-0
+    # base. A protocol choice rather than a tuning knob: the experts share one
+    # vocabulary so their heads are commensurable, but merging them is also the
+    # part of the merge most likely to carry the penalty, and encoder-only
+    # merging is the ablation that separates the two. Dumped with the config
+    # because it changes every merged number.
+    merge_head: bool = True
     model: ModelConfig = field(default_factory=ModelConfig)
     optim: OptimConfig = field(default_factory=OptimConfig)
     train: TrainConfig = field(default_factory=TrainConfig)
