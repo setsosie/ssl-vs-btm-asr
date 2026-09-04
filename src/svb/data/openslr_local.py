@@ -58,7 +58,6 @@ then appears in train and test, so the number is not a speaker-independent one.
 
 from __future__ import annotations
 
-import hashlib
 import os
 from pathlib import Path
 
@@ -66,11 +65,10 @@ import torch
 from torch.utils.data import Dataset
 
 from .registry import LangSpec
+from .splits import SPLITS
+from .splits import derive_splits as _derive_splits
 
 TARGET_SR = 16000
-SPLITS = ("train", "validation", "test")
-_FRACTIONS = (0.8, 0.1, 0.1)
-_MIN_GROUPS = len(SPLITS)
 
 Row = tuple[str, str]  # (FileID, transcript)
 _FETCH_HINT = "run `python scripts/fetch_openslr.py --root $OPENSLR_ROOT` first"
@@ -117,69 +115,13 @@ def speaker_of(file_id: str) -> str | None:
     return f"{parts[0]}_{parts[1]}"
 
 
-def _assign_groups(ordered: list[str], groups: dict[str, list[Row]]) -> dict[str, list[str]]:
-    """Give each group to the split with the largest remaining shortfall."""
-    total = sum(len(groups[k]) for k in ordered)
-    targets = {name: frac * total for name, frac in zip(SPLITS, _FRACTIONS, strict=True)}
-    counts = dict.fromkeys(SPLITS, 0)
-    assigned: dict[str, list[str]] = {name: [] for name in SPLITS}
-
-    for key in ordered:
-        # Ties break towards the earlier split, so the choice never depends on
-        # dict ordering.
-        name = max(SPLITS, key=lambda n: (targets[n] - counts[n], -SPLITS.index(n)))
-        assigned[name].append(key)
-        counts[name] += len(groups[key])
-
-    _fill_empty_splits(assigned, groups)
-    return assigned
-
-
-def _fill_empty_splits(assigned: dict[str, list[str]], groups: dict[str, list[Row]]) -> None:
-    """Make sure no split is empty when there are groups enough to go round.
-
-    One dominant group can otherwise swallow the whole target for train and leave
-    validation or test with nothing. Donate the smallest group of the split that
-    holds the most, which costs the donor the least mass.
-    """
-    if sum(len(keys) for keys in assigned.values()) < _MIN_GROUPS:
-        return
-    for name in SPLITS:
-        if assigned[name]:
-            continue
-        donor = max(SPLITS, key=lambda n: (len(assigned[n]), -SPLITS.index(n)))
-        if len(assigned[donor]) < 2:
-            return
-        key = min(assigned[donor], key=lambda k: (len(groups[k]), k))
-        assigned[donor].remove(key)
-        assigned[name].append(key)
-
-
 def derive_splits(rows: list[Row]) -> tuple[dict[str, list[Row]], str, str]:
-    """Partition rows 80/10/10.
+    """Partition rows 80/10/10 with the shared speaker-disjoint derivation.
 
-    Returns the partition, the policy used (``"speaker"`` or ``"utterance"``),
-    and the SHA-1 of the resulting test FileID list, which callers record so a
-    run's provenance pins the exact held-out set it scored on.
+    The FileID is both the grouping key's source and the row's identity, so the
+    two callables the derivation takes are both cheap projections of it.
     """
-    speakers = [speaker_of(file_id) for file_id, _ in rows]
-    resolved = [s for s in speakers if s is not None]
-    if len(resolved) == len(rows) and len(set(resolved)) >= _MIN_GROUPS:
-        policy, keys = "speaker", resolved
-    else:
-        policy, keys = "utterance", [file_id for file_id, _ in rows]
-
-    groups: dict[str, list[Row]] = {}
-    for key, row in zip(keys, rows, strict=True):
-        groups.setdefault(key, []).append(row)
-
-    ordered = sorted(groups, key=lambda k: hashlib.sha1(k.encode("utf-8")).hexdigest())
-    assigned = _assign_groups(ordered, groups)
-
-    # Sorting by FileID makes the result independent of the input row order.
-    parts = {name: sorted(r for k in assigned[name] for r in groups[k]) for name in SPLITS}
-    listing = "\n".join(file_id for file_id, _ in parts["test"])
-    return parts, policy, hashlib.sha1(listing.encode("utf-8")).hexdigest()
+    return _derive_splits(rows, lambda row: speaker_of(row[0]), lambda row: row[0])
 
 
 def _language_rows(spec: LangSpec, root: str | None) -> tuple[Path, list[Row]]:

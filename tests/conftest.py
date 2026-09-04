@@ -121,6 +121,50 @@ def make_cv_lang(tmp_path: Path) -> Callable[..., Path]:
     return build
 
 
+class ManifestRow(NamedTuple):
+    utt_id: str
+    path: str
+    text: str
+    speaker: str
+    split: str  # "" when the corpus ships none and one is derived
+
+
+MANIFEST_COLUMNS = ("utt_id", "path", "text", "speaker", "split")
+
+
+@pytest.fixture
+def make_manifest_corpus(tmp_path: Path) -> Callable[..., Path]:
+    """Build ``$CORPORA_ROOT/<corpus>/<lang>/`` with a manifest and its audio.
+
+    Returns the root. Audio is silent WAV named exactly as the manifest's
+    ``path`` column says, so the loader is exercised on the same join a real
+    corpus would make.
+    """
+
+    def build(
+        rows: list[ManifestRow],
+        corpus: str = "demo_corpus",
+        lang: str = "xx",
+        *,
+        columns: tuple[str, ...] = MANIFEST_COLUMNS,
+        write_audio: bool = True,
+        frames: int = 160,
+        root: Path | None = None,
+    ) -> Path:
+        root = root or (tmp_path / "corpora")
+        base = root / corpus / lang
+        (base / "audio").mkdir(parents=True, exist_ok=True)
+        body = "\t".join(columns) + "\n"
+        for row in rows:
+            body += "\t".join(getattr(row, name) for name in columns) + "\n"
+            if write_audio:
+                _write_silent_wav(base / row.path, frames=frames)
+        (base / "manifest.tsv").write_text(body, encoding="utf-8")
+        return root
+
+    return build
+
+
 @pytest.fixture
 def slr_root(tmp_path: Path, fixtures_dir: Path) -> Path:
     """An extracted two-archive OpenSLR language dir under a fake $OPENSLR_ROOT."""
