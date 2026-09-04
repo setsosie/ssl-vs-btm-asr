@@ -45,7 +45,21 @@ def openslr_detail(spec):
     return line
 
 
-specs = [s for scale in ("3", "16", "64") for s in get_preset(scale)] + get_heldout()
+def preset(scale):
+    """Languages of one scale, or none when that scale is still a placeholder.
+
+    An unpopulated preset raises, which is right for a run and wrong for a
+    report: this command exists to say what data is on disk, so it names the
+    gap and keeps sweeping.
+    """
+    try:
+        return get_preset(scale)
+    except ValueError as exc:
+        print(f"--  scale {scale:3s} {exc}")
+        return []
+
+
+specs = [s for scale in ("3", "16", "64") for s in preset(scale)] + get_heldout()
 
 seen = set()
 for spec in specs:

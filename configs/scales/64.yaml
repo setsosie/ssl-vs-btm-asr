@@ -1,11 +1,24 @@
-# Scale-64 preset.
+# Scale-64 preset — NOT YET POPULATED.
 #
-# TODO(before the 64-lang runs): finalize this list against the CV release you
-# pin — keep only configs with sufficient train hours (the paper's 64-set was a
-# mixed-corpus PhoNet preset; the public repo restricts to Common Voice for
-# clone-and-run reproducibility, so the exact membership differs and must be
-# audited). Start from the 16-set above and add 48 more CV languages, retaining
-# typological spread. Until finalized, the 64-lang tier is the single-run scale
-# anchor (cite the existing large-scale result) rather than a fresh multi-seed
-# target — see paper/PROTOCOL.md.
+# `get_preset("64")` raises while this list is empty, rather than letting a run
+# train on no languages and write a results.json that reads like a finished one.
+#
+# To populate it, start from the 16-language set and add 48 more Common Voice
+# languages under these criteria:
+#
+#   - Common Voice only. The author's earlier 64-language work drew on corpora
+#     this repository does not redistribute, so the membership here is
+#     necessarily different and every language must be re-checked rather than
+#     carried over.
+#   - Enough validated training audio in the release you pin. Check it against
+#     that release's own totals; a language whose train split is an hour will
+#     dominate the variance and teach the merge nothing.
+#   - Typological spread over families and scripts, not the 48 largest
+#     corpora, which are almost all Indo-European.
+#   - Declare `word_boundary: false` for any language whose script does not
+#     separate words, so character error rate is reported as its primary
+#     metric. The run cross-checks the declaration against the transcripts.
+#
+# Until it is populated the 64-language tier is a single-run scale anchor
+# citing the existing large-scale result, not a fresh multi-seed target.
 languages: []

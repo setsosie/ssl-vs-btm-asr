@@ -118,3 +118,32 @@ def test_heldout_indic_languages_are_written_with_spaces(pytestconfig):
     specs = get_heldout(configs_dir=Path(pytestconfig.rootpath) / "configs")
 
     assert all(s.word_boundary for s in specs)
+
+
+def test_an_unpopulated_preset_fails_instead_of_running_on_nothing(pytestconfig):
+    """`--scale 64` is offered by the CLI but the preset is still an empty list.
+
+    An empty preset trains on no languages, evaluates nothing, and writes a
+    results.json that looks like a completed run. Failing by name is the only
+    way a reader can tell that apart from a run that legitimately found no data.
+    """
+    with pytest.raises(ValueError, match="not populated"):
+        get_preset("64", configs_dir=Path(pytestconfig.rootpath) / "configs")
+
+
+def test_an_empty_heldout_file_is_also_refused(tmp_path):
+    (tmp_path / "scales").mkdir()
+    (tmp_path / "scales" / "heldout.yaml").write_text("languages: []\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="not populated"):
+        get_heldout(configs_dir=tmp_path)
+
+
+def test_the_64_preset_names_no_corpus_this_repo_cannot_ship(pytestconfig):
+    """The public repo is Common Voice plus OpenSLR; nothing else may be named."""
+    text = (Path(pytestconfig.rootpath) / "configs" / "scales" / "64.yaml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "PhoNet" not in text
+    assert "paper/PROTOCOL.md" not in text  # a file that does not exist in this repo
