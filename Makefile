@@ -1,4 +1,4 @@
-.PHONY: install fetch data exp aggregate test lint check precommit
+.PHONY: install fetch data exp aggregate tables test lint check precommit
 
 ARM   ?= A_ssl
 SCALE ?= 3
@@ -31,6 +31,13 @@ exp:
 
 aggregate:
 	uv run svb aggregate --arm $(ARM) --scale $(SCALE)
+
+# Regenerate tables/ from the run artifacts. Nothing in tables/ is hand-typed;
+# every number there traces back to a predictions sidecar on disk. Set
+# COMPARE_TO to add a seed-for-seed paired permutation test against another arm:
+#   make tables SCALE=3 ARM=A_ssl COMPARE_TO=B_btm_ssl
+tables:
+	uv run svb analyze --arm $(ARM) --scale $(SCALE) $(if $(COMPARE_TO),--compare-to $(COMPARE_TO),)
 
 test:
 	uv run pytest

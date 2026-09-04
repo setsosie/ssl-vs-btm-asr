@@ -1,9 +1,19 @@
-"""Command-line entry point: ``svb run|aggregate``.
+"""Command-line entry point: ``svb run|aggregate|analyze``.
 
 ``run`` executes one (arm, scale, seed) end to end and writes a single
-``results.json`` plus ``resolved_config.yaml``, ``env.json`` and
-``text_stats.json``. ``aggregate`` reads every seed's results for an
-(arm, scale) and prints mean ± std.
+``results.json`` plus ``resolved_config.yaml``, ``env.json``,
+``text_stats.json`` and a per-language predictions sidecar.
+
+``aggregate`` reads every seed's results for an (arm, scale) and reports WER,
+CER and the per-language primary metric as mean ± std across seeds.
+
+``analyze`` reads the sidecars instead, and reports what a single run's test set
+leaves uncertain: utterance-level bootstrap intervals, and paired permutation
+tests between two arms at the same seed. It writes ``tables/``.
+
+The split between the last two is the point. Seed spread and test-set sampling
+uncertainty are different quantities, and a five-seed standard deviation is not
+a confidence interval.
 """
 
 from __future__ import annotations
@@ -282,6 +292,49 @@ def cmd_aggregate(args: argparse.Namespace) -> None:
     print(to_markdown(agg), end="")
 
 
+def cmd_analyze(args: argparse.Namespace) -> None:
+    from .report.aggregate import load_runs
+    from .report.analyze import render_metric_tables
+
+    root = results_root(args.results_root)
+    runs = [r.path for r in load_runs(root, args.arm, args.scale) if _wanted(r.seed, args.seeds)]
+    if not runs:
+        raise FileNotFoundError(
+            f"no runs for {args.arm}/{args.scale} with seed(s) {sorted(args.seeds)} under {root}"
+        )
+
+    comparisons: list[tuple[Path, Path]] = []
+    if args.compare_to:
+        # Pair within a seed. Two arms at the same seed scored the same test
+        # split, which is what makes the test paired; across seeds it would not
+        # be, and the sidecar reference check would reject it anyway.
+        other = {r.seed: r.path for r in load_runs(root, args.compare_to, args.scale)}
+        comparisons = [
+            (run, other[seed])
+            for run, seed in zip(runs, _seeds_of(runs), strict=True)
+            if seed in other
+        ]
+
+    written = render_metric_tables(
+        scale=args.scale,
+        runs=runs,
+        comparisons=comparisons,
+        out_dir=Path(args.tables_dir),
+        n_resamples=args.resamples,
+    )
+    for path in written:
+        print(f"[svb] wrote {path}")
+
+
+def _seeds_of(runs: list[Path]) -> list[int]:
+    return [int(run.name.removeprefix("seed")) for run in runs]
+
+
+def _wanted(seed: int, chosen: list[int]) -> bool:
+    """No ``--seed`` means every seed that has results."""
+    return not chosen or seed in chosen
+
+
 def _add_results_root(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--results-root",
@@ -335,6 +388,36 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_results_root(a)
     a.set_defaults(func=cmd_aggregate)
+
+    n = sub.add_parser(
+        "analyze", help="utterance-level bootstrap CIs and paired tests, into tables/"
+    )
+    n.add_argument("--arm", required=True, choices=ARMS)
+    n.add_argument("--scale", required=True, choices=SCALES)
+    n.add_argument(
+        "--seed",
+        dest="seeds",
+        type=int,
+        action="append",
+        default=[],
+        help="restrict to this seed; repeatable. Default: every seed with results.",
+    )
+    n.add_argument(
+        "--compare-to",
+        dest="compare_to",
+        default=None,
+        choices=ARMS,
+        help="also run a paired permutation test against this arm, seed for seed",
+    )
+    n.add_argument("--tables-dir", dest="tables_dir", default="tables")
+    n.add_argument(
+        "--resamples",
+        type=int,
+        default=10_000,
+        help="bootstrap and permutation draws (default: 10000)",
+    )
+    _add_results_root(n)
+    n.set_defaults(func=cmd_analyze)
 
     return p
 
