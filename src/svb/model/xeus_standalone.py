@@ -19,6 +19,31 @@ Architecture (577M params):
 NOTE: a bespoke reimplementation is a known correctness risk (an earlier version
 had E-Branchformer forward deviations from the ESPnet reference). See the README
 "ESPnet" note for the planned migration to the reference implementation.
+
+Padding and the time-axis convolutions
+--------------------------------------
+Self-attention is masked, but the two convolutions over time — the cgMLP's
+depthwise ``_CSGU.conv`` and the branch-fusion ``depthwise_conv_fusion``, both
+kernel 31 — are not. Padded frames therefore bleed up to 15 positions into
+valid ones, so an utterance's encoding depends slightly on what shared its
+batch.
+
+This is deliberate, and it is not a bug to be fixed here. The ESPnet reference
+does not mask either convolution: ``ConvolutionalSpatialGatingUnit.forward``
+normalizes and convolves with no mask, ``ConvolutionalGatingMLP.forward``
+accepts a ``mask`` argument and never uses it, and
+``EBranchformerEncoderLayer.forward`` passes its mask only to the attention
+module. (Verified against the pinned fork at
+raw.githubusercontent.com/wanchichen/espnet/5b52d57b4f872ff7babded35316a79642e9e6c12,
+espnet2/asr/layers/cgmlp.py and espnet2/asr/encoder/e_branchformer_encoder.py.)
+The published weights were pretrained under exactly these conditions, so
+masking here would diverge from the checkpoint rather than correct it.
+
+The consequence belongs to the evaluation protocol instead: batch composition
+is part of a reported number. ``eval.evaluate`` therefore batches in descending
+length order at a fixed batch size, which makes membership a function of the
+split rather than of row order, and results are comparable only across runs
+that used the same batch size.
 """
 
 from typing import Any, cast

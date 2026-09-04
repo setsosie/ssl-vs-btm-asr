@@ -108,3 +108,55 @@ def test_cli_predictions_path_is_per_language() -> None:
     from svb.cli import _predictions_path
 
     assert _predictions_path(Path("/runs/seed0"), "hi") == Path("/runs/seed0/predictions/hi.json")
+
+
+def test_evaluation_batches_by_length_and_reports_in_dataset_order() -> None:
+    """Batch mates are chosen by length, so results do not ride on file order.
+
+    The encoder's two time-axis convolutions are unmasked, mirroring the
+    ESPnet reference, so an utterance's frames are influenced by whatever was
+    padded beside it. Grouping by length makes that influence a fixed function
+    of the split rather than of the order rows happen to appear in.
+    """
+    vocab = build_vocab_from_texts(["abcd"])
+    collate = make_ctc_collate(vocab)
+    model = FakeXeusCTC(vocab.size)
+    dataset = ListDataset(
+        [
+            (wav_for(vocab, "a"), "a"),
+            (wav_for(vocab, "abcd"), "abcd"),
+            (wav_for(vocab, "ab"), "ab"),
+        ]
+    )
+
+    seen: list[list[str]] = []
+
+    def spy(batch):  # type: ignore[no-untyped-def]
+        out = collate(batch)
+        seen.append(list(out["texts"]))
+        return out
+
+    result = evaluate(model, dataset, vocab, spy, device="cpu", batch_size=2)
+
+    assert seen == [["abcd", "ab"], ["a"]]
+    assert result.refs == ["a", "abcd", "ab"]  # sidecar stays in dataset order
+
+
+def test_length_sorting_can_be_turned_off() -> None:
+    from svb.eval.evaluate import evaluate as run_eval
+
+    vocab = build_vocab_from_texts(["abcd"])
+    collate = make_ctc_collate(vocab)
+    model = FakeXeusCTC(vocab.size)
+    dataset = ListDataset([(wav_for(vocab, "a"), "a"), (wav_for(vocab, "abcd"), "abcd")])
+
+    seen: list[list[str]] = []
+
+    def spy(batch):  # type: ignore[no-untyped-def]
+        out = collate(batch)
+        seen.append(list(out["texts"]))
+        return out
+
+    run_eval(model, dataset, vocab, spy, device="cpu", batch_size=2, sort_by_length=False)
+
+    assert seen == [["a", "abcd"]]
