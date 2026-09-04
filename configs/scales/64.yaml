@@ -6,24 +6,24 @@
 # Voice 25 would make it.
 #
 # The rule this list applies is at least 50 hours of training audio plus a real
-# dev and a real test split — at least 2 hours of each. Applied to the official
-# train/dev/test partitions of Common Voice 25 as Mozilla's own release
-# statistics report them, exactly **24** of 290 locales clear it. Reaching 64
-# would mean dropping the training threshold to about 5 hours, a tenth of the
-# rule, which is the opposite of what the threshold is for: a language with a
-# few hours contributes variance to a multilingual mix rather than signal, and
-# teaches a merge nothing.
+# dev and a real test split — at least 2 hours of each. Training audio means
+# validated minus the evaluation splits, which is what a run reads, not the
+# official train.tsv: Corpora Creator builds that from a deduplicated frame at
+# roughly one clip per sentence, so it is about a third of the validated audio.
+# On the pool a run reads, **44** of Common Voice 25's 290 locales clear the
+# rule.
 #
-# The other 8 entries are the members of the 16-language preset that miss the
-# rule at this release. They are kept, and marked below, because the paper's
-# design already commits to the 16 and to the 3 inside it; dropping them here
-# would stop the smaller tiers from being subsets of this one, and a scale
-# comparison between tiers that do not nest is a comparison of which languages
-# as much as of how many.
+# This list is not those 44. It holds the 32 languages selected against the
+# official train.tsv, back when only 24 locales cleared 50 hours, and it has NOT
+# been regenerated: a decision is pending on whether the largest tier should be
+# the 44+ this corpus supports or a 64 that draws on other corpora as well. Every
+# language here is still selected by the rule, so this is a subset of it, and
+# docs/languages.md names the fourteen it is missing.
 #
-# So: 24 languages that qualify + 8 that the design carries = 32. Whether a
-# 32-language tier is what the paper should call its largest scale, or whether
-# the scale ladder should be renumbered, is a decision this file cannot make.
+# Reaching 64 languages from Common Voice alone is now a question of where the
+# threshold goes rather than whether it is possible: 16 hours of training audio
+# selects exactly 64. That is a decision about what the paper wants its largest
+# scale to mean, and this file does not make it.
 #
 # Every locale considered, with its hours and the reason it is in or out, is in
 # docs/languages.md. Regenerate the list with scripts/select_languages.py.
@@ -55,8 +55,11 @@ languages:
   - { code: uz, source: commonvoice, hf_dataset: common_voice_25, hf_config: uz, text_column: sentence, normalizer: latin-marks }
   - { code: nl, source: commonvoice, hf_dataset: common_voice_25, hf_config: nl, text_column: sentence, normalizer: whisper-basic }
 
-  # Below the rule at Common Voice 25, kept because the 16-language preset
-  # commits to them. Their train-split hours are in docs/languages.md.
+  # Below the rule on the official train.tsv, kept because the 16-language
+  # preset commits to them and the smaller tiers have to stay subsets of this
+  # one. On the pool a run actually reads, six of these eight clear the rule on
+  # their own — only Finnish (11.1 h) and Hindi (7.0 h) still do not. Hours per
+  # language are in docs/languages.md.
   - { code: tr, source: commonvoice, hf_dataset: common_voice_25, hf_config: tr, text_column: sentence, normalizer: turkic-tr }
   - { code: ru, source: commonvoice, hf_dataset: common_voice_25, hf_config: ru, text_column: sentence, normalizer: whisper-basic }
   - { code: uk, source: commonvoice, hf_dataset: common_voice_25, hf_config: uk, text_column: sentence, normalizer: whisper-basic }

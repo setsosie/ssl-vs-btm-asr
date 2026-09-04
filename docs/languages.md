@@ -165,6 +165,22 @@ Four of them — Chinese, Cantonese, Thai and the Japanese already in the preset
 are written without spaces, so a regeneration would add three more languages
 reported on character error rate as their primary metric.
 
+**A regeneration is blocked on normalization policy, not on these hours.** Every
+preset entry needs a policy, and `src/svb/text/registry.py` cannot resolve one
+for most of these yet:
+
+| Pending language | State in the text registry |
+|---|---|
+| lv, pt, cy, cs | script recorded (`Latn`); would default to `latin-marks`, but their European-Latin peers in the preset name `whisper-basic`, so each needs an explicit `normalizer:` to match |
+| fa, ur | script recorded (`Arab`); `Arab` has **no** default policy, deliberately — the family's conventions fold letters in opposite directions, so each Arabic-script language names its own |
+| kbd, ady, kmr, fy-NL | not in `LANGUAGE_SCRIPTS` at all |
+| zh-CN, yue, th | not in `LANGUAGE_SCRIPTS`, and `Hans`, `Hant` and `Thai` have no policy in `SCRIPT_POLICIES` either — a no-space script scored on character error rate still needs rules for what to strip first |
+
+Adding a language to the preset without that work fails at load time rather than
+silently, which is the intended behaviour: guessing a script from a language
+code is how a corpus gets quietly destroyed. See
+[`normalization.md`](normalization.md).
+
 ## Three rules that override the arithmetic
 
 **Held-out transfer languages are excluded however large.** Malayalam, Marathi,

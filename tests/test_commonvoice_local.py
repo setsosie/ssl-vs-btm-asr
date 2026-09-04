@@ -13,6 +13,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+import torch
 
 from svb.data.commonvoice_local import (
     CommonVoiceLocal,
@@ -186,3 +187,26 @@ def test_the_dataset_reads_the_rows_the_selection_chose(
 
     assert len(CommonVoiceLocal("en", "train", train_source="train")) == 2
     assert len(CommonVoiceLocal("en", "train", train_source="validated_minus_eval")) == 3
+
+
+def test_a_row_the_wider_source_added_still_carries_its_language_code(
+    make_cv_lang: Callable[..., Path], monkeypatch
+) -> None:
+    """The two things this loader does have to hold at once.
+
+    The training rows come from validated minus the evaluation splits, and every
+    item carries the language it came from so the collate can normalize it under
+    that language's own policy. A change to either one can quietly drop the
+    other, and `v3` — a row only the wider source selects — is where that would
+    show.
+    """
+    import torchaudio
+
+    monkeypatch.setenv("CV_ROOT", str(make_cv_lang()))
+    monkeypatch.setattr(torchaudio, "load", lambda path: (torch.zeros(1, 160), 16000))
+
+    dataset = CommonVoiceLocal("en", "train", train_source="validated_minus_eval")
+    items = [dataset[i] for i in range(len(dataset))]
+
+    assert {text for _, text, _ in items} == {"one", "two", "three"}
+    assert {lang for _, _, lang in items} == {"en"}
