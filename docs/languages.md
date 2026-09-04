@@ -250,18 +250,28 @@ are in [`normalization.md`](normalization.md).
 
 | Script | Languages in the presets | Policy |
 |---|---|---|
-| `Latn` (European) | en de fr es it nl pl fi ca eo eu hu gl | `whisper-basic` |
+| `Latn` (European) | en de fr es it nl pl fi ca eo eu hu gl pt cs lv cy fy-NL | `whisper-basic` |
 | `Latn` (Turkic) | tr | `turkic-tr` |
-| `Latn` (other) | sw rw lg kab uz | `latin-marks` |
-| `Cyrl` | ru uk be ab ba mhr | `whisper-basic` |
+| `Latn` (other) | sw rw lg kab uz kmr | `latin-marks` |
+| `Cyrl` | ru uk be ab ba mhr kbd ady | `whisper-basic` |
 | `Geor` | ka | `whisper-basic` |
 | `Deva` `Taml` `Mlym` `Telu` `Gujr` | hi ta, held-out ml mr te gu | `indic-vistaar` |
-| `Arab` | ar / ps / ug | `arabic-ouaal` / `perso-arabic` / `uyghur-ug` |
+| `Arab` | ar / fa ur ckb ps / ug | `arabic-ouaal` / `perso-arabic` / `uyghur-ug` |
 | `Jpan` | ja | `ja-cer` |
+| `Thai` | th | `thai-cer` |
+| `Hans` `Hant` | zh-CN, yue | `han-mer` |
 
 Turkish is the one European-script language not on `whisper-basic`, and the
-Arabic-script three each take a different policy: the family's conventions fold
-letters in opposite directions, so there is no single Arabic-script answer.
+Arabic-script locales split three ways: the family's conventions fold letters in
+opposite directions, so there is no single Arabic-script answer.
+
+Thai, Chinese and Cantonese join Japanese in being written without word
+separators, so they are scored on characters and their preset entries carry
+`word_boundary: false`. The test suite checks that pairing, so a regenerated
+preset cannot leave word error rate as their primary metric by omission. Note
+that the published Chinese convention is Mixture Error Rate rather than
+character error rate; the two differ on code-mixed utterances, quantified in
+[`normalization.md`](normalization.md).
 
 ## Typological spread
 
