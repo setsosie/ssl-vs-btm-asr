@@ -101,13 +101,23 @@ def test_an_unpopulated_preset_stops_before_the_run_directory_exists(
     """A preset that cannot be run must not leave a directory that looks run.
 
     `resolved_config.yaml` and `env.json` were written before the languages were
-    resolved, so a scale-64 job left `results/<arm>/64/seed<N>/` behind holding
-    exactly the two files a started run writes first — indistinguishable from a
-    run that died in training.
+    resolved, so a job on an unpopulated scale left `results/<arm>/<scale>/
+    seed<N>/` behind holding exactly the two files a started run writes first —
+    indistinguishable from a run that died in training.
+
+    Every preset in the tree is populated now, so the refusal is provoked by
+    making the lookup raise rather than by naming a scale that happens to be
+    empty. `cmd_run` resolves `get_preset` from the registry module at call
+    time, so patching it there is what the run actually sees.
     """
     import argparse
 
     from svb.cli import cmd_run
+
+    def unpopulated(scale, configs_dir=None):
+        raise ValueError(f"preset {scale} is not populated")
+
+    monkeypatch.setattr("svb.data.registry.get_preset", unpopulated)
 
     args = argparse.Namespace(
         arm="A_ssl",
