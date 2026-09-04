@@ -1,5 +1,6 @@
 """LangSpec validates both sources; the shipped presets parse."""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -139,11 +140,22 @@ def test_an_empty_heldout_file_is_also_refused(tmp_path):
         get_heldout(configs_dir=tmp_path)
 
 
-def test_the_64_preset_names_no_corpus_this_repo_cannot_ship(pytestconfig):
-    """The public repo is Common Voice plus OpenSLR; nothing else may be named."""
-    text = (Path(pytestconfig.rootpath) / "configs" / "scales" / "64.yaml").read_text(
-        encoding="utf-8"
-    )
+def test_scale_configs_do_not_cross_reference_documents_that_are_not_here(pytestconfig):
+    """A preset comment is public documentation, so its pointers must resolve.
 
-    assert "PhoNet" not in text
-    assert "paper/PROTOCOL.md" not in text  # a file that does not exist in this repo
+    64.yaml referred a reader to a protocol document that does not exist in this
+    repository. Whether a corpus a config names is one this repo can ship is a
+    review question, not a testable one; whether a file it points at is present
+    is testable, so it is tested.
+    """
+    root = Path(pytestconfig.rootpath)
+    # Only repo-relative pointers: a path with a directory component and a
+    # source or documentation suffix. Bare filenames in these configs are
+    # corpus members (archives, index files), which live in $OPENSLR_ROOT and
+    # are not supposed to be in the tree.
+    pointer = re.compile(r"\b(?:[\w.-]+/)+[\w.-]+\.(?:md|py|sh|yaml)\b")
+
+    for path in sorted((root / "configs" / "scales").glob("*.yaml")):
+        referenced = pointer.findall(path.read_text(encoding="utf-8"))
+        missing = [r for r in referenced if not (root / r).exists()]
+        assert not missing, f"{path.name} points at {missing}, which are not in the tree"

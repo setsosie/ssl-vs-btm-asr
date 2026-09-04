@@ -71,7 +71,9 @@ def main() -> None:
 
         try:
             sizes = {split: len(load_texts(spec, split)) for split in SPLITS}
-        except Exception as exc:  # report and keep sweeping
+        # Broad on purpose: one unreachable corpus must not end the sweep, since
+        # the point of this command is to report which ones are reachable.
+        except Exception as exc:
             print(f"ERR {spec.code:12s} {spec.source:11s} {type(exc).__name__}: {exc}")
             continue
 

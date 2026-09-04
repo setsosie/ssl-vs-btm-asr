@@ -5,9 +5,10 @@ abstract: >-
   Is it self-supervised pretraining or the Branch-Train-Merge pipeline that
   carries low-resource multilingual ASR? A clean, multi-seed ablation on the
   XEUS encoder across three training conditions, three language scales, and
-  five held-out Indic transfer languages.
+  four held-out Indic transfer languages.
 type: software
 version: "0.1.0"
+date-released: "2026-09-04"
 license: MIT
 repository-code: "https://github.com/setsosie/ssl-vs-btm-asr"
 keywords:
@@ -18,12 +19,12 @@ keywords:
   - multilingual
   - low-resource-languages
 authors:
-  # TODO before release: replace this entity entry with a person entry
-  # (given-names / family-names) and add an ORCID. It currently carries the git
-  # commit handle because that is the only author identity recorded in the
-  # repository, and guessing a legal name would be worse than leaving this
-  # visible.
+  # The git author identity, verbatim. An entity entry rather than a person
+  # entry because the repository records a handle, not given and family names,
+  # and inventing them to satisfy the schema would put a guess in the citation
+  # metadata. Replace with a person entry and an ORCID when archiving.
   - name: "setsosie"
+    email: "shawn@firstlanguages.ai"
 references:
   # The encoder this work fine-tunes. All credit for the model and weights
   # belongs to its authors; this repository only loads and adapts them.
