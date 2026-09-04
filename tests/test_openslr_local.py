@@ -196,3 +196,29 @@ def test_load_texts_does_not_touch_audio(slr_root):
         wav.unlink()
     texts = load_openslr_texts(SPEC, "train", root=str(slr_root))
     assert texts and all(isinstance(t, str) and t for t in texts)
+
+
+def test_few_and_uneven_speakers_drift_far_from_the_nominal_fractions():
+    """Whole speakers are indivisible, so 80/10/10 is nominal, not realised.
+
+    Marathi has nine speakers. Evenly sized they land close to the target;
+    unevenly sized one speaker can take most of the corpus and leave the test
+    split tiny. Pinned because the docstring makes this claim, and because a
+    reader comparing transfer numbers needs to know the test split can be a few
+    dozen utterances rather than a tenth of the corpus.
+    """
+    even = [(f"mrf_{s:05d}_{u:08d}", "t") for s in range(9) for u in range(174)]
+    parts, policy, _ = derive_splits(even)
+    assert policy == "speaker"
+    fractions = [len(parts[s]) / len(even) for s in SPLITS]
+    assert fractions[0] == pytest.approx(0.78, abs=0.02)
+    assert fractions[1] == pytest.approx(0.11, abs=0.02)
+    assert fractions[2] == pytest.approx(0.11, abs=0.02)
+
+    # One dominant speaker plus eight small ones: same nine speakers, far worse split.
+    sizes = [1000, 40, 40, 40, 40, 40, 40, 40, 40]
+    uneven = [(f"mrf_{s:05d}_{u:08d}", "t") for s, n in enumerate(sizes) for u in range(n)]
+    parts, policy, _ = derive_splits(uneven)
+    assert policy == "speaker"
+    assert len(parts["test"]) / len(uneven) < 0.10  # nowhere near a tenth
+    assert all(parts[s] for s in SPLITS)  # but never empty
