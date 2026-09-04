@@ -82,8 +82,6 @@ module = ["torchaudio.*", "soundfile.*", "jiwer.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-# Annotations are required for `svb.*` -- except in the modules below, which are
-# being rewritten on parallel branches. Each entry is that branch's to delete;
-# do not add to this block.
+# Annotations are required throughout `svb.*`, with no exemptions.
 module = ["svb.*"]
 disallow_untyped_defs = true
