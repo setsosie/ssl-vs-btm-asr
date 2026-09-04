@@ -280,7 +280,9 @@ therefore clobber it, so the fetch script writes each archive's index under the
 name the config declares. That is why `archives` and `index_files` in
 `configs/scales/heldout.yaml` are parallel lists.
 
-**Integrity.** openslr.org publishes no checksums for these resources. An
+**Integrity.** openslr.org publishes no checksums for these four resources —
+it does for some others, including Zeroth Korean, so this is a fact about
+SLR63/64/66/78 rather than about the host. An
 archive is accepted when its length matches the server's `Content-Length` — when
 the server sends one — and a full zip CRC pass succeeds; a failing archive is
 deleted rather than extracted. Where there is no `Content-Length` the length
