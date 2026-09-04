@@ -93,3 +93,36 @@ def test_merge_head_can_be_turned_off_from_the_command_line() -> None:
     assert parser.parse_args(base).merge_head is None
     assert parser.parse_args([*base, "--no-merge-head"]).merge_head is False
     assert parser.parse_args([*base, "--merge-head"]).merge_head is True
+
+
+def test_an_unpopulated_preset_stops_before_the_run_directory_exists(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """A preset that cannot be run must not leave a directory that looks run.
+
+    `resolved_config.yaml` and `env.json` were written before the languages were
+    resolved, so a scale-64 job left `results/<arm>/64/seed<N>/` behind holding
+    exactly the two files a started run writes first — indistinguishable from a
+    run that died in training.
+    """
+    import argparse
+
+    from svb.cli import cmd_run
+
+    args = argparse.Namespace(
+        arm="A_ssl",
+        scale="64",
+        seed=0,
+        config=None,
+        merge_strategy=None,
+        merge_head=None,
+        device="cpu",
+        results_root=str(tmp_path),
+    )
+
+    with pytest.raises(SystemExit) as excinfo:
+        cmd_run(args)
+
+    # One line the reader can act on, not a traceback.
+    assert "not populated" in str(excinfo.value)
+    assert list(tmp_path.rglob("*")) == []

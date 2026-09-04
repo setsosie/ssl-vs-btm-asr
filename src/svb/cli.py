@@ -182,16 +182,26 @@ def cmd_run(args: argparse.Namespace) -> None:
         args.arm, args.scale, args.seed, yaml_path=args.config, overrides=overrides or None
     )
     device = args.device
+
+    # Resolve the languages before anything is written. An unpopulated preset
+    # raises, and raising after the run directory exists leaves behind the two
+    # files a started run writes first — a directory indistinguishable from a
+    # job that died in training, one per seed, on every scheduler slot the
+    # matrix submitted.
+    try:
+        specs = get_preset(cfg.scale)
+        heldout = get_heldout()
+    except (ValueError, FileNotFoundError) as exc:
+        raise SystemExit(f"[svb] {exc}") from exc
+
     out = _run_dir(results_root(args.results_root), cfg.arm, cfg.scale, cfg.seed)
     out.mkdir(parents=True, exist_ok=True)
     dump_config(cfg, out)
     dump_run_meta(out, policy=cfg.text.policy)
     set_all_seeds(cfg.seed)
 
-    specs = get_preset(cfg.scale)
     vocab, evicted = build_training_vocab(specs, cfg.text)
     vocab.save(out / "vocab.json")
-    heldout = get_heldout()
     write_text_stats(out / "text_stats.json", specs, heldout, cfg.text, vocab, evicted)
     results = run_manifest(cfg, specs, heldout)
     # Two collates: training truncates long audio and drops the transcripts that
