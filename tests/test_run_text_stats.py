@@ -17,13 +17,16 @@ from svb.config import TextConfig
 from svb.data.registry import LangSpec
 from svb.model.ctc_vocab import build_vocab_from_texts
 
+# Every split's characters appear in its language's training split, as a real
+# corpus split of one language mostly does. Anything else would make the
+# unknown-character warning fire throughout the suite and bury a real one.
 CORPUS = {
     ("en", "train"): ["Hello, world!", "the cat sat", "a dog ran"],
-    ("en", "validation"): ["good morning"],
+    ("en", "validation"): ["the dog ran"],
     ("en", "test"): ["hello there", "!!!"],
     ("ja", "train"): ["コーヒーを飲む", "今日はいい天気"],
-    ("ja", "validation"): ["犬が走る"],
-    ("ja", "test"): ["猫が寝る"],
+    ("ja", "validation"): ["今日は飲む"],
+    ("ja", "test"): ["いい天気"],
     ("telugu", "train"): ["ఇది తెలుగు భాష."],
     ("telugu", "validation"): ["ఇది తెలుగు"],
     ("telugu", "test"): ["తెలుగు భాష"],
@@ -130,7 +133,11 @@ def test_the_heldout_language_is_measured_against_its_expanded_vocab(tmp_path, s
 
 
 def test_what_the_floor_evicted_is_recorded(tmp_path, stub_texts) -> None:
-    data = _write(tmp_path, min_char_count=2)
+    """A floor of two on a corpus this small evicts most of the alphabet, which
+    is exactly when the unknown-character warning should be shouting: the floor
+    is what put those characters out of reach."""
+    with pytest.warns(UserWarning, match="absent from the vocabulary"):
+        data = _write(tmp_path, min_char_count=2)
 
     assert data["training_vocab_evicted"]
     assert all(count < 2 for count in data["training_vocab_evicted"].values())
