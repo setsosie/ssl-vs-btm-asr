@@ -1,70 +1,136 @@
-# Large-scale preset — 32 languages, not 64.
+# Large-scale preset — 64 languages.
 #
-# The scale tiers were planned as 3 / 16 / 64 and this file keeps the name of
-# the tier it fills, so `get_preset("64")` and `--scale 64` still resolve. What
-# it does not do is contain 64 languages, and no amount of searching Common
-# Voice 25 would make it.
+# Forty-six come from Common Voice 25 and eighteen from other public corpora,
+# each recorded in configs/corpora.yaml with its licence, download and hours.
 #
-# The rule this list applies is at least 50 hours of training audio plus a real
-# dev and a real test split — at least 2 hours of each. Training audio means
-# validated minus the evaluation splits, which is what a run reads, not the
-# official train.tsv: Corpora Creator builds that from a deduplicated frame at
-# roughly one clip per sentence, so it is about a third of the validated audio.
-# On the pool a run reads, **44** of Common Voice 25's 290 locales clear the
-# rule.
+# The rule is at least 50 hours of training audio plus a real dev and a real
+# test split of at least 2 hours each. Training audio means what a run actually
+# reads: for Common Voice, validated minus the evaluation splits; for a corpus
+# that ships a partition, its train split; for one that does not, the total less
+# the tenth each the loader's derivation gives dev and test.
 #
-# This list is not those 44. It holds the 32 languages selected against the
-# official train.tsv, back when only 24 locales cleared 50 hours, and it has NOT
-# been regenerated: a decision is pending on whether the largest tier should be
-# the 44+ this corpus supports or a 64 that draws on other corpora as well. Every
-# language here is still selected by the rule, so this is a subset of it, and
-# docs/languages.md names the fourteen it is missing.
+# Seven entries are below the rule and say so in docs/languages.md rather than
+# quietly passing. Four NCHLT languages (zu 48.5 h, xh 49.4, ts 49.8, ve 49.6)
+# ship a train split just under the bar against a corpus of about 56 hours.
+# Korean has 42.2 h once its 1.2-hour shipped test is discarded and all 52.8 h
+# are repartitioned, and it is the only openly-licensed Korean corpus there is,
+# so dropping it would cost the preset the Koreanic family and Hangul outright.
+# Finnish (11.1 h) and Hindi (7.0 h) are carried because the 3- and 16-language
+# presets commit to them and the tiers have to nest.
 #
-# Reaching 64 languages from Common Voice alone is now a question of where the
-# threshold goes rather than whether it is possible: 16 hours of training audio
-# selects exactly 64. That is a decision about what the paper wants its largest
-# scale to mean, and this file does not make it.
+# Thirty-two entries carry no `normalizer:` yet — the fourteen Common Voice
+# languages added when the training statistic changed, and all eighteen new
+# corpora. Their policies land separately. A preset entry with no policy loads
+# fine and fails a run at policy resolution, by name; the alternative, a
+# placeholder policy name, would make the preset itself unloadable.
 #
-# Every locale considered, with its hours and the reason it is in or out, is in
-# docs/languages.md. Regenerate the list with scripts/select_languages.py.
+# The held-out transfer languages (ml, mr, te, gu) and Odia are absent by rule.
+# Five of the corpora below come from the same crowdsourced programme as the
+# held-out four, so that is enforced by a test, not by care.
 #
-# CV25 is local-only: set $CV_ROOT so $CV_ROOT/<hf_config>/{train,dev,test}.tsv exist.
+# Regenerate with scripts/select_languages.py, which carries existing
+# `normalizer:` values forward. Every locale considered, with its hours and the
+# reason it is in or out, is in docs/languages.md.
+#
+# Common Voice 25 is local-only: set $CV_ROOT so
+# $CV_ROOT/<hf_config>/{train,dev,test,validated}.tsv exist. Everything else is
+# staged by scripts/prepare_<corpus>.py under $CORPORA_ROOT.
+# Awaiting a normalization policy, so they carry no `normalizer:` yet:
+#   ady
+#   bn
+#   bo
+#   ckb
+#   cs
+#   cy
+#   et
+#   fa
+#   fy-NL
+#   hr
+#   hy
+#   is
+#   jv
+#   kbd
+#   kk
+#   kmr
+#   kn
+#   ko
+#   lv
+#   ne
+#   nso
+#   pt
+#   si
+#   su
+#   th
+#   ts
+#   ur
+#   ve
+#   xh
+#   yue
+#   zh-CN
+#   zu
+# A run resolving policies will fail by name on these until they land.
 languages:
   - { code: ca, source: commonvoice, hf_dataset: common_voice_25, hf_config: ca, text_column: sentence, normalizer: whisper-basic }
+  - { code: ps, source: commonvoice, hf_dataset: common_voice_25, hf_config: ps, text_column: sentence, normalizer: perso-arabic }
   - { code: en, source: commonvoice, hf_dataset: common_voice_25, hf_config: en, text_column: sentence, normalizer: whisper-basic }
   - { code: rw, source: commonvoice, hf_dataset: common_voice_25, hf_config: rw, text_column: sentence, normalizer: latin-marks }
+  - { code: be, source: commonvoice, hf_dataset: common_voice_25, hf_config: be, text_column: sentence, normalizer: whisper-basic }
+  - { code: hr, source: manifest, corpus: parlaspeech_hr, hf_config: hr }
+  - { code: eo, source: commonvoice, hf_dataset: common_voice_25, hf_config: eo, text_column: sentence, normalizer: whisper-basic }
   - { code: de, source: commonvoice, hf_dataset: common_voice_25, hf_config: de, text_column: sentence, normalizer: whisper-basic }
+  - { code: et, source: manifest, corpus: taltech_estonian, hf_config: et }
   - { code: fr, source: commonvoice, hf_dataset: common_voice_25, hf_config: fr, text_column: sentence, normalizer: whisper-basic }
   - { code: es, source: commonvoice, hf_dataset: common_voice_25, hf_config: es, text_column: sentence, normalizer: whisper-basic }
-  - { code: be, source: commonvoice, hf_dataset: common_voice_25, hf_config: be, text_column: sentence, normalizer: whisper-basic }
-  - { code: it, source: commonvoice, hf_dataset: common_voice_25, hf_config: it, text_column: sentence, normalizer: whisper-basic }
-  - { code: gl, source: commonvoice, hf_dataset: common_voice_25, hf_config: gl, text_column: sentence, normalizer: whisper-basic }
-  - { code: eo, source: commonvoice, hf_dataset: common_voice_25, hf_config: eo, text_column: sentence, normalizer: whisper-basic }
-  - { code: mhr, source: commonvoice, hf_dataset: common_voice_25, hf_config: mhr, text_column: sentence, normalizer: whisper-basic }
-  - { code: ps, source: commonvoice, hf_dataset: common_voice_25, hf_config: ps, text_column: sentence, normalizer: perso-arabic }
-  - { code: ug, source: commonvoice, hf_dataset: common_voice_25, hf_config: ug, text_column: sentence, normalizer: uyghur-ug }
-  - { code: eu, source: commonvoice, hf_dataset: common_voice_25, hf_config: eu, text_column: sentence, normalizer: whisper-basic }
-  - { code: ab, source: commonvoice, hf_dataset: common_voice_25, hf_config: ab, text_column: sentence, normalizer: whisper-basic }
-  - { code: ba, source: commonvoice, hf_dataset: common_voice_25, hf_config: ba, text_column: sentence, normalizer: whisper-basic }
   - { code: kab, source: commonvoice, hf_dataset: common_voice_25, hf_config: kab, text_column: sentence, normalizer: latin-marks }
+  - { code: eu, source: commonvoice, hf_dataset: common_voice_25, hf_config: eu, text_column: sentence, normalizer: whisper-basic }
+  - { code: ug, source: commonvoice, hf_dataset: common_voice_25, hf_config: ug, text_column: sentence, normalizer: uyghur-ug }
   - { code: lg, source: commonvoice, hf_dataset: common_voice_25, hf_config: lg, text_column: sentence, normalizer: latin-marks }
-  - { code: hu, source: commonvoice, hf_dataset: common_voice_25, hf_config: hu, text_column: sentence, normalizer: whisper-basic }
-  - { code: ka, source: commonvoice, hf_dataset: common_voice_25, hf_config: ka, text_column: sentence, normalizer: whisper-basic }
-  - { code: ta, source: commonvoice, hf_dataset: common_voice_25, hf_config: ta, text_column: sentence, normalizer: indic-vistaar }
   - { code: sw, source: commonvoice, hf_dataset: common_voice_25, hf_config: sw, text_column: sentence, normalizer: latin-marks }
-  - { code: uz, source: commonvoice, hf_dataset: common_voice_25, hf_config: uz, text_column: sentence, normalizer: latin-marks }
-  - { code: nl, source: commonvoice, hf_dataset: common_voice_25, hf_config: nl, text_column: sentence, normalizer: whisper-basic }
-
-  # Below the rule on the official train.tsv, kept because the 16-language
-  # preset commits to them and the smaller tiers have to stay subsets of this
-  # one. On the pool a run actually reads, six of these eight clear the rule on
-  # their own — only Finnish (11.1 h) and Hindi (7.0 h) still do not. Hours per
-  # language are in docs/languages.md.
-  - { code: tr, source: commonvoice, hf_dataset: common_voice_25, hf_config: tr, text_column: sentence, normalizer: turkic-tr }
-  - { code: ru, source: commonvoice, hf_dataset: common_voice_25, hf_config: ru, text_column: sentence, normalizer: whisper-basic }
-  - { code: uk, source: commonvoice, hf_dataset: common_voice_25, hf_config: uk, text_column: sentence, normalizer: whisper-basic }
-  - { code: ar, source: commonvoice, hf_dataset: common_voice_25, hf_config: ar, text_column: sentence, normalizer: arabic-ouaal }
-  - { code: pl, source: commonvoice, hf_dataset: common_voice_25, hf_config: pl, text_column: sentence, normalizer: whisper-basic }
   - { code: ja, source: commonvoice, hf_dataset: common_voice_25, hf_config: ja, text_column: sentence, word_boundary: false, normalizer: ja-cer }
-  - { code: hi, source: commonvoice, hf_dataset: common_voice_25, hf_config: hi, text_column: sentence, normalizer: indic-vistaar }
+  - { code: fa, source: commonvoice, hf_dataset: common_voice_25, hf_config: fa, text_column: sentence }
+  - { code: it, source: commonvoice, hf_dataset: common_voice_25, hf_config: it, text_column: sentence, normalizer: whisper-basic }
+  - { code: kn, source: manifest, corpus: slr126_kannada, hf_config: kn }
+  - { code: su, source: manifest, corpus: slr36_sundanese, hf_config: su }
+  - { code: gl, source: commonvoice, hf_dataset: common_voice_25, hf_config: gl, text_column: sentence, normalizer: whisper-basic }
+  - { code: kk, source: manifest, corpus: slr102_ksc_kazakh, hf_config: kk }
+  - { code: kbd, source: commonvoice, hf_dataset: common_voice_25, hf_config: kbd, text_column: sentence }
+  - { code: lv, source: commonvoice, hf_dataset: common_voice_25, hf_config: lv, text_column: sentence }
+  - { code: mhr, source: commonvoice, hf_dataset: common_voice_25, hf_config: mhr, text_column: sentence, normalizer: whisper-basic }
+  - { code: jv, source: manifest, corpus: slr35_javanese, hf_config: jv }
+  - { code: ba, source: commonvoice, hf_dataset: common_voice_25, hf_config: ba, text_column: sentence, normalizer: whisper-basic }
+  - { code: ru, source: commonvoice, hf_dataset: common_voice_25, hf_config: ru, text_column: sentence, normalizer: whisper-basic }
+  - { code: zh-CN, source: commonvoice, hf_dataset: common_voice_25, hf_config: zh-CN, text_column: sentence, word_boundary: false }
+  - { code: yue, source: commonvoice, hf_dataset: common_voice_25, hf_config: yue, text_column: sentence, word_boundary: false }
+  - { code: ta, source: commonvoice, hf_dataset: common_voice_25, hf_config: ta, text_column: sentence, normalizer: indic-vistaar }
+  - { code: bn, source: manifest, corpus: slr53_bengali, hf_config: bn }
+  - { code: si, source: manifest, corpus: slr52_sinhala, hf_config: si }
+  - { code: pt, source: commonvoice, hf_dataset: common_voice_25, hf_config: pt, text_column: sentence }
+  - { code: ab, source: commonvoice, hf_dataset: common_voice_25, hf_config: ab, text_column: sentence, normalizer: whisper-basic }
+  - { code: pl, source: commonvoice, hf_dataset: common_voice_25, hf_config: pl, text_column: sentence, normalizer: whisper-basic }
+  - { code: th, source: commonvoice, hf_dataset: common_voice_25, hf_config: th, text_column: sentence, word_boundary: false }
+  - { code: ne, source: manifest, corpus: slr54_nepali, hf_config: ne }
+  - { code: ka, source: commonvoice, hf_dataset: common_voice_25, hf_config: ka, text_column: sentence, normalizer: whisper-basic }
+  - { code: ckb, source: commonvoice, hf_dataset: common_voice_25, hf_config: ckb, text_column: sentence }
+  - { code: is, source: manifest, corpus: slr112_samromur, hf_config: is }
+  - { code: cy, source: commonvoice, hf_dataset: common_voice_25, hf_config: cy, text_column: sentence }
+  - { code: tr, source: commonvoice, hf_dataset: common_voice_25, hf_config: tr, text_column: sentence, normalizer: turkic-tr }
+  - { code: nl, source: commonvoice, hf_dataset: common_voice_25, hf_config: nl, text_column: sentence, normalizer: whisper-basic }
+  - { code: hu, source: commonvoice, hf_dataset: common_voice_25, hf_config: hu, text_column: sentence, normalizer: whisper-basic }
+  - { code: uk, source: commonvoice, hf_dataset: common_voice_25, hf_config: uk, text_column: sentence, normalizer: whisper-basic }
+  - { code: uz, source: commonvoice, hf_dataset: common_voice_25, hf_config: uz, text_column: sentence, normalizer: latin-marks }
+  - { code: ar, source: commonvoice, hf_dataset: common_voice_25, hf_config: ar, text_column: sentence, normalizer: arabic-ouaal }
+  - { code: ur, source: commonvoice, hf_dataset: common_voice_25, hf_config: ur, text_column: sentence }
+  - { code: bo, source: manifest, corpus: slr124_tibetan, hf_config: bo, word_boundary: false }
+  - { code: kmr, source: commonvoice, hf_dataset: common_voice_25, hf_config: kmr, text_column: sentence }
+  - { code: fy-NL, source: commonvoice, hf_dataset: common_voice_25, hf_config: fy-NL, text_column: sentence }
+  - { code: ady, source: commonvoice, hf_dataset: common_voice_25, hf_config: ady, text_column: sentence }
+  - { code: cs, source: commonvoice, hf_dataset: common_voice_25, hf_config: cs, text_column: sentence }
+  - { code: hy, source: manifest, corpus: slr160_armenian, hf_config: hy }
+  - { code: nso, source: manifest, corpus: nchlt_sepedi, hf_config: nso }
+  - { code: ts, source: manifest, corpus: nchlt_xitsonga, hf_config: ts }
+  - { code: ve, source: manifest, corpus: nchlt_tshivenda, hf_config: ve }
+  - { code: xh, source: manifest, corpus: nchlt_xhosa, hf_config: xh }
+  - { code: zu, source: manifest, corpus: nchlt_zulu, hf_config: zu }
+  - { code: ko, source: manifest, corpus: slr40_zeroth_korean, hf_config: ko }
   - { code: fi, source: commonvoice, hf_dataset: common_voice_25, hf_config: fi, text_column: sentence, normalizer: whisper-basic }
+  - { code: hi, source: commonvoice, hf_dataset: common_voice_25, hf_config: hi, text_column: sentence, normalizer: indic-vistaar }

@@ -50,6 +50,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 # Provenance label recorded in run metadata; not a Hugging Face Hub id. See
 # src/svb/data/registry.py.
 RELEASE_LABEL = "common_voice_25"
@@ -73,11 +75,34 @@ HELD_OUT_LOCALES: Mapping[str, str] = {
     "gu": "gujarati",
 }
 
+#: Languages kept although their trainable hours miss the rule, with the reason.
+#: Separate from COMMITTED_LOCALES, which is about the smaller presets: these are
+#: chosen for typological coverage and each says what it is short of.
+CARRIED_LANGUAGES: Mapping[str, str] = {
+    **dict.fromkeys(
+        ("zu", "xh", "ts", "ve"),
+        "kept for typological coverage; its NCHLT corpus totals about 56 h and the "
+        "shortfall is in the shipped train split, not in the corpus",
+    ),
+    # Zeroth is the only openly-licensed Korean corpus the survey found; the
+    # others are all gated. Its shipped test split is 1.2 h, under the
+    # evaluation bar, so the whole 52.8 h corpus is repartitioned — which leaves
+    # 42.2 h to train on. Dropping it would cost the preset the Koreanic family
+    # and the Hangul script outright, so it is kept and the number is stated.
+    "ko": (
+        "kept because it is the only open Korean corpus, and Koreanic and Hangul are in "
+        "the preset only through it; the shipped 1.2 h test is under the evaluation bar, "
+        "so all 52.8 h are repartitioned"
+    ),
+}
+
 # ISO 15924 codes for writing systems that do not put spaces between words.
 # Whitespace tokenization of such a transcript yields one token per sentence, so
 # word error rate over it is meaningless and character error rate is primary.
+# Korean is deliberately absent: Hangul is written with spaces between words, so
+# word error rate means the same thing for it as for a Latin-script language.
 NO_SPACE_SCRIPTS = frozenset(
-    {"Hani", "Hans", "Hant", "Jpan", "Kore", "Thai", "Laoo", "Khmr", "Mymr", "Tibt"}
+    {"Hani", "Hans", "Hant", "Jpan", "Thai", "Laoo", "Khmr", "Mymr", "Tibt"}
 )
 
 
@@ -103,6 +128,8 @@ LANGUAGES: Mapping[str, LanguageInfo] = {
     "ar": LanguageInfo("Arabic", "Afro-Asiatic (Semitic)", "Arab"),
     "ba": LanguageInfo("Bashkir", "Turkic (Kipchak)", "Cyrl"),
     "be": LanguageInfo("Belarusian", "Indo-European (Slavic)", "Cyrl"),
+    "bn": LanguageInfo("Bengali", "Indo-European (Indo-Aryan)", "Beng"),
+    "bo": LanguageInfo("Tibetan", "Sino-Tibetan (Bodish)", "Tibt"),
     "ca": LanguageInfo("Catalan", "Indo-European (Romance)", "Latn"),
     "ckb": LanguageInfo("Central Kurdish", "Indo-European (Iranian)", "Arab"),
     "cs": LanguageInfo("Czech", "Indo-European (Slavic)", "Latn"),
@@ -111,6 +138,7 @@ LANGUAGES: Mapping[str, LanguageInfo] = {
     "en": LanguageInfo("English", "Indo-European (Germanic)", "Latn"),
     "eo": LanguageInfo("Esperanto", "Constructed", "Latn"),
     "es": LanguageInfo("Spanish", "Indo-European (Romance)", "Latn"),
+    "et": LanguageInfo("Estonian", "Uralic (Finnic)", "Latn"),
     "eu": LanguageInfo("Basque", "Isolate", "Latn"),
     "fa": LanguageInfo("Persian", "Indo-European (Iranian)", "Arab"),
     "fi": LanguageInfo("Finnish", "Uralic (Finnic)", "Latn"),
@@ -118,34 +146,49 @@ LANGUAGES: Mapping[str, LanguageInfo] = {
     "fy-NL": LanguageInfo("West Frisian", "Indo-European (Germanic)", "Latn"),
     "gl": LanguageInfo("Galician", "Indo-European (Romance)", "Latn"),
     "hi": LanguageInfo("Hindi", "Indo-European (Indo-Aryan)", "Deva"),
+    "hr": LanguageInfo("Croatian", "Indo-European (Slavic)", "Latn"),
     "hu": LanguageInfo("Hungarian", "Uralic (Ugric)", "Latn"),
+    "hy": LanguageInfo("Armenian", "Indo-European (Armenian)", "Armn"),
+    "is": LanguageInfo("Icelandic", "Indo-European (Germanic)", "Latn"),
     "it": LanguageInfo("Italian", "Indo-European (Romance)", "Latn"),
     "ja": LanguageInfo("Japanese", "Japonic", "Jpan"),
+    "jv": LanguageInfo("Javanese", "Austronesian (Malayo-Polynesian)", "Latn"),
     "ka": LanguageInfo("Georgian", "Kartvelian", "Geor"),
     "kab": LanguageInfo("Kabyle", "Afro-Asiatic (Berber)", "Latn"),
     "kbd": LanguageInfo("Kabardian", "Northwest Caucasian", "Cyrl"),
+    "kk": LanguageInfo("Kazakh", "Turkic (Kipchak)", "Cyrl"),
     # CLDR has no kmr entry; its `ku` (Kurmanji) resolves to ku_Latn_TR.
     "kmr": LanguageInfo("Northern Kurdish", "Indo-European (Iranian)", "Latn"),
+    "kn": LanguageInfo("Kannada", "Dravidian", "Knda"),
+    "ko": LanguageInfo("Korean", "Koreanic", "Kore"),
     "lg": LanguageInfo("Luganda", "Atlantic-Congo (Bantu)", "Latn"),
     "lv": LanguageInfo("Latvian", "Indo-European (Baltic)", "Latn"),
     # CLDR has no mhr entry; it resolves the Mari macrolanguage chm to chm_Cyrl_RU.
     "mhr": LanguageInfo("Meadow Mari", "Uralic (Mari)", "Cyrl"),
+    "ne": LanguageInfo("Nepali", "Indo-European (Indo-Aryan)", "Deva"),
     "nl": LanguageInfo("Dutch", "Indo-European (Germanic)", "Latn"),
+    "nso": LanguageInfo("Sepedi", "Atlantic-Congo (Sotho-Tswana)", "Latn"),
     "pl": LanguageInfo("Polish", "Indo-European (Slavic)", "Latn"),
     "ps": LanguageInfo("Pashto", "Indo-European (Iranian)", "Arab"),
     "pt": LanguageInfo("Portuguese", "Indo-European (Romance)", "Latn"),
     "ru": LanguageInfo("Russian", "Indo-European (Slavic)", "Cyrl"),
     "rw": LanguageInfo("Kinyarwanda", "Atlantic-Congo (Bantu)", "Latn"),
+    "si": LanguageInfo("Sinhala", "Indo-European (Indo-Aryan)", "Sinh"),
+    "su": LanguageInfo("Sundanese", "Austronesian (Malayo-Polynesian)", "Latn"),
     "sw": LanguageInfo("Swahili", "Atlantic-Congo (Bantu)", "Latn"),
     "ta": LanguageInfo("Tamil", "Dravidian", "Taml"),
     "th": LanguageInfo("Thai", "Kra-Dai (Tai)", "Thai"),
     "tr": LanguageInfo("Turkish", "Turkic (Oghuz)", "Latn"),
+    "ts": LanguageInfo("Xitsonga", "Atlantic-Congo (Tswa-Ronga)", "Latn"),
     "ug": LanguageInfo("Uyghur", "Turkic (Karluk)", "Arab"),
     "uk": LanguageInfo("Ukrainian", "Indo-European (Slavic)", "Cyrl"),
     "ur": LanguageInfo("Urdu", "Indo-European (Indo-Aryan)", "Arab"),
     "uz": LanguageInfo("Uzbek", "Turkic (Karluk)", "Latn"),
+    "ve": LanguageInfo("Tshivenda", "Atlantic-Congo (Venda)", "Latn"),
+    "xh": LanguageInfo("isiXhosa", "Atlantic-Congo (Nguni)", "Latn"),
     "yue": LanguageInfo("Cantonese", "Sino-Tibetan (Sinitic)", "Hant"),
     "zh-CN": LanguageInfo("Chinese (Mandarin)", "Sino-Tibetan (Sinitic)", "Hans"),
+    "zu": LanguageInfo("isiZulu", "Atlantic-Congo (Nguni)", "Latn"),
 }
 
 
@@ -183,6 +226,13 @@ class LocaleStats:
     validated_hours: float
     avg_clip_secs: float
     train_clips: int
+    #: "commonvoice", or "manifest" for a corpus in configs/corpora.yaml.
+    source: str = "commonvoice"
+    #: Corpus id, for a manifest language. Empty for Common Voice.
+    corpus: str = ""
+    #: Set for a manifest language, whose hours come from its corpus record
+    #: rather than from a bucket count times a mean clip length.
+    stated_trainable_hours: float | None = None
 
     @property
     def trainable_hours(self) -> float:
@@ -197,6 +247,8 @@ class LocaleStats:
         test are a count times a mean, so the subtraction can go slightly
         negative on a rounding edge, and a negative sorts above real hours.
         """
+        if self.stated_trainable_hours is not None:
+            return self.stated_trainable_hours
         return max(0.0, self.validated_hours - self.dev_hours - self.test_hours)
 
 
@@ -249,6 +301,49 @@ def load_locales(release: Mapping[str, Any]) -> list[LocaleStats]:
     return stats
 
 
+#: What the loader derives for a corpus that ships no usable split. A corpus
+#: over the training threshold therefore clears the evaluation thresholds by
+#: construction, which is why an unpublished dev or test figure is not a gap.
+_DERIVED_EVAL_FRACTION = 0.1
+
+
+def corpus_locales(corpora: Iterable[Any]) -> list[LocaleStats]:
+    """One candidate per language of every corpus in ``configs/corpora.yaml``.
+
+    A corpus that ships a full split is taken at its published train, dev and
+    test hours. Anything else is re-derived by the loader, so its trainable
+    hours are the total less the tenth each that the derivation gives dev and
+    test — the same arithmetic the loader will do, stated here rather than left
+    for a reader to work out.
+    """
+    stats: list[LocaleStats] = []
+    for corpus in corpora:
+        for code in corpus.languages:
+            if corpus.ships_split == "full" and corpus.train_hours is not None:
+                trainable = corpus.train_hours
+                dev = corpus.dev_hours or 0.0
+                test = corpus.test_hours or 0.0
+            else:
+                total = corpus.total_hours or (corpus.train_hours or 0.0)
+                dev = test = total * _DERIVED_EVAL_FRACTION
+                trainable = total - dev - test
+            stats.append(
+                LocaleStats(
+                    locale=code,
+                    train_hours=corpus.train_hours or 0.0,
+                    dev_hours=dev,
+                    test_hours=test,
+                    validated_hours=corpus.total_hours or 0.0,
+                    avg_clip_secs=0.0,
+                    train_clips=0,
+                    source="manifest",
+                    corpus=corpus.id,
+                    stated_trainable_hours=trainable,
+                )
+            )
+    return stats
+
+
 def _shortfall(stats: LocaleStats, thresholds: Thresholds) -> str:
     """Which part of the rule a locale misses, phrased with the number that missed."""
     for label, have, need in (
@@ -266,63 +361,83 @@ def _base(locale: str) -> str:
     return locale.split("-", 1)[0]
 
 
+def _key(stats: LocaleStats) -> tuple[str, str]:
+    """A language can be a candidate twice — from Common Voice and from a
+    corpus — so a verdict is keyed by both."""
+    return (stats.source, stats.locale)
+
+
 def decide(
     stats: Iterable[LocaleStats],
     thresholds: Thresholds | None = None,
     committed: Sequence[str] = COMMITTED_LOCALES,
     held_out: Mapping[str, str] = HELD_OUT_LOCALES,
+    carried: Mapping[str, str] = CARRIED_LANGUAGES,
 ) -> list[Decision]:
-    """Apply the rule to every locale, most trainable audio first.
+    """Apply the rule to every candidate, most trainable audio first.
 
-    Three things override the arithmetic:
+    Four things override the arithmetic:
 
     * A held-out transfer language is excluded however large it is.
-    * A language the smaller presets are already committed to is kept however
-      small it is, and carries the shortfall as its reason.
+    * A language served by a dedicated corpus is read from there rather than
+      from Common Voice.
+    * A language the smaller presets commit to, or one carried for typological
+      coverage, is kept however small and says why.
     * Where a language appears under more than one locale, only the one with the
-      most training audio survives — two variants are two spellings of the same
+      most trainable audio survives — two variants are two spellings of the same
       training signal, and keeping both would weight that language twice in a
       mix whose point is breadth across languages.
     """
     thresholds = thresholds or Thresholds()
-    conflict = sorted(set(committed) & set(held_out))
+    conflict = sorted((set(committed) | set(carried)) & set(held_out))
     if conflict:
         raise ValueError(
-            f"{', '.join(conflict)}: listed both as committed and as held out for transfer. "
+            f"{', '.join(conflict)}: listed both as trained on and as held out for transfer. "
             "A language cannot be trained on and held out of training at once."
         )
 
     ordered = sorted(stats, key=lambda s: (-s.trainable_hours, s.locale))
     committed_set = set(committed)
 
-    # Provisional verdicts, before the one-locale-per-language rule.
-    provisional: dict[str, tuple[bool, str]] = {}
+    # A language served by a dedicated corpus is read from there, not from
+    # Common Voice. Bengali is the case that matters: 31.5 trainable hours in
+    # Common Voice against 229 in SLR53, and it is the corpus that puts the
+    # language in the preset at all.
+    by_corpus = {s.locale: s.corpus for s in ordered if s.source == "manifest"}
+
+    provisional: dict[tuple[str, str], tuple[bool, str]] = {}
     for entry in ordered:
-        if entry.locale in held_out:
-            provisional[entry.locale] = (
+        key = _key(entry)
+        if entry.source == "commonvoice" and entry.locale in by_corpus:
+            provisional[key] = (
+                False,
+                f"read from {by_corpus[entry.locale]} instead, which has more trainable audio",
+            )
+        elif entry.locale in held_out:
+            provisional[key] = (
                 False,
                 f"held-out transfer language ({held_out[entry.locale]}); never trained on",
             )
-            continue
-        shortfall = _shortfall(entry, thresholds)
-        if not shortfall:
-            provisional[entry.locale] = (True, f"meets the rule ({thresholds.describe()})")
+        elif not (shortfall := _shortfall(entry, thresholds)):
+            provisional[key] = (True, f"meets the rule ({thresholds.describe()})")
+        elif entry.locale in carried:
+            provisional[key] = (True, f"below the rule ({shortfall}); {carried[entry.locale]}")
         elif entry.locale in committed_set:
-            provisional[entry.locale] = (
+            provisional[key] = (
                 True,
                 f"below the rule ({shortfall}); kept because the smaller presets commit to it",
             )
         else:
-            provisional[entry.locale] = (False, shortfall)
+            provisional[key] = (False, shortfall)
 
     kept_per_language: dict[str, str] = {}
     for entry in ordered:  # largest first, so the first one seen is the largest
-        if provisional[entry.locale][0]:
+        if provisional[_key(entry)][0]:
             kept_per_language.setdefault(_base(entry.locale), entry.locale)
 
     decisions: list[Decision] = []
     for entry in ordered:
-        included, reason = provisional[entry.locale]
+        included, reason = provisional[_key(entry)]
         winner = kept_per_language.get(_base(entry.locale))
         if included and winner != entry.locale:
             included, reason = (
@@ -333,29 +448,73 @@ def decide(
     return decisions
 
 
-def render_preset(decisions: Iterable[Decision], release_label: str = RELEASE_LABEL) -> str:
-    """The `languages:` block of a scale preset, in the shipped flow style."""
+def render_preset(
+    decisions: Iterable[Decision],
+    release_label: str = RELEASE_LABEL,
+    normalizers: Mapping[str, str] | None = None,
+) -> str:
+    """The `languages:` block of a scale preset, in the shipped flow style.
+
+    ``normalizers`` carries forward the ``normalizer:`` each language already
+    had. A language that has none is written **without** the key rather than
+    with a placeholder: a placeholder would have to be a policy name, and an
+    unknown one makes the preset unloadable, which would take every test that
+    reads a preset down with it. Leaving the key out keeps the preset loadable
+    and still fails a run at policy resolution, which is where the gap belongs.
+    """
+    normalizers = normalizers or {}
     lines = ["languages:"]
+    pending: list[str] = []
     for decision in decisions:
         if not decision.included:
             continue
-        code = decision.stats.locale
-        fields = [
-            f"code: {code}",
-            "source: commonvoice",
-            f"hf_dataset: {release_label}",
-            f"hf_config: {code}",
-            "text_column: sentence",
-        ]
+        stats = decision.stats
+        code = stats.locale
+        if stats.source == "manifest":
+            fields = [f"code: {code}", "source: manifest", f"corpus: {stats.corpus}"]
+        else:
+            fields = [
+                f"code: {code}",
+                "source: commonvoice",
+                f"hf_dataset: {release_label}",
+            ]
+        fields.append(f"hf_config: {code}")
+        if stats.source == "commonvoice":
+            fields.append("text_column: sentence")
         if not word_boundary(code):
             fields.append("word_boundary: false")
+        if code in normalizers:
+            fields.append(f"normalizer: {normalizers[code]}")
+        else:
+            pending.append(code)
         lines.append("  - { " + ", ".join(fields) + " }")
+
+    if pending:
+        lines.insert(
+            0,
+            "# Awaiting a normalization policy, so they carry no `normalizer:` yet:\n"
+            + "\n".join(f"#   {code}" for code in sorted(pending))
+            + "\n# A run resolving policies will fail by name on these until they land.",
+        )
     return "\n".join(lines) + "\n"
 
 
+def normalizers_of(path: Path) -> dict[str, str]:
+    """``code -> normalizer`` from an existing preset, so regenerating one does
+    not silently drop the policy assignments already made."""
+    if not path.exists():
+        return {}
+    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return {
+        entry["code"]: entry["normalizer"]
+        for entry in raw.get("languages", [])
+        if entry.get("normalizer")
+    }
+
+
 _COLUMNS = (
-    "locale", "language", "family", "script", "trainable h", "train h",
-    "dev h", "test h", "validated h", "avg clip s", "included", "reason",
+    "locale", "language", "family", "script", "corpus", "trainable h",
+    "train h", "dev h", "test h", "validated h", "included", "reason",
 )  # fmt: skip
 
 
@@ -378,12 +537,12 @@ def render_table(decisions: Iterable[Decision]) -> str:
                     info.name if info else "—",
                     info.family if info else "—",
                     info.script if info else "—",
+                    stats.corpus or "common_voice_25",
                     f"{stats.trainable_hours:.1f}",
                     f"{stats.train_hours:.1f}",
                     f"{stats.dev_hours:.1f}",
                     f"{stats.test_hours:.1f}",
                     f"{stats.validated_hours:.1f}",
-                    f"{stats.avg_clip_secs:.3f}",
                     "yes" if decision.included else "no",
                     decision.reason,
                 ]
@@ -398,6 +557,12 @@ def build_parser() -> argparse.ArgumentParser:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--release", required=True, type=Path, help="release statistics JSON")
+    parser.add_argument(
+        "--corpora",
+        type=Path,
+        default=Path(__file__).resolve().parents[1] / "configs",
+        help="directory holding corpora.yaml (default: the repo's configs/)",
+    )
     parser.add_argument("--preset-out", type=Path, help="write the preset's languages block here")
     parser.add_argument("--table-out", type=Path, help="write the evidence table here")
     parser.add_argument(
@@ -416,7 +581,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     thresholds = Thresholds(args.min_train_hours, args.min_dev_hours, args.min_test_hours)
 
     release = json.loads(args.release.read_text(encoding="utf-8"))
-    decisions = decide(load_locales(release), thresholds)
+    candidates = load_locales(release)
+    if args.corpora is not None:
+        from svb.data.corpora import load_corpora
+
+        candidates += corpus_locales(load_corpora(args.corpora))
+    decisions = decide(candidates, thresholds)
     included = [d for d in decisions if d.included]
 
     # A count with no thresholds beside it is not a reproducible selection.
@@ -433,7 +603,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"[svb] {args.preset_out} already exists; pass --write-preset to overwrite it. "
                 f"The rule selects {len(included)} locales from this release."
             )
-        args.preset_out.write_text(render_preset(decisions), encoding="utf-8")
+        args.preset_out.write_text(
+            render_preset(decisions, normalizers=normalizers_of(args.preset_out)),
+            encoding="utf-8",
+        )
         print(f"[svb] wrote {args.preset_out}")
     if args.table_out:
         args.table_out.write_text(render_table(decisions), encoding="utf-8")

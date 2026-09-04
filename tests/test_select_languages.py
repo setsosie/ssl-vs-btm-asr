@@ -351,6 +351,13 @@ def test_the_table_leaves_family_and_script_blank_for_locales_it_never_selected(
 # --------------------------------------------------------------------------- #
 
 
+def _empty_registry(tmp_path: Path) -> Path:
+    """A corpora registry with nothing in it, so a test of the Common Voice
+    half is not also a test of the eighteen corpora."""
+    (tmp_path / "corpora.yaml").write_text("corpora: []\n", encoding="utf-8")
+    return tmp_path
+
+
 def test_main_writes_a_preset_and_a_table_from_a_release_document(
     select_languages: ModuleType, tmp_path: Path
 ) -> None:
@@ -367,7 +374,16 @@ def test_main_writes_a_preset_and_a_table_from_a_release_document(
     preset, table = tmp_path / "64.yaml", tmp_path / "languages.md"
 
     select_languages.main(
-        ["--release", str(release), "--preset-out", str(preset), "--table-out", str(table)]
+        [
+            "--release",
+            str(release),
+            "--corpora",
+            str(_empty_registry(tmp_path)),
+            "--preset-out",
+            str(preset),
+            "--table-out",
+            str(table),
+        ]
     )
 
     assert [e["code"] for e in yaml.safe_load(preset.read_text(encoding="utf-8"))["languages"]] == [
@@ -389,6 +405,8 @@ def test_main_reports_the_thresholds_it_applied(
         [
             "--release",
             str(release),
+            "--corpora",
+            str(_empty_registry(tmp_path)),
             "--min-train-hours",
             "0.001",
             "--min-dev-hours",
@@ -491,11 +509,22 @@ def test_writing_over_an_existing_preset_needs_the_explicit_flag(
     preset = tmp_path / "64.yaml"
     preset.write_text("languages: []\n", encoding="utf-8")
 
+    corpora = str(_empty_registry(tmp_path))
     with pytest.raises(SystemExit, match="write-preset"):
-        select_languages.main(["--release", str(release), "--preset-out", str(preset)])
+        select_languages.main(
+            ["--release", str(release), "--corpora", corpora, "--preset-out", str(preset)]
+        )
 
     select_languages.main(
-        ["--release", str(release), "--preset-out", str(preset), "--write-preset"]
+        [
+            "--release",
+            str(release),
+            "--corpora",
+            corpora,
+            "--preset-out",
+            str(preset),
+            "--write-preset",
+        ]
     )
 
     assert "code: en" in preset.read_text(encoding="utf-8")
@@ -511,6 +540,207 @@ def test_writing_a_preset_that_does_not_exist_yet_needs_no_flag(
     )
     preset = tmp_path / "new.yaml"
 
-    select_languages.main(["--release", str(release), "--preset-out", str(preset)])
+    select_languages.main(
+        [
+            "--release",
+            str(release),
+            "--corpora",
+            str(_empty_registry(tmp_path)),
+            "--preset-out",
+            str(preset),
+        ]
+    )
 
     assert preset.exists()
+
+
+# --------------------------------------------------------------------------- #
+# Merging Common Voice with the other corpora
+# --------------------------------------------------------------------------- #
+
+
+def _corpus(select_languages: ModuleType, **kwargs: Any):
+    from svb.data.corpora import CorpusSpec
+
+    defaults = {
+        "id": "demo_corpus",
+        "name": "Demo",
+        "languages": ["xx"],
+        "source_page": "https://example.org/",
+        "licence_name": "CC BY 4.0",
+        "licence_url": "https://creativecommons.org/licenses/by/4.0/",
+        "downloads": [{"name": "a.zip", "url": "https://example.org/a.zip"}],
+        "audio_format": "wav",
+        "transcripts": "tsv",
+        "speaker_ids": "column",
+        "ships_split": "none",
+        "preparer": "scripts/prepare_google_crowdsourced.py",
+        "citation": "Demo",
+    }
+    return CorpusSpec(**{**defaults, **kwargs})
+
+
+def test_a_corpus_that_derives_its_split_is_priced_at_the_derivation(
+    select_languages: ModuleType,
+) -> None:
+    """A corpus with no shipped split gets a tenth each to dev and test, which
+    is exactly what the loader does. Stating it here means the rule is applied
+    to the hours a run will train on rather than to the corpus total."""
+    (stats,) = select_languages.corpus_locales([_corpus(select_languages, total_hours=100.0)])
+
+    assert stats.trainable_hours == pytest.approx(80.0)
+    assert stats.dev_hours == pytest.approx(10.0)
+    assert stats.source == "manifest"
+    assert stats.corpus == "demo_corpus"
+
+
+def test_a_corpus_that_ships_a_full_split_is_taken_at_its_published_hours(
+    select_languages: ModuleType,
+) -> None:
+    (stats,) = select_languages.corpus_locales(
+        [
+            _corpus(
+                select_languages,
+                ships_split="full",
+                train_hours=48.5,
+                dev_hours=3.7,
+                test_hours=4.0,
+                total_hours=56.0,
+            )
+        ]
+    )
+
+    assert stats.trainable_hours == pytest.approx(48.5)
+    assert stats.test_hours == pytest.approx(4.0)
+
+
+def test_a_language_with_a_dedicated_corpus_is_read_from_there_not_common_voice(
+    select_languages: ModuleType,
+) -> None:
+    """Bengali is the case: 31.5 trainable hours in Common Voice against 229 in
+    SLR53, and the corpus is what puts the language in the preset at all."""
+    cv = select_languages.load_locales(
+        _release(bn=_locale(train=1000, dev=2000, test=2000, validated=int(60 * 3600 / 5.0)))
+    )
+    corpus = select_languages.corpus_locales(
+        [_corpus(select_languages, id="slr53_bengali", languages=["bn"], total_hours=229.0)]
+    )
+
+    decisions = {(d.stats.source, d.stats.locale): d for d in select_languages.decide(cv + corpus)}
+
+    assert decisions[("manifest", "bn")].included
+    assert not decisions[("commonvoice", "bn")].included
+    assert "slr53_bengali" in decisions[("commonvoice", "bn")].reason
+
+
+def test_a_corpus_offering_a_held_out_language_is_still_refused(
+    select_languages: ModuleType,
+) -> None:
+    """The rule that matters most. Five of the corpora come from the same
+    crowdsourced programme as the held-out four."""
+    corpus = select_languages.corpus_locales(
+        [_corpus(select_languages, id="slr66_telugu", languages=["te"], total_hours=900.0)]
+    )
+
+    (decision,) = select_languages.decide(corpus)
+
+    assert not decision.included
+    assert "held-out" in decision.reason
+
+
+def test_a_language_carried_for_coverage_says_what_it_is_short_of(
+    select_languages: ModuleType,
+) -> None:
+    """Four of the five NCHLT languages ship a train split just under the bar
+    while their corpus totals about 56 hours. Kept, and the reason is the
+    reason, not a silent pass."""
+    corpus = select_languages.corpus_locales(
+        [
+            _corpus(
+                select_languages,
+                id="nchlt_zulu",
+                languages=["zu"],
+                ships_split="full",
+                train_hours=48.5,
+                dev_hours=3.7,
+                test_hours=4.0,
+                total_hours=56.0,
+            )
+        ]
+    )
+
+    (decision,) = select_languages.decide(corpus)
+
+    assert decision.included
+    assert "typological coverage" in decision.reason
+
+
+def test_a_corpus_language_below_the_rule_and_not_carried_is_excluded(
+    select_languages: ModuleType,
+) -> None:
+    corpus = select_languages.corpus_locales(
+        [_corpus(select_languages, id="tiny", languages=["fo"], total_hours=10.0)]
+    )
+
+    (decision,) = select_languages.decide(corpus)
+
+    assert not decision.included
+
+
+def test_the_preset_entry_for_a_corpus_language_names_its_corpus(
+    select_languages: ModuleType,
+) -> None:
+    corpus = select_languages.corpus_locales(
+        [_corpus(select_languages, id="slr35_javanese", languages=["jv"], total_hours=296.0)]
+    )
+
+    (entry,) = yaml.safe_load(select_languages.render_preset(select_languages.decide(corpus)))[
+        "languages"
+    ]
+
+    assert entry == {
+        "code": "jv",
+        "source": "manifest",
+        "corpus": "slr35_javanese",
+        "hf_config": "jv",
+    }
+
+
+def test_a_language_with_no_policy_yet_is_written_without_the_key(
+    select_languages: ModuleType,
+) -> None:
+    """A placeholder would have to be a policy name, and an unknown one makes
+    the preset unloadable — which would take down every test that reads a
+    preset. Omitting the key keeps it loadable and still fails a run at policy
+    resolution, which is where the gap belongs."""
+    corpus = select_languages.corpus_locales(
+        [_corpus(select_languages, id="slr35_javanese", languages=["jv"], total_hours=296.0)]
+    )
+
+    rendered = select_languages.render_preset(select_languages.decide(corpus))
+
+    assert "normalizer" not in yaml.safe_load(rendered)["languages"][0]
+    assert "Awaiting a normalization policy" in rendered
+    assert "#   jv" in rendered
+
+
+def test_regenerating_a_preset_carries_its_policy_assignments_forward(
+    select_languages: ModuleType, tmp_path: Path
+) -> None:
+    """Regenerating must not silently drop work done on another branch."""
+    existing = tmp_path / "64.yaml"
+    existing.write_text(
+        "languages:\n  - { code: jv, source: manifest, corpus: slr35_javanese, "
+        "hf_config: jv, normalizer: latin-marks }\n",
+        encoding="utf-8",
+    )
+    corpus = select_languages.corpus_locales(
+        [_corpus(select_languages, id="slr35_javanese", languages=["jv"], total_hours=296.0)]
+    )
+
+    rendered = select_languages.render_preset(
+        select_languages.decide(corpus), normalizers=select_languages.normalizers_of(existing)
+    )
+
+    assert yaml.safe_load(rendered)["languages"][0]["normalizer"] == "latin-marks"
+    assert "Awaiting a normalization policy" not in rendered
