@@ -1,0 +1,58 @@
+"""Evaluation: padding trim, reference fidelity, and sidecar output."""
+
+from __future__ import annotations
+
+import torch
+from torch.utils.data import Dataset
+
+from svb.data.collate import make_ctc_collate
+from svb.eval.evaluate import evaluate
+from svb.model.ctc_vocab import build_vocab_from_texts
+
+from .conftest import FakeXeusCTC, wav_for
+
+
+class ListDataset(Dataset):
+    """In-memory (waveform, text) pairs."""
+
+    def __init__(self, items: list[tuple[torch.Tensor, str]]) -> None:
+        self.items = items
+
+    def __len__(self) -> int:
+        return len(self.items)
+
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, str]:
+        return self.items[idx]
+
+
+def test_hypothesis_is_independent_of_padding() -> None:
+    """An utterance must decode the same alone as it does beside a longer one.
+
+    Without trimming to ``input_lengths`` the shorter row picks up whatever the
+    encoder emits over the zero-padded tail, so every WER in the repo would
+    depend on which utterances happened to share a batch.
+    """
+    vocab = build_vocab_from_texts(["ab", "abc"])
+    collate = make_ctc_collate(vocab)
+    model = FakeXeusCTC(vocab.size, junk_id=vocab.char_to_id["a"])
+
+    padded = evaluate(
+        model,
+        ListDataset([(wav_for(vocab, "ab"), "ab"), (wav_for(vocab, "abc"), "abc")]),
+        vocab,
+        collate,
+        device="cpu",
+        batch_size=2,
+    )
+    alone = evaluate(
+        model,
+        ListDataset([(wav_for(vocab, "ab"), "ab")]),
+        vocab,
+        collate,
+        device="cpu",
+        batch_size=1,
+    )
+
+    assert alone.hyps == ["ab"]
+    assert padded.hyps[padded.refs.index("ab")] == alone.hyps[0]
+    assert padded.wer == 0.0

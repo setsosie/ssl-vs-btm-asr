@@ -104,10 +104,20 @@ class XeusCTC(nn.Module):
     @torch.no_grad()
     def greedy_decode(
         self, input_values: torch.Tensor, attention_mask: torch.Tensor | None = None
-    ) -> torch.Tensor:
-        """Return per-frame argmax ids, (batch, time')."""
-        logits = self.forward(input_values, attention_mask=attention_mask)["logits"]
-        return logits.argmax(dim=-1)
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return per-frame argmax ids and their valid lengths.
+
+        The lengths are not optional bookkeeping. Rows in a padded batch carry
+        argmax ids for frames that exist only because a longer utterance shared
+        the batch, and those frames decode to real characters. The caller must
+        slice each row to its length before collapsing, or the hypothesis — and
+        therefore the WER — depends on batch composition.
+
+        Returns:
+            ``(ids, lengths)``: ids is (batch, time'), lengths is (batch,).
+        """
+        out = self.forward(input_values, attention_mask=attention_mask)
+        return out["logits"].argmax(dim=-1), out["input_lengths"]
 
     def expand_head(self, new_vocab_size: int, seed: int = 0) -> None:
         """Grow the CTC head to ``new_vocab_size``, preserving trained rows.

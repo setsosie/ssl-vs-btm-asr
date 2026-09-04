@@ -64,9 +64,11 @@ def evaluate(
     for batch in loader:
         input_values = batch["input_values"].to(device)
         attn = batch["attention_mask"].to(device)
-        pred_ids = model.greedy_decode(input_values, attention_mask=attn)  # (B, T')
-        for row in pred_ids:
-            hyps.append(vocab.decode(row.tolist()))
+        pred_ids, pred_lens = model.greedy_decode(input_values, attention_mask=attn)  # (B, T')
+        for row, valid in zip(pred_ids, pred_lens.tolist(), strict=True):
+            # Slice off the padded tail before collapsing: frames past the
+            # utterance's own length belong to whatever else shared the batch.
+            hyps.append(vocab.decode(row[: int(valid)].tolist()))
         for lab in batch["labels"]:
             ids = [int(x) for x in lab.tolist() if x != -100]
             refs.append("".join(vocab.id_to_char[i] for i in ids if i != vocab.unk_id))
