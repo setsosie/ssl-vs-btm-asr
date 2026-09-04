@@ -220,5 +220,8 @@ def test_few_and_uneven_speakers_drift_far_from_the_nominal_fractions():
     uneven = [(f"mrf_{s:05d}_{u:08d}", "t") for s, n in enumerate(sizes) for u in range(n)]
     parts, policy, _ = derive_splits(uneven)
     assert policy == "speaker"
-    assert len(parts["test"]) / len(uneven) < 0.10  # nowhere near a tenth
+    # Pinned to the number the module docstring quotes, so the two cannot drift:
+    # a loose bound let the prose say "under 3%" while the split gave 3.03%.
+    assert len(parts["test"]) / len(uneven) == pytest.approx(0.0303, abs=0.0005)
+    assert len(parts["train"]) / len(uneven) == pytest.approx(0.9394, abs=0.0005)
     assert all(parts[s] for s in SPLITS)  # but never empty

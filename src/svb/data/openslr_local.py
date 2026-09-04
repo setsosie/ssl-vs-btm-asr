@@ -40,12 +40,18 @@ so groups are assigned to whichever split has the largest remaining shortfall
 rather than bucketed by hash, which is far less lumpy at these sizes. It is not
 exact: whole speakers are indivisible, so the realised proportions drift from
 80/10/10, and the fewer and more uneven a language's speakers the further they
-drift. Nine evenly-sized speakers land near 78/11/11; nine uneven ones can put
-under 3% of the utterances in the test split. Read the realised sizes from
-``check_data.sh`` rather than assuming the nominal fractions.
+drift. Nine evenly-sized speakers land near 78/11/11; nine uneven ones — one
+dominant speaker and eight small — land near 94/3/3. Read the realised sizes
+from ``check_data.sh`` rather than assuming the nominal fractions.
 
-If FileIDs do not parse as ``prefix_speaker_utterance``, or fewer than three
-speakers exist, the split falls back to utterance level. That is reported as
+The shortfall rule alone can leave a split empty, which one dominant speaker is
+enough to do, so a second pass moves the smallest speaker out of whichever split
+holds the most until none is empty. That pass, not luck, is why a nine-speaker
+corpus still has a test split.
+
+If **any** FileID does not parse as ``prefix_speaker_utterance``, or fewer than
+three speakers exist, the whole language falls back to utterance level — one
+malformed id is enough. That is reported as
 ``split_policy == "utterance"`` and carries an obvious caveat: the same speaker
 then appears in train and test, so the number is not a speaker-independent one.
 """
