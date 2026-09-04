@@ -8,13 +8,32 @@ Two distinct variance sources are reported, never conflated:
     test-set sampling uncertainty.
 
 Paired permutation compares two systems on the *same* utterances.
+
+Tokenization is a parameter, not a constant. Whitespace tokenization of a
+script written without spaces gives one token per sentence, so a word-level
+interval for Japanese would be an interval on a number that can only be 0 or
+100 per utterance. Characters are tokenized including spaces, matching
+``jiwer.cer``, so a bootstrap's point estimate equals the reported metric
+exactly.
+
+Both statistics work from per-utterance ``(edits, reference length)`` computed
+once. Corpus error rate is a ratio of sums, so a resample is two array sums
+rather than a re-alignment — which is what makes ten thousand draws over a real
+test set finish.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
+
+Tokenization = Literal["word", "char"]
+
+# Resampling draws an (chunk, n_utterances) index matrix. The chunk is sized to
+# keep that under roughly 32 MB regardless of test-set size.
+_MAX_INDEX_CELLS = 4_000_000
 
 
 @dataclass
@@ -32,17 +51,40 @@ def aggregate_seeds(per_seed_wer: list[float]) -> SeedAgg:
     return SeedAgg(mean=float(arr.mean()), std=std, n_seeds=arr.size, per_seed=list(arr))
 
 
-def _corpus_wer(ref_words: list[list[str]], hyp_words: list[list[str]]) -> float:
-    """Corpus WER from per-utterance (edits, ref_len); uses jiwer per utterance."""
-    import jiwer
+def _tokens(text: str, tokenize: Tokenization) -> list[str]:
+    """Word or character tokens. Characters include spaces, as ``jiwer.cer`` does."""
+    return text.split() if tokenize == "word" else list(text)
 
-    total_edits = 0
-    total_len = 0
-    for r, h in zip(ref_words, hyp_words, strict=True):
-        m = jiwer.process_words(" ".join(r), " ".join(h))
-        total_edits += m.substitutions + m.deletions + m.insertions
-        total_len += len(r)
-    return 100.0 * total_edits / max(1, total_len)
+
+def _edit_counts(
+    refs: list[str], hyps: list[str], tokenize: Tokenization
+) -> tuple[np.ndarray, np.ndarray]:
+    """Per-utterance (edit distance, reference length), computed once.
+
+    Levenshtein distance over token lists is exactly substitutions + deletions +
+    insertions, so this is the numerator of the corpus error rate without a
+    round-trip back through a string interface.
+    """
+    from rapidfuzz.distance import Levenshtein
+
+    edits = np.empty(len(refs), dtype=float)
+    lengths = np.empty(len(refs), dtype=float)
+    for i, (r, h) in enumerate(zip(refs, hyps, strict=True)):
+        ref_tokens = _tokens(r, tokenize)
+        edits[i] = Levenshtein.distance(ref_tokens, _tokens(h, tokenize))
+        lengths[i] = len(ref_tokens)
+    return edits, lengths
+
+
+def corpus_error_rate(refs: list[str], hyps: list[str], tokenize: Tokenization = "word") -> float:
+    """Corpus WER (``word``) or CER (``char``) as a percentage.
+
+    Equal to ``100 * jiwer.wer`` and ``100 * jiwer.cer`` respectively, so the
+    statistics layer and the evaluator cannot report different numbers for the
+    same predictions.
+    """
+    edits, lengths = _edit_counts(refs, hyps, tokenize)
+    return 100.0 * float(edits.sum()) / max(1.0, float(lengths.sum()))
 
 
 @dataclass
@@ -52,24 +94,36 @@ class CIResult:
     hi: float
 
 
+def _chunk_size(n_utts: int, remaining: int) -> int:
+    return max(1, min(remaining, _MAX_INDEX_CELLS // max(1, n_utts)))
+
+
 def bootstrap_ci(
     refs: list[str],
     hyps: list[str],
     n: int = 10_000,
     ci: float = 0.95,
     seed: int = 42,
+    tokenize: Tokenization = "word",
 ) -> CIResult:
-    """Utterance-level bootstrap percentile CI for corpus WER (%)."""
-    rw = [r.split() for r in refs]
-    hw = [h.split() for h in hyps]
-    point = _corpus_wer(rw, hw)
+    """Utterance-level bootstrap percentile CI for the corpus error rate (%)."""
+    edits, lengths = _edit_counts(refs, hyps, tokenize)
+    point = 100.0 * float(edits.sum()) / max(1.0, float(lengths.sum()))
+    m = len(refs)
+    if m == 0:
+        return CIResult(point=point, lo=point, hi=point)
+
     rng = np.random.default_rng(seed)
-    m = len(rw)
     samples = np.empty(n, dtype=float)
-    idx_all = np.arange(m)
-    for b in range(n):
-        idx = rng.choice(idx_all, size=m, replace=True)
-        samples[b] = _corpus_wer([rw[i] for i in idx], [hw[i] for i in idx])
+    done = 0
+    while done < n:
+        size = _chunk_size(m, n - done)
+        idx = rng.integers(0, m, size=(size, m))
+        drawn_edits = edits[idx].sum(axis=1)
+        drawn_lengths = np.maximum(1.0, lengths[idx].sum(axis=1))
+        samples[done : done + size] = 100.0 * drawn_edits / drawn_lengths
+        done += size
+
     lo = float(np.percentile(samples, 100 * (1 - ci) / 2))
     hi = float(np.percentile(samples, 100 * (1 + ci) / 2))
     return CIResult(point=point, lo=lo, hi=hi)
@@ -81,29 +135,30 @@ def paired_permutation(
     hyps_b: list[str],
     n: int = 10_000,
     seed: int = 42,
+    tokenize: Tokenization = "word",
 ) -> float:
-    """One-sided paired permutation p-value that system A has lower WER than B.
+    """One-sided paired permutation p-value that system A has the lower error rate.
 
-    Test statistic is the difference in per-utterance edit counts; signs are
-    flipped per utterance under the null.
+    The statistic is the summed per-utterance difference in edit counts, with
+    signs flipped per utterance under the null. That is exactly a permutation
+    test on the difference in *corpus* error rate: both systems share the
+    reference-length denominator, and that denominator is invariant under the
+    sign flips, so the ratio's ordering is the sum's ordering.
     """
-    import jiwer
+    edits_a, _ = _edit_counts(refs, hyps_a, tokenize)
+    edits_b, _ = _edit_counts(refs, hyps_b, tokenize)
+    diff = edits_a - edits_b  # negative => A better
+    observed = float(diff.sum())
+    m = diff.shape[0]
+    if m == 0:
+        return 1.0
 
-    rw = [r.split() for r in refs]
-
-    def edits(hyps: list[str]) -> np.ndarray:
-        out = np.empty(len(rw), dtype=float)
-        for i, (r, h) in enumerate(zip(rw, hyps, strict=True)):
-            m = jiwer.process_words(" ".join(r), h)
-            out[i] = m.substitutions + m.deletions + m.insertions
-        return out
-
-    diff = edits(hyps_a) - edits(hyps_b)  # negative => A better
-    observed = diff.sum()
     rng = np.random.default_rng(seed)
     count = 0
-    for _ in range(n):
-        flip = rng.choice([1.0, -1.0], size=diff.shape[0])
-        if (diff * flip).sum() <= observed:
-            count += 1
+    done = 0
+    while done < n:
+        size = _chunk_size(m, n - done)
+        signs = rng.integers(0, 2, size=(size, m)) * 2.0 - 1.0
+        count += int(((signs * diff).sum(axis=1) <= observed).sum())
+        done += size
     return (count + 1) / (n + 1)
