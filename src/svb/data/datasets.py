@@ -13,7 +13,13 @@ two layouts have nothing in common beyond what they return:
 
 ``openslr`` → :mod:`svb.data.openslr_local`
     ``$OPENSLR_ROOT/SLR<n>/`` as extracted by ``scripts/fetch_openslr.py``, with
-    an 80/10/10 split derived at load time.
+    an 80/10/10 split derived at load time. The held-out transfer four only.
+
+``manifest`` → :mod:`svb.data.manifest_local`
+    ``$CORPORA_ROOT/<corpus>/<lang>/manifest.tsv`` as written by
+    ``scripts/prepare_<corpus>.py``. Every other corpus goes through here: the
+    fourteen of them ship in about ten shapes, and converting each once beats
+    fourteen dataset classes with fourteen chances to get a split wrong.
 
 Both return a torch ``Dataset`` of ``(waveform: 1-D float tensor @16kHz, text)``.
 """
@@ -57,6 +63,10 @@ def load_language(
         from .openslr_local import OpenSLRLocal
 
         return OpenSLRLocal(spec, split, max_samples=max_samples)
+    if spec.source == "manifest":
+        from .manifest_local import ManifestLocal
+
+        return ManifestLocal(spec, split, max_samples=max_samples)
     raise ValueError(f"{spec.code}: unknown source {spec.source!r}")
 
 
@@ -78,4 +88,8 @@ def load_texts(spec: LangSpec, split: str, train_source: str = DEFAULT_TRAIN_SOU
         from .openslr_local import load_openslr_texts
 
         return load_openslr_texts(spec, split)
+    if spec.source == "manifest":
+        from .manifest_local import load_manifest_texts
+
+        return load_manifest_texts(spec, split)
     raise ValueError(f"{spec.code}: unknown source {spec.source!r}")
