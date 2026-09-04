@@ -61,6 +61,7 @@ is recorded in its config; the choice, and when each is the right one, is in
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import re
@@ -466,6 +467,83 @@ WHISPER_MARKS_POLICY = NormalizerPolicy(
     unify_apostrophes=True,
 )
 
+
+# --- the script families -------------------------------------------------- #
+#
+# Each is whisper-marks plus the rules its family's reference system specifies.
+# Sources are named in docs/normalization.md; the deviations are labelled there
+# too, along with the two policies whose base could not be verified at all.
+
+CYRILLIC_YO_POLICY = dataclasses.replace(
+    WHISPER_MARKS_POLICY, version="cyrillic-yo", cyrillic_yo=True
+)
+
+TURKIC_TR_POLICY = dataclasses.replace(
+    WHISPER_MARKS_POLICY, version="turkic-tr", locale_case="tr", turkish_dotted_i=True
+)
+
+# NFC rather than NFKC: the only thing NFKC adds for Latin is fullwidth folding,
+# which these corpora do not need, while NFC's canonical reordering is what makes
+# the two keystroke orders of Yoruba e-dot-below-acute compare equal.
+LATIN_MARKS_POLICY = dataclasses.replace(WHISPER_MARKS_POLICY, version="latin-marks", form="NFC")
+
+# Vistaar deletes punctuation rather than spacing it, applies no Unicode form,
+# and does not lowercase. We add NFC and lowercasing, both labelled deviations:
+# without a form the composed and decomposed nukta spellings are two vocabulary
+# entries, and lowercasing costs nothing for a caseless script while correcting
+# the Latin contamination these corpora carry.
+INDIC_VISTAAR_POLICY = NormalizerPolicy(
+    version="indic-vistaar",
+    pipeline="script",
+    form="NFC",
+    case="lower",
+    bracket_spans="keep",
+    zero_width="delete",
+    marks="keep",
+    script_map="malayalam",
+    punct_action="delete",
+    strip_symbols=True,
+    unify_apostrophes=True,
+)
+
+# Marks are removed by code range, letters unified onto plain alef, and Eastern
+# digits mapped to ASCII, per the Open Universal Arabic ASR Leaderboard.
+ARABIC_OUAAL_POLICY = NormalizerPolicy(
+    version="arabic-ouaal",
+    pipeline="script",
+    form="NFKC",
+    case="lower",
+    zero_width="delete",
+    marks="arabic",
+    script_map="arabic_msa",
+    punct_action="space",
+    strip_symbols=True,
+    unify_apostrophes=True,
+    arabic_digits="to_ascii",
+)
+
+# The letter table runs the other way: the Arabic forms fold onto the Persian
+# letters. The non-joiner is kept, because both Persian toolkits not only
+# preserve it but insert it — it marks a morpheme boundary, and deleting it
+# would silently turn one word into two.
+PERSO_ARABIC_POLICY = dataclasses.replace(
+    ARABIC_OUAAL_POLICY,
+    version="perso-arabic",
+    script_map="perso",
+    zero_width="keep_zwnj",
+)
+
+# Uyghur writes /i/ with alef maksura and /j/ with yeh, so the Persian fold of
+# the first onto the second would merge two distinct letters.
+UYGHUR_UG_POLICY = dataclasses.replace(
+    PERSO_ARABIC_POLICY, version="uyghur-ug", fold_alef_maksura=False
+)
+
+# Japanese needs no mark or letter rule; what it needs is the character error
+# rate, which is the language's setting rather than the policy's.
+JA_CER_POLICY = dataclasses.replace(WHISPER_MARKS_POLICY, version="ja-cer")
+
+
 # The policies a config may name. Each records only the rules its own pipeline
 # runs, so the version string is what distinguishes two records that would
 # otherwise share a shape — hence one version per preset, checked below.
@@ -474,6 +552,14 @@ POLICIES: dict[str, NormalizerPolicy] = {
     "whisper-basic": WHISPER_BASIC_POLICY,
     "whisper-basic-nodiacritics": WHISPER_BASIC_NODIACRITICS_POLICY,
     "whisper-marks": WHISPER_MARKS_POLICY,
+    "cyrillic-yo": CYRILLIC_YO_POLICY,
+    "turkic-tr": TURKIC_TR_POLICY,
+    "latin-marks": LATIN_MARKS_POLICY,
+    "indic-vistaar": INDIC_VISTAAR_POLICY,
+    "arabic-ouaal": ARABIC_OUAAL_POLICY,
+    "perso-arabic": PERSO_ARABIC_POLICY,
+    "uyghur-ug": UYGHUR_UG_POLICY,
+    "ja-cer": JA_CER_POLICY,
 }
 
 assert len({p.version for p in POLICIES.values()}) == len(POLICIES), (
@@ -677,7 +763,7 @@ def _script_punctuation(text: str, policy: NormalizerPolicy, counts: dict[str, i
             out.append(replacement)
         elif group == "S" and policy.strip_symbols:
             counts["S"] += 1
-            out.append(" ")
+            out.append(replacement)
         else:
             out.append(ch)
     return "".join(out)
