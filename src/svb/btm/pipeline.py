@@ -88,14 +88,24 @@ def merge_experts(
     out_dir: Path,
     base_ckpt: Path | None = None,
     device: str = "cpu",
+    seed: int = 0,
+    merge_head: bool = True,
 ) -> Path:
-    """Merge expert state_dicts; task-vector methods need ``base_ckpt`` (phase 0)."""
+    """Merge expert state_dicts; task-vector methods need ``base_ckpt`` (phase 0).
+
+    Args:
+        seed: The run seed. DARE-TIES draws its drop mask from it, so leaving it
+            at the default would give every seed of a multi-seed study the same
+            mask and understate the DARE arm's variance.
+        merge_head: Whether the CTC head is merged along with the encoder. See
+            the merge module docstring — this is a protocol choice.
+    """
     import torch
 
     merge_fn = MERGE_STRATEGIES[strategy]
     experts = [torch.load(p, map_location=device) for p in expert_ckpts.values()]
     base = torch.load(base_ckpt, map_location=device) if base_ckpt is not None else None
-    merged = merge_fn(experts, base=base)
+    merged = merge_fn(experts, base=base, seed=seed, merge_head=merge_head)
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"merged_{strategy}.pt"
     torch.save(merged, path)

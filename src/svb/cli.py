@@ -79,7 +79,9 @@ def cmd_run(args: argparse.Namespace) -> None:
     if cfg.uses_btm:
         phase0 = run_phase0(cfg, specs, vocab, out / "phase0", device)
         experts = train_experts(cfg, phase0, specs, vocab, out / "experts", device)
-        merged_path = merge_experts(experts, cfg.merge_strategy, out / "merged", base_ckpt=phase0)
+        merged_path = merge_experts(
+            experts, cfg.merge_strategy, out / "merged", base_ckpt=phase0, seed=cfg.seed
+        )
         # Evaluate the merged model in-distribution on every language's test split.
         merged_model = make_model(cfg, vocab.size)
         merged_model.load_state_dict(torch.load(merged_path, map_location=device))

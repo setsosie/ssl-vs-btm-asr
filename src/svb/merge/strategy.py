@@ -8,6 +8,20 @@ The paper's finding #2 is that AVERAGE is the only safe strategy at scale, and
 that the sign-election penalty in TIES/DARE-TIES tracks linguistic typological
 distance. These implementations are the standard ones (Yadav et al. 2023; Yu et
 al. 2024) so that finding is not an artifact of a bespoke variant.
+
+**What gets merged.** By default every floating-point tensor is merged,
+*including the CTC head* (``ctc_proj.*`` and ``ctc_norm.*``) — not just the
+encoder. That is a research decision, not an implementation detail: the experts
+share one vocabulary, so their heads are commensurable, and merging them keeps
+the merged model usable without a further head-fitting step. Pass
+``merge_head=False`` to merge the encoder only and take the head from the base
+(phase-0) checkpoint, which is the natural ablation for asking how much of the
+merging penalty lives in the head.
+
+Non-floating-point entries (integer buffers, counters) cannot be averaged. They
+are carried through from the first expert, and the merge refuses to run if the
+experts disagree about one, since that would mean silently discarding a real
+difference.
 """
 
 from __future__ import annotations
@@ -18,19 +32,62 @@ import torch
 
 StateDict = dict[str, torch.Tensor]
 
+# The CTC head, as named by ``XeusCTC``.
+HEAD_PREFIXES = ("ctc_proj.", "ctc_norm.")
 
-def _mergeable_keys(experts: list[StateDict]) -> list[str]:
+
+def _is_head_key(key: str) -> bool:
+    return key.startswith(HEAD_PREFIXES)
+
+
+def _mergeable_keys(experts: list[StateDict], merge_head: bool = True) -> list[str]:
     """Keys present in all experts with a floating-point dtype."""
     common = set(experts[0])
     for e in experts[1:]:
         common &= set(e)
-    return [k for k in experts[0] if k in common and experts[0][k].is_floating_point()]
+    keys = [k for k in experts[0] if k in common and experts[0][k].is_floating_point()]
+    if not merge_head:
+        keys = [k for k in keys if not _is_head_key(k)]
+    return keys
 
 
-def average(experts: list[StateDict], **_: object) -> StateDict:
+def _scaffold(experts: list[StateDict], base: StateDict | None, merge_head: bool) -> StateDict:
+    """The output dict before any merged values are written into it.
+
+    Starts as a copy of the first expert, which supplies the entries no
+    strategy touches. Non-float entries are checked for agreement first: taking
+    experts[0]'s copy of a value the experts disagree about would discard a
+    real difference without a word.
+    """
+    for key, value in experts[0].items():
+        if value.is_floating_point():
+            continue
+        for other in experts[1:]:
+            if key in other and not torch.equal(value, other[key]):
+                raise ValueError(
+                    f"experts disagree on the non-float entry {key!r}, which the "
+                    "merge would silently take from the first expert"
+                )
+
+    out: StateDict = {k: v.clone() for k, v in experts[0].items()}
+    if not merge_head:
+        if base is None:
+            raise ValueError("merge_head=False needs a base (phase-0) state_dict for the head")
+        for key in out:
+            if _is_head_key(key) and key in base:
+                out[key] = base[key].clone()
+    return out
+
+
+def average(
+    experts: list[StateDict],
+    base: StateDict | None = None,
+    merge_head: bool = True,
+    **_: object,
+) -> StateDict:
     """Elementwise mean of expert parameters (== model soup)."""
-    keys = _mergeable_keys(experts)
-    out: StateDict = {k: experts[0][k].clone() for k in experts[0]}
+    keys = _mergeable_keys(experts, merge_head)
+    out = _scaffold(experts, base, merge_head)
     for k in keys:
         stacked = torch.stack([e[k].float() for e in experts], dim=0)
         out[k] = stacked.mean(dim=0).to(experts[0][k].dtype)
@@ -45,13 +102,21 @@ def _task_vectors(
 
 
 def _trim(tv: torch.Tensor, density: float) -> torch.Tensor:
-    """Keep the top-``density`` fraction of entries by magnitude per expert."""
+    """Keep the top-``density`` fraction of entries by magnitude per expert.
+
+    Selection is by ``topk`` rather than by comparing against the k-th largest
+    magnitude. A threshold comparison keeps every tied entry, so a task vector
+    of uniform magnitude — or one padded with the exact zeros of a parameter
+    the expert never moved — would be kept in full while reporting that it had
+    been trimmed to ``density``.
+    """
     if density >= 1.0:
         return tv
     flat = tv.reshape(tv.shape[0], -1)
     k = max(1, int(flat.shape[1] * density))
-    thresh = flat.abs().kthvalue(flat.shape[1] - k + 1, dim=1, keepdim=True).values
-    mask = flat.abs() >= thresh
+    keep = flat.abs().topk(k, dim=1).indices
+    mask = torch.zeros_like(flat, dtype=torch.bool)
+    mask.scatter_(1, keep, True)
     return (flat * mask).reshape(tv.shape)
 
 
@@ -68,14 +133,18 @@ def _ties_combine(tv: torch.Tensor) -> torch.Tensor:
 
 
 def ties(
-    experts: list[StateDict], base: StateDict | None, density: float = 0.2, **_: object
+    experts: list[StateDict],
+    base: StateDict | None,
+    density: float = 0.2,
+    merge_head: bool = True,
+    **_: object,
 ) -> StateDict:
     """TIES-merging: trim → elect sign → disjoint-average → add base."""
     if base is None:
         raise ValueError("TIES requires a base (phase-0) state_dict")
-    keys = _mergeable_keys(experts)
+    keys = _mergeable_keys(experts, merge_head)
     tvs = _task_vectors(experts, base, keys)
-    out: StateDict = {k: experts[0][k].clone() for k in experts[0]}
+    out = _scaffold(experts, base, merge_head)
     for k in keys:
         merged = _ties_combine(_trim(tvs[k], density))
         out[k] = (base[k].float() + merged).to(experts[0][k].dtype)
@@ -88,15 +157,22 @@ def dare_ties(
     density: float = 0.2,
     drop_p: float = 0.5,
     seed: int = 0,
+    merge_head: bool = True,
     **_: object,
 ) -> StateDict:
-    """DARE drop-and-rescale on task vectors, then TIES."""
+    """DARE drop-and-rescale on task vectors, then TIES.
+
+    The drop mask is the method's only stochastic element, so ``seed`` must be
+    the run's seed: pinned at a constant, every seed of a multi-seed study
+    would share one mask and the reported spread would omit the variance DARE
+    itself contributes.
+    """
     if base is None:
         raise ValueError("DARE-TIES requires a base (phase-0) state_dict")
-    keys = _mergeable_keys(experts)
+    keys = _mergeable_keys(experts, merge_head)
     tvs = _task_vectors(experts, base, keys)
     gen = torch.Generator().manual_seed(seed)
-    out: StateDict = {k: experts[0][k].clone() for k in experts[0]}
+    out = _scaffold(experts, base, merge_head)
     for k in keys:
         tv = tvs[k]
         mask = (torch.rand(tv.shape, generator=gen) >= drop_p).float()
