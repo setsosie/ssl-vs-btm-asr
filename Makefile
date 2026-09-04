@@ -1,4 +1,4 @@
-.PHONY: install data exp aggregate test lint check precommit
+.PHONY: install fetch data exp aggregate test lint check precommit
 
 ARM   ?= A_ssl
 SCALE ?= 3
@@ -11,8 +11,15 @@ SEEDS ?= 0 1 2 3 4
 install:
 	uv sync --frozen --extra dev
 
+# Download and extract the held-out OpenSLR corpora into $OPENSLR_ROOT. Common
+# Voice is not fetched here: it is only distributed through Mozilla Data
+# Collective, behind an account and a terms acceptance no script can give.
+fetch:
+	uv run python scripts/fetch_openslr.py --root $${OPENSLR_ROOT:?set OPENSLR_ROOT to the extraction root}
+
+# Report split sizes for every configured language, from metadata only.
 data:
-	bash scripts/download_data.sh
+	bash scripts/check_data.sh
 
 # Run all seeds for one (arm, scale). Sequential here; use scripts/run_matrix.py
 # + your scheduler to parallelize across GPUs.
