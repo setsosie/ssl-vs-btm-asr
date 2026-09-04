@@ -1,0 +1,477 @@
+# Corpora other than Common Voice.
+#
+# One entry per downloadable resource. Every hours, licence and format value was
+# read on the `source_page` in the same entry; where a page does not publish a
+# value it is null and the field name is listed under `unverified`, so a reader
+# can tell "the page does not say" from "nobody filled this in". Do not fill one
+# of those in from memory — check the archive at ingest and record what it was.
+#
+# `licence_name` is verbatim as the source page words it. The mix is deliberate
+# and worth a sentence in any write-up: CC BY 2.0, 3.0 and 4.0 and CC BY-SA 4.0
+# all appear, and ShareAlike over a training corpus is not settled law with
+# respect to model weights.
+#
+# Schema and field meanings: src/svb/data/corpora.py. Layout of what a preparer
+# writes: docs/data.md.
+#
+# Held out and therefore absent by rule, not by oversight: Malayalam, Marathi,
+# Telugu, Gujarati and Odia. Several corpora below come from the same Google
+# crowdsourced family as the held-out four, so a test asserts none of those five
+# is offered here as training data.
+
+corpora:
+  # --- Google crowdsourced OpenSLR sets ------------------------------------
+  # Five languages, one archive layout, one preparer. Each ships 16 zip shards
+  # named asr_<language>_{0..9,a..f}.zip and a single utt_spk_text.tsv of
+  # FileID / anonymized UserID / transcript. That third column is why these
+  # need no id parsing to get a speaker, unlike the held-out four, whose
+  # two-column line_index.tsv forces the speaker out of the FileID.
+  # Hours are from Table 1 of Kjartansson et al., SLTU 2018; the OpenSLR pages
+  # publish none.
+  - id: slr35_javanese
+    name: Large Javanese ASR training data set
+    languages: [jv]
+    source_page: https://www.openslr.org/35/
+    licence_name: Attribution-ShareAlike 4.0 International
+    licence_url: https://creativecommons.org/licenses/by-sa/4.0/
+    downloads:
+      - name: asr_javanese_{shard}.zip
+        url_pattern: https://www.openslr.org/resources/35/asr_javanese_{shard}.zip
+        shards: "0123456789abcdef"
+        size_each: 1.1G
+    audio_format: flac
+    sample_rate_hz: 16000
+    transcripts: utt_spk_text.tsv — FileID, UserID, transcript (tab-separated, no header)
+    speaker_ids: column
+    ships_split: none
+    total_hours: 296.0
+    speakers: "1019"
+    preparer: scripts/prepare_google_crowdsourced.py
+    citation: >-
+      Kjartansson et al. (2018), "Crowd-Sourced Speech Corpora for Javanese,
+      Sundanese, Sinhala, Nepali, and Bangladeshi Bengali", SLTU.
+    notes: >-
+      The OpenSLR page states only "wave files"; the archives are FLAC, which the
+      preparer checks rather than assumes.
+    unverified: [sample_rate_hz]
+
+  - id: slr36_sundanese
+    name: Large Sundanese ASR training data set
+    languages: [su]
+    source_page: https://www.openslr.org/36/
+    licence_name: Attribution-ShareAlike 4.0 International
+    licence_url: https://creativecommons.org/licenses/by-sa/4.0/
+    downloads:
+      - name: asr_sundanese_{shard}.zip
+        url_pattern: https://www.openslr.org/resources/36/asr_sundanese_{shard}.zip
+        shards: "0123456789abcdef"
+        size_each: 1.4G
+    audio_format: flac
+    sample_rate_hz: 16000
+    transcripts: utt_spk_text.tsv — FileID, UserID, transcript
+    speaker_ids: column
+    ships_split: none
+    total_hours: 333.0
+    speakers: "542"
+    preparer: scripts/prepare_google_crowdsourced.py
+    citation: Kjartansson et al. (2018), SLTU.
+    unverified: [sample_rate_hz]
+
+  - id: slr52_sinhala
+    name: Large Sinhala ASR training data set
+    languages: [si]
+    source_page: https://www.openslr.org/52/
+    licence_name: Attribution-ShareAlike 4.0 International
+    licence_url: https://creativecommons.org/licenses/by-sa/4.0/
+    downloads:
+      - name: asr_sinhala_{shard}.zip
+        url_pattern: https://www.openslr.org/resources/52/asr_sinhala_{shard}.zip
+        shards: "0123456789abcdef"
+        size_each: ~915M
+    audio_format: flac
+    sample_rate_hz: 16000
+    transcripts: utt_spk_text.tsv — FileID, anonymized UserID, transcript
+    speaker_ids: column
+    ships_split: none
+    total_hours: 224.0
+    speakers: "478"
+    preparer: scripts/prepare_google_crowdsourced.py
+    citation: Kjartansson et al. (2018), SLTU.
+    unverified: [sample_rate_hz]
+
+  - id: slr53_bengali
+    name: Large Bengali ASR training data set
+    languages: [bn]
+    source_page: https://www.openslr.org/53/
+    licence_name: Attribution-ShareAlike 4.0 International
+    licence_url: https://creativecommons.org/licenses/by-sa/4.0/
+    downloads:
+      - name: asr_bengali_{shard}.zip
+        url_pattern: https://www.openslr.org/resources/53/asr_bengali_{shard}.zip
+        shards: "0123456789abcdef"
+        size_each: ~910M
+    audio_format: flac
+    sample_rate_hz: 16000
+    transcripts: utt_spk_text.tsv — FileID, anonymized UserID, transcript
+    speaker_ids: column
+    ships_split: none
+    total_hours: 229.0
+    speakers: "508"
+    preparer: scripts/prepare_google_crowdsourced.py
+    citation: Kjartansson et al. (2018), SLTU.
+    notes: >-
+      Bengali is also a Common Voice locale, with 31.5 trainable hours — below
+      the rule. This corpus is what puts Bengali in the preset, so the language
+      is read from here and not from Common Voice.
+    unverified: [sample_rate_hz]
+
+  - id: slr54_nepali
+    name: Large Nepali ASR training data set
+    languages: [ne]
+    source_page: https://www.openslr.org/54/
+    licence_name: Attribution-ShareAlike 4.0 International
+    licence_url: https://creativecommons.org/licenses/by-sa/4.0/
+    downloads:
+      - name: asr_nepali_{shard}.zip
+        url_pattern: https://www.openslr.org/resources/54/asr_nepali_{shard}.zip
+        shards: "0123456789abcdef"
+        size_each: ~580M
+    audio_format: flac
+    sample_rate_hz: 16000
+    transcripts: utt_spk_text.tsv — FileID, anonymized UserID, transcript
+    speaker_ids: column
+    ships_split: none
+    total_hours: 165.0
+    speakers: "527"
+    preparer: scripts/prepare_google_crowdsourced.py
+    citation: Kjartansson et al. (2018), SLTU.
+    unverified: [sample_rate_hz]
+
+  # --- Other OpenSLR resources ---------------------------------------------
+  - id: slr124_tibetan
+    name: TIBMD@MUC
+    languages: [bo]
+    source_page: https://www.openslr.org/124/
+    licence_name: CC BY-SA 4.0
+    licence_url: https://creativecommons.org/licenses/by-sa/4.0/
+    downloads:
+      - name: Tibetan_speech_data.tgz
+        url: https://www.openslr.org/resources/124/Tibetan_speech_data.tgz
+        size: 29G
+    audio_format: wav
+    sample_rate_hz: 16000
+    transcripts: not documented on the source page — inspect the archive before ingest
+    speaker_ids: unconfirmed
+    ships_split: none
+    total_hours: 84.33
+    speakers: "87 native speakers"
+    preparer: scripts/prepare_tibmd.py
+    citation: TIBMD@MUC, Minzu University of China.
+    notes: >-
+      Three dialects: Ü-Tsang 52.53 h, Kham 5.87 h, Amdo 25.93 h; 10,390 unique
+      sentences. Tibetan is written without word boundaries, so word_boundary is
+      false and character error rate is the primary metric.
+    unverified: [transcripts, speaker_ids]
+
+  - id: slr126_kannada
+    name: IISc-MILE Kannada ASR Corpus
+    languages: [kn]
+    source_page: https://www.openslr.org/126/
+    licence_name: Attribution 2.0 Generic (CC BY 2.0)
+    licence_url: https://creativecommons.org/licenses/by/2.0/
+    downloads:
+      - name: mile_kannada_train.tar.gz
+        url: https://www.openslr.org/resources/126/mile_kannada_train.tar.gz
+        size: 22G
+      - name: mile_kannada_test.tar.gz
+        url: https://www.openslr.org/resources/126/mile_kannada_test.tar.gz
+        size: 6.1G
+    audio_format: wav
+    sample_rate_hz: 16000
+    transcripts: one UTF-8 .txt per .wav, under trans_files/ beside audio_files/
+    speaker_ids: unconfirmed
+    ships_split: partial
+    total_hours: 350.0
+    speakers: "915"
+    preparer: scripts/prepare_kannada_mile.py
+    citation: IISc-MILE, Indian Institute of Science.
+    notes: >-
+      Train and test ship; there is no dev split, so one is carved out of train.
+      The only CC BY 2.0 corpus here.
+    unverified: [speaker_ids, train_hours, test_hours]
+
+  - id: slr40_zeroth_korean
+    name: Zeroth-Korean
+    languages: [ko]
+    source_page: https://www.openslr.org/40/
+    licence_name: Attribution 4.0 International (CC BY 4.0)
+    licence_url: https://creativecommons.org/licenses/by/4.0/
+    downloads:
+      - name: zeroth_korean.tar.gz
+        url: https://www.openslr.org/resources/40/zeroth_korean.tar.gz
+        size: 10G
+    audio_format: flac
+    transcripts: not documented on the source page — Kaldi-style, inspect before ingest
+    speaker_ids: unconfirmed
+    ships_split: partial
+    train_hours: 51.6
+    test_hours: 1.2
+    speakers: 105 train / 10 test
+    preparer: scripts/prepare_zeroth.py
+    citation: Zeroth Project, Goodatlas.
+    notes: >-
+      The shipped test split is speaker-disjoint but 1.2 h, under the 2 h
+      evaluation bar. The preparer therefore leaves `split` empty for every row
+      and lets the shared speaker-disjoint derivation repartition all 115
+      speakers, so dev and test both clear the bar. The published 51.6/1.2 h
+      figures no longer describe the splits the run uses, and any write-up
+      should say the split was re-derived.
+    unverified: [audio_format, sample_rate_hz, transcripts, speaker_ids]
+
+  - id: slr160_armenian
+    name: Armenian Speech Crowdsourcing Data
+    languages: [hy]
+    source_page: https://www.openslr.org/160/
+    licence_name: CC BY 4.0
+    licence_url: https://creativecommons.org/licenses/by/4.0/
+    downloads:
+      - name: armenian_speech_crowdsourcing_data.tar.gz
+        url: https://www.openslr.org/resources/160/armenian_speech_crowdsourcing_data.tar.gz
+        size: 5.6G
+    audio_format: wav
+    transcripts: pitched.jsonl — transcript plus metadata, one JSON object per line
+    speaker_ids: unconfirmed
+    ships_split: none
+    total_hours: 70.0
+    preparer: scripts/prepare_armenian.py
+    citation: Armenian Speech Crowdsourcing Data (Toloka, Yerevan City Magazine text).
+    notes: >-
+      Crowdsourced read speech. Whether pitched.jsonl carries a speaker field is
+      not stated; if it does not, the split degrades to utterance level and the
+      run records that rather than claiming speaker-disjointness.
+    unverified: [sample_rate_hz, speaker_ids]
+
+  - id: slr102_ksc_kazakh
+    name: Kazakh Speech Corpus (KSC)
+    languages: [kk]
+    source_page: https://www.openslr.org/102/
+    licence_name: Attribution 4.0 International (CC BY 4.0)
+    licence_url: https://creativecommons.org/licenses/by/4.0/
+    downloads:
+      - name: ISSAI_KSC_335RS_v1.1_flac.tar.gz
+        url: https://www.openslr.org/resources/102/ISSAI_KSC_335RS_v1.1_flac.tar.gz
+        size: 19G
+    audio_format: flac
+    transcripts: shipped with the archive; convention not documented on the source page
+    speaker_ids: unconfirmed
+    ships_split: none
+    total_hours: 332.0
+    speakers: "over 153,000 utterances; speaker count not stated"
+    preparer: scripts/prepare_ksc.py
+    citation: ISSAI, Nazarbayev University — Kazakh Speech Corpus v1.1.
+    notes: >-
+      KSD (SLR140, 554 h, CC BY-SA 3.0) is the alternative, at 22/44 kHz and so
+      needing resampling; KSC is preferred for being 4.0-licensed.
+    unverified: [sample_rate_hz, transcripts, speaker_ids, ships_split]
+
+  - id: slr112_samromur
+    name: Samrómur 21.05
+    languages: [is]
+    source_page: https://www.openslr.org/112/
+    licence_name: CC BY 4.0
+    licence_url: https://creativecommons.org/licenses/by/4.0/
+    downloads:
+      - name: samromur_21.05.tgz
+        url: https://www.openslr.org/resources/112/samromur_21.05.tgz
+        size: 7.0G
+    audio_format: flac
+    sample_rate_hz: 16000
+    transcripts: metadata file carrying the read prompt and per-utterance and per-speaker fields
+    speaker_ids: column
+    ships_split: full
+    total_hours: 145.0
+    speakers: "8392"
+    preparer: scripts/prepare_samromur.py
+    citation: Samrómur 21.05, Language and Voice Lab, Reykjavík University.
+    notes: >-
+      The cleanest split in the survey: the page states the corpus is "split into
+      train, dev and test subsets with no speaker overlap", so nothing is
+      derived. 16 bit linear PCM, 1 channel.
+
+  # --- Non-OpenSLR ----------------------------------------------------------
+  - id: taltech_estonian
+    name: TalTech Estonian Speech Dataset 1.0
+    languages: [et]
+    source_page: https://cs.taltech.ee/staff/tanel.alumae/data/est-pub-asr-data/
+    licence_name: CC BY-SA 4.0 DEED
+    licence_url: https://creativecommons.org/licenses/by-sa/4.0/
+    downloads:
+      - name: est-pub-asr-data tar
+        url: https://cs.taltech.ee/staff/tanel.alumae/data/est-pub-asr-data/
+        size: 150G
+    audio_format: not stated on the source page — confirm before ingest
+    transcripts: STM and VTT, converted by the publisher from Transcriber TRS
+    speaker_ids: unconfirmed
+    ships_split: full
+    train_hours: 1334.0
+    dev_hours: 21.0
+    test_hours: 23.0
+    preparer: scripts/prepare_taltech.py
+    citation: Tanel Alumäe, Tallinn University of Technology — Estonian public ASR data.
+    notes: >-
+      Spontaneous long-form speech, non-professionally transcribed with errors
+      the publisher documents. The page states the audio copyright "belongs to
+      corresponding parties" alongside the CC BY-SA tag, which is worth reading
+      before redistributing anything derived from it.
+    unverified: [audio_format, sample_rate_hz, speaker_ids]
+
+  - id: parlaspeech_hr
+    name: ParlaSpeech-HR v1.0
+    languages: [hr]
+    source_page: https://www.clarin.si/repository/xmlui/handle/11356/1494
+    licence_name: Creative Commons - Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)
+    licence_url: https://creativecommons.org/licenses/by-sa/4.0/
+    downloads:
+      - name: ParlaSpeech-HR.part{n}
+        url_pattern: https://www.clarin.si/repository/xmlui/handle/11356/1494
+        shards: "123"
+        size: 116G total across three parts
+    audio_format: flac
+    transcripts: JSONL with word-level alignments
+    speaker_ids: column
+    ships_split: full
+    total_hours: 1816.0
+    speakers: "309 (train), 5 (dev), 6 (test)"
+    preparer: scripts/prepare_parlaspeech.py
+    citation: Ljubešić et al. — ParlaSpeech-HR, CLARIN.SI.
+    notes: >-
+      Parliamentary speech. The repository publishes dev and test as segment
+      counts (500 and 513) rather than hours, so the dev and test hours are left
+      null and measured at ingest. Publicly available with no login.
+    unverified: [sample_rate_hz, dev_hours, test_hours]
+
+  # NCHLT, via SADiLaR's DSpace 7 REST API. The resources page mentions
+  # accepting terms of use, but the bitstream endpoint serves to an
+  # unauthenticated client (verified: HTTP 206, application/zip, PK magic). The
+  # preparer resolves a handle to a download URL through
+  #   /server/api/core/items/{uuid}/bundles -> ORIGINAL
+  #   -> /server/api/core/bundles/{uuid}/bitstreams -> _links.content.href
+  # and reads dc.rights.license and dc.description from the same API, so the
+  # licence and the corpus size are asserted at fetch time rather than trusted
+  # from this file.
+  #
+  # Per-split hours are from van der Westhuizen & Niesler, Stellenbosch
+  # technical report SU-EE-1501, which reports three-way speaker-disjoint
+  # splits; the ~56 h corpus totals are SADiLaR's own. All five have a train
+  # split just under 50 h, which is recorded rather than rounded up.
+  - id: nchlt_zulu
+    name: NCHLT isiZulu Speech Corpus
+    languages: [zu]
+    source_page: https://repo.sadilar.org/handle/20.500.12185/275
+    licence_name: Creative Commons Attribution 3.0 Unported License (CC BY 3.0)
+    licence_url: https://creativecommons.org/licenses/by/3.0/
+    downloads:
+      - name: nchlt_zulu.zip
+        api: DSpace bitstream, resolved from the item handle at fetch time
+    audio_format: wav
+    sample_rate_hz: 16000
+    transcripts: per-utterance XML
+    speaker_ids: column
+    ships_split: full
+    train_hours: 48.5
+    dev_hours: 3.7
+    test_hours: 4.0
+    speakers: 194 train / 8 dev / 8 test
+    preparer: scripts/prepare_nchlt.py
+    citation: NCHLT Speech Corpus, South African Department of Arts and Culture; SADiLaR.
+    notes: >-
+      Read prompts, narrow domain, and the published test suite is 8 speakers.
+      Train alone is 48.5 h, under the 50 h rule; the corpus totals about 56 h.
+
+  - id: nchlt_xhosa
+    name: NCHLT isiXhosa Speech Corpus
+    languages: [xh]
+    source_page: https://repo.sadilar.org/handle/20.500.12185/279
+    licence_name: Creative Commons Attribution 3.0 Unported License (CC BY 3.0)
+    licence_url: https://creativecommons.org/licenses/by/3.0/
+    downloads:
+      - name: nchlt_xhosa.zip
+        api: DSpace bitstream, resolved from the item handle at fetch time
+    audio_format: wav
+    sample_rate_hz: 16000
+    transcripts: per-utterance XML
+    speaker_ids: column
+    ships_split: full
+    train_hours: 49.4
+    dev_hours: 3.8
+    test_hours: 3.1
+    speakers: 193 train / 8 dev / 8 test
+    preparer: scripts/prepare_nchlt.py
+    citation: NCHLT Speech Corpus; SADiLaR.
+    notes: Read prompts; 8-speaker test suite; train alone under 50 h.
+
+  - id: nchlt_sepedi
+    name: NCHLT Sepedi Speech Corpus
+    languages: [nso]
+    source_page: https://repo.sadilar.org/handle/20.500.12185/270
+    licence_name: Creative Commons Attribution 3.0 Unported License (CC BY 3.0)
+    licence_url: https://creativecommons.org/licenses/by/3.0/
+    downloads:
+      - name: nchlt_sepedi.zip
+        api: DSpace bitstream, resolved from the item handle at fetch time
+    audio_format: wav
+    sample_rate_hz: 16000
+    transcripts: per-utterance XML
+    speaker_ids: column
+    ships_split: full
+    train_hours: 50.9
+    dev_hours: 2.5
+    test_hours: 2.9
+    speakers: 194 train / 8 dev / 8 test
+    preparer: scripts/prepare_nchlt.py
+    citation: NCHLT Speech Corpus; SADiLaR.
+    notes: Read prompts; 8-speaker test suite.
+
+  - id: nchlt_xitsonga
+    name: NCHLT Xitsonga Speech Corpus
+    languages: [ts]
+    source_page: https://repo.sadilar.org/handle/20.500.12185/277
+    licence_name: Creative Commons Attribution 3.0 Unported License (CC BY 3.0)
+    licence_url: https://creativecommons.org/licenses/by/3.0/
+    downloads:
+      - name: nchlt_xitsonga.zip
+        api: DSpace bitstream, resolved from the item handle at fetch time
+    audio_format: wav
+    sample_rate_hz: 16000
+    transcripts: per-utterance XML
+    speaker_ids: column
+    ships_split: full
+    train_hours: 49.8
+    dev_hours: 2.9
+    test_hours: 3.6
+    speakers: 182 train / 8 dev / 8 test
+    preparer: scripts/prepare_nchlt.py
+    citation: NCHLT Speech Corpus; SADiLaR.
+    notes: Read prompts; 8-speaker test suite; train alone under 50 h.
+
+  - id: nchlt_tshivenda
+    name: NCHLT Tshivenda Speech Corpus
+    languages: [ve]
+    source_page: https://repo.sadilar.org/handle/20.500.12185/276
+    licence_name: Creative Commons Attribution 3.0 Unported License (CC BY 3.0)
+    licence_url: https://creativecommons.org/licenses/by/3.0/
+    downloads:
+      - name: nchlt_tshivenda.zip
+        api: DSpace bitstream, resolved from the item handle at fetch time
+    audio_format: wav
+    sample_rate_hz: 16000
+    transcripts: per-utterance XML
+    speaker_ids: column
+    ships_split: full
+    train_hours: 49.6
+    dev_hours: 3.6
+    test_hours: 3.1
+    speakers: 192 train / 8 dev / 8 test
+    preparer: scripts/prepare_nchlt.py
+    citation: NCHLT Speech Corpus; SADiLaR.
+    notes: Read prompts; 8-speaker test suite; train alone under 50 h.
