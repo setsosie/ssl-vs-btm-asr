@@ -15,9 +15,14 @@ Format notes, from the source page:
   speakers.
 - Each archive holds `audio_files/` and `trans_files/`; the transcript is one
   UTF-8 `.txt` per `.wav`, matched by stem.
-- Train and test ship; **there is no dev split**, so one is carved out of train.
-  Speaker ids are unconfirmed — if the file stems do not carry a speaker, the
-  carve is utterance-level and the run records that.
+- Train and test ship; **there is no dev split**. The loader refuses a manifest
+  that is part shipped and part derived, so this preparer clears the column for
+  every row and lets the shared speaker-disjoint derivation produce all three.
+  The published train/test division is therefore not the one a run uses, and any
+  write-up has to say the split was re-derived.
+- Speaker ids are unconfirmed. If the file stems do not carry a speaker the
+  derivation degrades to utterance level and the run records that, which is not
+  a speaker-independent result.
 """
 
 from __future__ import annotations

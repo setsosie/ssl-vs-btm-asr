@@ -196,7 +196,9 @@ corpora:
     preparer: scripts/prepare_kannada_mile.py
     citation: IISc-MILE, Indian Institute of Science.
     notes: >-
-      Train and test ship; there is no dev split, so one is carved out of train.
+      Train and test ship; there is no dev split. The loader takes a split whole
+      or derives one whole, so the preparer clears the column and re-derives all
+      three, and the published train/test division is not the one a run uses.
       The only CC BY 2.0 corpus here.
     unverified: [speaker_ids, train_hours, test_hours]
 
