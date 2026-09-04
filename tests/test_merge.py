@@ -180,3 +180,93 @@ def test_merge_head_false_refuses_a_base_that_lacks_the_head():
 
     with pytest.raises(ValueError, match=re.escape("ctc_proj.weight")):
         average([e1, e2], base=base, merge_head=False)
+
+
+def _eager_reference(experts, base, density, drop_p, seed):
+    """The pre-streaming implementation, kept here as the oracle.
+
+    It materializes every key's `(n_experts, ...)` stack up front, which is
+    exactly the memory behaviour the streaming version removes. Comparing
+    against it is what shows the change is a memory change and not a numerical
+    one: DARE draws its mask from one generator consumed in key order, so any
+    reordering of the loop would silently reassign masks to keys.
+    """
+    from svb.merge.strategy import _mergeable_keys, _scaffold, _ties_combine, _trim
+
+    keys = _mergeable_keys(experts, True)
+    tvs = {k: torch.stack([e[k].float() - base[k].float() for e in experts], dim=0) for k in keys}
+    out = _scaffold(experts, base, True)
+    gen = torch.Generator().manual_seed(seed)
+    for k in keys:
+        tv = tvs[k]
+        mask = (torch.rand(tv.shape, generator=gen) >= drop_p).float()
+        tv = tv * mask / (1.0 - drop_p)
+        out[k] = (base[k].float() + _ties_combine(_trim(tv, density))).to(experts[0][k].dtype)
+    return out
+
+
+def test_streaming_dare_ties_is_bit_identical_to_the_eager_version():
+    torch.manual_seed(0)
+    base = {f"layer{i}.w": torch.randn(4, 5) for i in range(3)}
+    experts = [
+        {k: v + torch.randn(4, 5) * 0.1 for k, v in base.items()},
+        {k: v + torch.randn(4, 5) * 0.1 for k, v in base.items()},
+        {k: v + torch.randn(4, 5) * 0.1 for k, v in base.items()},
+    ]
+
+    got = dare_ties(experts, base=base, density=0.4, drop_p=0.5, seed=3)
+    want = _eager_reference(experts, base, density=0.4, drop_p=0.5, seed=3)
+
+    assert set(got) == set(want)
+    for k in want:
+        assert torch.equal(got[k], want[k]), k
+
+
+def test_streaming_ties_is_bit_identical_to_stacking_every_key_first():
+    from svb.merge.strategy import _mergeable_keys, _scaffold, _ties_combine, _trim
+
+    torch.manual_seed(1)
+    base = {f"layer{i}.w": torch.randn(6) for i in range(4)}
+    experts = [{k: v + torch.randn(6) for k, v in base.items()} for _ in range(3)]
+
+    got = ties(experts, base=base, density=0.5)
+
+    keys = _mergeable_keys(experts, True)
+    tvs = {k: torch.stack([e[k].float() - base[k].float() for e in experts], 0) for k in keys}
+    want = _scaffold(experts, base, True)
+    for k in keys:
+        want[k] = (base[k].float() + _ties_combine(_trim(tvs[k], 0.5))).to(experts[0][k].dtype)
+
+    for k in want:
+        assert torch.equal(got[k], want[k]), k
+
+
+def test_merge_experts_refuses_a_non_cpu_device(tmp_path):
+    """Merging is CPU-only by construction, so say so instead of half-working.
+
+    The checkpoints are memory-mapped and DARE's generator is a CPU one; a GPU
+    merge would need the whole expert set resident and would draw a different
+    mask, so it is a different merge rather than a faster one.
+    """
+    from svb.btm.pipeline import merge_experts
+
+    path = tmp_path / "a.pt"
+    torch.save({"w": torch.zeros(4)}, path)
+
+    with pytest.raises(ValueError, match="CPU"):
+        merge_experts({"a": path}, "average", tmp_path / "out", device="cuda")
+
+
+def test_merge_experts_reads_memory_mapped_checkpoints(tmp_path):
+    """The mmap load must still produce the same merge as an ordinary one."""
+    from svb.btm.pipeline import merge_experts
+
+    paths = {}
+    for name, value in (("a", 1.0), ("b", 3.0)):
+        p = tmp_path / f"{name}.pt"
+        torch.save({"w": torch.full((8,), value)}, p)
+        paths[name] = p
+
+    out = merge_experts(paths, "average", tmp_path / "merged")
+
+    assert torch.equal(torch.load(out, weights_only=True)["w"], torch.full((8,), 2.0))
