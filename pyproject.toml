@@ -16,6 +16,12 @@ dependencies = [
     "soundfile>=0.12,<1",
     "jiwer>=4.0,<5",
     "pyyaml>=6.0,<7",
+    # Already present transitively via jiwer, declared directly because the
+    # statistics layer calls its sequence Levenshtein on token lists rather than
+    # going back through jiwer's string interface. An undeclared import that
+    # happens to be installed is the kind of dependency that disappears on the
+    # day jiwer changes its own.
+    "rapidfuzz>=3,<4",
 ]
 
 [project.optional-dependencies]
