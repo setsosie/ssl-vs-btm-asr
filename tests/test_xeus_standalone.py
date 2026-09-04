@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
+import pytest
 import torch
 
 from svb.model.xeus_standalone import (
@@ -117,3 +120,88 @@ def test_checkpointing_is_off_in_eval_mode(monkeypatch) -> None:
 
     assert isinstance(out, torch.Tensor)
     assert out.shape == (1, 5, 8)
+
+
+class UnsafeMarker:
+    """Module-scope so torch.save can pickle it and weights_only=True rejects it."""
+
+
+def test_weight_norm_key_names_are_the_checkpoint_ones(monkeypatch) -> None:
+    """The deprecated weight_norm API is load-bearing, not an oversight.
+
+    torch.nn.utils.parametrizations.weight_norm emits
+    parametrizations.weight.original0/1 instead, which does not match the
+    published checkpoint. A future "modernization" of that call would break
+    loading silently, so pin the expectation here.
+    """
+    from svb.model.xeus_standalone import StandaloneXEUS
+
+    _tiny_encoder_constants(monkeypatch)
+    keys = set(StandaloneXEUS().state_dict())
+
+    assert "encoder.embed.0.convs.0.weight_g" in keys
+    assert "encoder.embed.0.convs.0.weight_v" in keys
+    assert not any("parametrizations" in k for k in keys)
+
+
+def test_checkpoint_loader_unwraps_common_wrappers() -> None:
+    from svb.model.xeus_standalone import _unwrap_state_dict
+
+    flat = {"frontend.layers.0.conv.weight": torch.zeros(1)}
+
+    assert _unwrap_state_dict(flat) is flat
+    assert _unwrap_state_dict({"model_state_dict": flat}) is flat
+    assert _unwrap_state_dict({"state_dict": flat}) is flat
+
+
+def test_pickled_checkpoints_load_only_when_allowed(tmp_path) -> None:
+    """weights_only=True is the default; the published artifact may need the
+    escape hatch, and taking it must be an explicit choice."""
+    import pickle
+
+    from svb.model.xeus_standalone import _read_checkpoint
+
+    path = tmp_path / "ckpt.pth"
+    torch.save({"model_state_dict": {"a": torch.zeros(1)}, "meta": UnsafeMarker()}, path)
+
+    loaded = _read_checkpoint(path, device="cpu", allow_pickle=True)
+    assert "model_state_dict" in loaded
+
+    with pytest.raises(pickle.UnpicklingError):
+        _read_checkpoint(path, device="cpu", allow_pickle=False)
+
+
+def test_safe_checkpoints_never_need_the_escape_hatch(tmp_path) -> None:
+    from svb.model.xeus_standalone import _read_checkpoint
+
+    path = tmp_path / "plain.pth"
+    torch.save({"a": torch.zeros(1)}, path)
+
+    assert "a" in _read_checkpoint(path, device="cpu", allow_pickle=False)
+
+
+def test_dropout_reaches_every_block(monkeypatch) -> None:
+    """The rate affects every reported number, so it belongs in the config."""
+    from svb.model.xeus_standalone import StandaloneXEUS
+
+    _tiny_encoder_constants(monkeypatch)
+    model = StandaloneXEUS(dropout_rate=0.42)
+    block = cast(Any, model.encoder.encoders[0])
+
+    assert block.dropout.p == pytest.approx(0.42)
+    assert block.attn.dropout.p == pytest.approx(0.42)
+    assert block.feed_forward.dropout.p == pytest.approx(0.42)
+
+
+def test_make_model_threads_the_configured_dropout(monkeypatch) -> None:
+    from svb.config import load_config
+    from svb.model import make_model
+
+    _tiny_encoder_constants(monkeypatch)
+    cfg = load_config(
+        "C_btm_scratch", "3", seed=0, overrides={"model": {"hidden_size": 8, "dropout": 0.25}}
+    )
+    model = make_model(cfg, vocab_size=5)
+    block = cast(Any, model.encoder.encoder.encoders[0])
+
+    assert block.dropout.p == pytest.approx(0.25)

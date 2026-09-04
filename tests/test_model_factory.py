@@ -15,8 +15,9 @@ from svb.config import ExperimentConfig, load_config
 class _StubEncoder(nn.Module):
     """Stands in for the 577M encoder so construction is free."""
 
-    def __init__(self) -> None:
+    def __init__(self, dropout_rate: float = 0.1) -> None:
         super().__init__()
+        self.dropout_rate = dropout_rate
         self.gradient_checkpointing = False
 
 

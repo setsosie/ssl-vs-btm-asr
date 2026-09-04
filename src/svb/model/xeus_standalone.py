@@ -46,6 +46,8 @@ split rather than of row order, and results are comparable only across runs
 that used the same batch size.
 """
 
+import pickle
+from pathlib import Path
 from typing import Any, cast
 
 import torch
@@ -206,6 +208,13 @@ class _ConvPositionalEncoding(nn.Module):
 
     def __init__(self) -> None:
         super().__init__()
+        # nn.utils.weight_norm is deprecated in favour of
+        # nn.utils.parametrizations.weight_norm, and must stay anyway: the two
+        # produce different state_dict keys (weight_g/weight_v here versus
+        # parametrizations.weight.original0/original1), and the published
+        # checkpoint carries the old names. Swapping the call would break
+        # loading, so this deprecation is load-bearing. See the key-name test in
+        # tests/test_xeus_standalone.py.
         self.convs = nn.ModuleList(
             [
                 nn.utils.weight_norm(
@@ -501,11 +510,11 @@ class StandaloneXEUS(nn.Module):
     so it can be used as a drop-in replacement in XEUSASRModel.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, dropout_rate: float = 0.1) -> None:
         super().__init__()
         self.frontend = _Frontend()
         self.preencoder = _Preencoder()
-        self.encoder = _Encoder()
+        self.encoder = _Encoder(dropout_rate)
         # Optional SpecAugment between preencoder and encoder. Left as
         # None by default; XEUSASRModel attaches an instance when
         # SpecAug is enabled in the training config. Applied only in
@@ -546,22 +555,69 @@ class StandaloneXEUS(nn.Module):
         return self.encoder(features, lengths, use_final_output)
 
 
-def load_xeus_from_checkpoint(checkpoint_path: str, device: str = "cpu") -> StandaloneXEUS:
-    """Load XEUS model from HuggingFace checkpoint.
+def _read_checkpoint(
+    checkpoint_path: str | Path, device: str, allow_pickle: bool
+) -> dict[str, Any]:
+    """Read a checkpoint file, preferring the safe loader.
+
+    ``weights_only=True`` refuses any pickled object that is not a tensor or a
+    plain container. The published ``espnet/xeus`` artifact was written by a
+    training framework that embeds framework-side objects alongside the
+    weights, so it may not load that way. ``allow_pickle=True`` permits one
+    documented retry with ``weights_only=False``, which executes arbitrary
+    code from the file — acceptable only because the file in question is the
+    published XEUS artifact the run is explicitly configured to use. Pass
+    ``allow_pickle=False`` to refuse that instead.
+    """
+    try:
+        obj = torch.load(checkpoint_path, map_location=device, weights_only=True)
+    except pickle.UnpicklingError:
+        if not allow_pickle:
+            raise
+        obj = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    return cast("dict[str, Any]", obj)
+
+
+def _unwrap_state_dict(obj: dict[str, Any]) -> dict[str, Any]:
+    """Return the parameter mapping, unwrapping a trainer's envelope.
+
+    Checkpoints are written either flat or wrapped under ``model_state_dict``
+    (or ``state_dict``) alongside optimizer state and metadata. Which one the
+    published file uses is not something to guess at load time on a cluster.
+    """
+    for key in ("model_state_dict", "state_dict"):
+        inner = obj.get(key)
+        if isinstance(inner, dict):
+            return inner
+    return obj
+
+
+def load_xeus_from_checkpoint(
+    checkpoint_path: str,
+    device: str = "cpu",
+    dropout_rate: float = 0.1,
+    allow_pickle: bool = True,
+) -> StandaloneXEUS:
+    """Load XEUS model from the published checkpoint.
 
     Filters out the SSL training head (losses.*, util_modules.*, global_step)
-    and loads only the frontend, preencoder, and encoder weights.
+    and loads only the frontend, preencoder, and encoder weights. The load is
+    strict: a key this reimplementation does not expect is a divergence from
+    the reference architecture and must fail loudly, not be dropped.
 
     Args:
         checkpoint_path: Path to xeus_checkpoint_new.pth
         device: Device to load weights onto
+        dropout_rate: Dropout for the encoder blocks.
+        allow_pickle: Allow one retry with ``weights_only=False`` when the safe
+            loader refuses the file. See ``_read_checkpoint``.
 
     Returns:
         Loaded StandaloneXEUS model
     """
-    model = StandaloneXEUS()
+    model = StandaloneXEUS(dropout_rate=dropout_rate)
 
-    ckpt = torch.load(checkpoint_path, map_location=device, weights_only=True)
+    ckpt = _unwrap_state_dict(_read_checkpoint(checkpoint_path, device, allow_pickle))
 
     # Filter out SSL training head and metadata
     skip_prefixes = ("losses.", "util_modules.", "global_step")
