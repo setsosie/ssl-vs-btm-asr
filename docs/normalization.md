@@ -1,12 +1,19 @@
 # Text normalization
 
-Every transcript in this repository passes through one normalizer, `svb-norm-1`,
-defined in `src/svb/text/normalize.py`. It is applied at exactly three places —
+Every transcript in this repository passes through a normalizer chosen for the
+script it is written in, defined in `src/svb/text/normalize.py` and assigned in
+`src/svb/text/registry.py`. Whichever policy a language gets is applied at
+exactly three places —
 when the character vocabulary is built, when training targets are encoded, and
 when references and hypotheses are scored — so training and evaluation cannot
-drift apart on text policy. The active policy is recorded in every run's
-`resolved_config.yaml` and `env.json`, and its per-language effect is measured
-in `text_stats.json`.
+drift apart on text policy. The policy each language ran under is recorded in
+every run's `resolved_config.yaml` and `env.json`, and its effect is measured
+per language in `text_stats.json`.
+
+The rules below are those of `svb-norm-1`, the single policy this repository
+used before the families existed. It is still available by name and is what the
+comparability note at the end describes; which policy each language actually
+uses now is the table further down.
 
 ## What it does, in order
 
@@ -154,6 +161,112 @@ The removal counts are tallied by the normalizer as it works, so they describe
 the transformation that happened rather than what a scan of the input would
 guess: an intra-word apostrophe that survives is not counted as removed, and a
 rule the policy switched off removes nothing.
+
+## Which policy each language uses
+
+Normalization is per script family, not per run. A policy exists because of a
+writing system: the reason Devanagari needs its combining marks kept is the
+reason Telugu does, and it has nothing to do with Hindi or Telugu in particular.
+Each family's policy follows the convention of a reference system for that
+family, rather than one global guess applied to every script alike.
+
+| Policy | Languages here | Follows | Source |
+|---|---|---|---|
+| `whisper-basic` | en de fr es it nl pl fi ca eo eu hu gl ru uk be ab ba mhr ka | OpenAI Whisper, exactly | Radford et al. 2023, appendix C |
+| `turkic-tr` | tr | Whisper plus a Turkish locale case pre-map | our fix; see below |
+| `latin-marks` | sw rw lg kab uz | HuggingFace Open ASR Leaderboard `remove_symbols_keep_marks` | `huggingface/open_asr_leaderboard` |
+| `indic-vistaar` | hi ta, and held-out ml mr te gu | AI4Bharat Vistaar / IndicWhisper | `AI4Bharat/vistaar` `evaluation.py` |
+| `arabic-ouaal` | ar | Open Universal Arabic ASR Leaderboard | arXiv:2412.13788 |
+| `perso-arabic` | ps | `hazm` and `urduhack` Perso-Arabic conventions | see the Pashto caveat |
+| `uyghur-ug` | ug | Perso-Arabic without the alef-maksura fold | see the Uyghur caveat |
+| `ja-cer` | ja | ReazonSpeech evaluation, character error rate | `reazon-research/ReazonSpeech` |
+
+Also shipped and not assigned to anything: `whisper-marks`, which is Whisper's
+own pipeline with the three fixes the community has already made to it and the
+base the family policies extend; `cyrillic-yo`, which folds ё to е as the Golos
+and Russian Open STT conventions do, available for a run that wants it;
+`whisper-basic-nodiacritics`, Whisper's `remove_diacritics` variant; and
+`svb-norm-1`, the single policy this repository used before the families
+existed, kept because the comparability note below describes it.
+
+### What the mark rule costs, and the one European exception
+
+Whisper replaces every character in Unicode category M with a space. For Latin
+and Cyrillic that is nearly inert, because those scripts compose their accents
+into single code points. For an abugida it deletes the vowels, and for Turkish
+it splits words:
+
+| Input | `whisper-basic` | the assigned policy |
+|---|---|---|
+| `यह हिंदी है।` (hi) | `यह ह द ह ` — 4 tokens | `यह हिंदी है` — 3 tokens |
+| `मलयाळം ഭाഷ` (ml) | consonant skeleton only | marks intact |
+| `مَرْحَبًا بِٱلْعَالَم` (ar) | 10 single-letter tokens | `مرحبا بالعالم` — 2 tokens |
+| `İstanbul'da yaşıyorum.` (tr) | `i stanbul da yaşıyorum ` — 4 tokens | `istanbul'da yaşıyorum` — 2 tokens |
+| `İyi günler` (tr) | `i yi günler` — 3 tokens | `iyi günler` — 2 tokens |
+
+Turkish is the one European-script language that does not use `whisper-basic`.
+Lowercasing `İ` yields `i` followed by a combining dot above, which the mark
+rule then turns into a space, so every sentence-initial `İ`-word is split in
+two. `turkic-tr` maps `İ` to `i` and `I` to `ı` before folding, which is what a
+Turkish locale does. No Turkish ASR benchmark was found that specifies this, so
+it is our fix rather than an inherited convention.
+
+### Two policies whose base could not be verified
+
+**Uyghur.** No Uyghur ASR evaluation convention was found at all. `uyghur-ug` is
+constructed by reasoning from the orthography — Uyghur writes /i/ with alef
+maksura and /j/ with yeh, so the Perso-Arabic fold of the first onto the second
+would merge two distinct letters — and not adopted from anything published. It
+is the weakest policy in the set. Treat any Uyghur number as provisional until
+a native speaker or a published evaluation confirms the rules.
+
+**Pashto.** `ps` is assigned by script family rather than from a Pashto-specific
+source: it is written in the Arabic script and the Perso-Arabic conventions are
+the closer of the two available. Pashto has letters neither Persian nor Urdu
+uses, and no Pashto ASR normalizer was consulted. Unverified for this language
+specifically.
+
+### Overriding a language, or a whole run
+
+Each preset states its policy on the language's own line, so the choice is
+visible where a preset author would look:
+
+```yaml
+- { code: tr, source: commonvoice, hf_config: tr, normalizer: turkic-tr }
+```
+
+Leave it out and the language falls back to its script's default, listed in
+`src/svb/text/registry.py`. Latin defaults to `latin-marks` rather than to
+`whisper-basic`, which fails safe in both directions: a European language added
+without a line differs from Whisper only in ways Latin text barely notices,
+while a Yoruba or Vietnamese one keeps its tone marks. The Arabic script has no
+default at all, because its two conventions fold letters in opposite directions
+and every guess is wrong for half the family; a language written in it must name
+its policy or the run refuses to start.
+
+To score an entire run one way — for comparing against a published system's
+numbers, at the cost of what that system's rules do to the scripts it was not
+designed for:
+
+```yaml
+text:
+  override: whisper-basic
+```
+
+### What a run records, and what may be pooled
+
+`resolved_config.yaml` lists the policy each language ran under by name and by
+hash. `env.json` adds a digest over the whole policy set, so two runs can be
+checked for text equivalence without walking the table, alongside the Unicode
+version, which decides both character categories and case folding.
+`text_stats.json` records the policy per language, because its removal tallies
+are not comparable across languages that ran under different rules.
+
+`svb analyze` refuses to compare two runs that normalized a language
+differently, and refuses a run that records no policies at all — silence is not
+agreement. A macro-average whose languages used different policies says so:
+averaging across different text rules is how a multilingual system gets
+summarised at all, but the result is not one quantity.
 
 ## Whisper's normalizer, and the switch
 

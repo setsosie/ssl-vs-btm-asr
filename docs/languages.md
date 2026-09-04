@@ -190,6 +190,26 @@ macrolanguage `chm` (`chm_Cyrl_RU`).
 Of the 32, **only Japanese** (`Jpan`) is written without spaces. Uzbek resolves
 to `uz_Latn_UZ`, so the Latin orthography, not the Cyrillic one.
 
+The same script decides which text-normalization policy a language gets, since
+the reason a policy exists is a property of the writing system. Each preset
+states the policy on the language's own line; the assignments and their sources
+are in [`normalization.md`](normalization.md).
+
+| Script | Languages in the presets | Policy |
+|---|---|---|
+| `Latn` (European) | en de fr es it nl pl fi ca eo eu hu gl | `whisper-basic` |
+| `Latn` (Turkic) | tr | `turkic-tr` |
+| `Latn` (other) | sw rw lg kab uz | `latin-marks` |
+| `Cyrl` | ru uk be ab ba mhr | `whisper-basic` |
+| `Geor` | ka | `whisper-basic` |
+| `Deva` `Taml` `Mlym` `Telu` `Gujr` | hi ta, held-out ml mr te gu | `indic-vistaar` |
+| `Arab` | ar / ps / ug | `arabic-ouaal` / `perso-arabic` / `uyghur-ug` |
+| `Jpan` | ja | `ja-cer` |
+
+Turkish is the one European-script language not on `whisper-basic`, and the
+Arabic-script three each take a different policy: the family's conventions fold
+letters in opposite directions, so there is no single Arabic-script answer.
+
 ## Typological spread
 
 The point of the large tier is not the 32 largest corpora, which would be almost

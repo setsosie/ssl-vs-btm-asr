@@ -121,21 +121,25 @@ utterance list beside the number.
 
 ## Text normalization
 
-Every transcript passes through one versioned normalizer, `svb-norm-1`, applied
-at exactly three places — vocabulary construction, training targets, and both
-sides of every score — so training and evaluation cannot drift apart on text
-policy. It does NFKC, case folding, punctuation and symbol removal, and
-script-specific handling of Arabic vocalization and Malayalam chillu letters,
-while keeping combining marks and intra-word apostrophes. The full rule list and
-the reasoning behind each rule are in
+Every transcript passes through a normalizer chosen for the **script it is
+written in**, applied at exactly three places — vocabulary construction,
+training targets, and both sides of every score — so training and evaluation
+cannot drift apart on text policy. European-script languages use OpenAI
+Whisper's `BasicTextNormalizer`, reproduced exactly; every other family follows
+the convention of a reference system for that family, because Whisper's own rule
+replaces Unicode category M with a space and that deletes the vowel signs an
+abugida is written with. Turkish is the one European-script exception: the same
+rule splits every sentence-initial `İ`-word in two.
+
+Each preset names its policy on the language's own line, and a run can force one
+policy on everything with a single config line. The family table, its sources,
+the two policies whose base could not be verified, and how to override are in
 [`docs/normalization.md`](docs/normalization.md).
 
-OpenAI Whisper's `BasicTextNormalizer` is also available, reproduced exactly, as
-the `whisper-basic` policy — one line of config, for comparing against published
-Whisper numbers on Latin and Cyrillic material; it is the wrong choice for any
-result that scores Indic or Arabic, because it replaces every combining mark
-with a space. The trade-off is set out in
-[`docs/normalization.md`](docs/normalization.md#whispers-normalizer-and-the-switch).
+Results produced under different policies are not comparable. Every run records
+the policy each language used by name and hash; `svb analyze` refuses to compare
+two runs that normalized a language differently, and a macro-average across
+languages with different policies says so.
 
 **These numbers are not comparable to the author's earlier results on this
 material.** That earlier work applied no normalization at evaluation time: its
@@ -147,8 +151,7 @@ should be read as upper bounds. The inflation is largely a common term across
 the arms being compared, so comparisons *within* that earlier work remain
 informative — but it is not exactly additive, because normalization forgives an
 error class that a weaker system commits more often, which compresses
-differences between arms. Results produced under different policy hashes must
-not be pooled.
+differences between arms.
 
 ## Evaluation protocol
 
