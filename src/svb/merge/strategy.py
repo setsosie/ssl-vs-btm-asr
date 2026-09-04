@@ -37,7 +37,9 @@ def average(experts: list[StateDict], **_: object) -> StateDict:
     return out
 
 
-def _task_vectors(experts: list[StateDict], base: StateDict, keys: list[str]) -> dict[str, torch.Tensor]:
+def _task_vectors(
+    experts: list[StateDict], base: StateDict, keys: list[str]
+) -> dict[str, torch.Tensor]:
     """Stack per-expert task vectors (expert - base) as (n_experts, ...)."""
     return {k: torch.stack([e[k].float() - base[k].float() for e in experts], dim=0) for k in keys}
 

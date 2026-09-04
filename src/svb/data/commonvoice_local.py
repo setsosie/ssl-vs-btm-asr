@@ -84,6 +84,8 @@ class CommonVoiceLocal(Dataset):
         return wav.float(), text
 
 
-def load_cv_texts(lang: str, split: str, root: str | None = None, text_column: str = "sentence") -> list[str]:
+def load_cv_texts(
+    lang: str, split: str, root: str | None = None, text_column: str = "sentence"
+) -> list[str]:
     base = _cv_root(root) / lang
     return [t for _, t in _read_rows(base / _SPLIT_FILE[split], text_column)]

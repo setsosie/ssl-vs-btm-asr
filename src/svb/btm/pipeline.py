@@ -59,9 +59,7 @@ def run_phase0(
         [load_language(s, "validation", cfg.train.max_audio_samples) for s in specs]
     )
     model = _make_model(cfg, vocab.size)
-    result = train(
-        model, cfg, train_ds, val_ds, collate, cfg.train.phase0_epochs, out_dir, device
-    )
+    result = train(model, cfg, train_ds, val_ds, collate, cfg.train.phase0_epochs, out_dir, device)
     return result.checkpoint
 
 
