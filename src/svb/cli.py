@@ -80,11 +80,11 @@ def cmd_run(args: argparse.Namespace) -> None:
     out = _run_dir(results_root(args.results_root), cfg.arm, cfg.scale, cfg.seed)
     out.mkdir(parents=True, exist_ok=True)
     dump_config(cfg, out)
-    dump_run_meta(out)
+    dump_run_meta(out, policy=cfg.text.policy)
     set_all_seeds(cfg.seed)
 
     specs = get_preset(cfg.scale)
-    vocab = build_training_vocab(specs)
+    vocab, _ = build_training_vocab(specs, cfg.text)
     vocab.save(out / "vocab.json")
     # Two collates: training truncates long audio and drops the transcripts that
     # no longer fit, evaluation does neither — a truncated test utterance scored

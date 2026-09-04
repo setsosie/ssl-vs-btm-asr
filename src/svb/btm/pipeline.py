@@ -16,23 +16,40 @@ from pathlib import Path
 from torch import Tensor
 from torch.utils.data import ConcatDataset
 
-from ..config import ExperimentConfig
+from ..config import ExperimentConfig, TextConfig
 from ..data.collate import make_ctc_collate
 from ..data.datasets import load_language, load_texts
 from ..data.registry import LangSpec
 from ..merge.strategy import MERGE_STRATEGIES
-from ..model.ctc_vocab import CtcVocab, build_vocab_from_texts
+from ..model.ctc_vocab import CtcVocab, build_vocab_from_texts, require_space_token
 from ..model.xeus_ctc import make_model
 from ..train.trainer import train
 
 
-def build_training_vocab(specs: list[LangSpec]) -> CtcVocab:
-    """Char vocab over all training transcripts across the preset languages."""
+def build_training_vocab(
+    specs: list[LangSpec], text_cfg: TextConfig | None = None
+) -> tuple[CtcVocab, dict[str, int]]:
+    """Char vocab over all training transcripts across the preset languages.
+
+    Returns the vocab and the ``{character: count}`` map of what the frequency
+    floor evicted, which the run records rather than discarding: the floor
+    changes what the model can emit, so it belongs in the artifacts.
+
+    Raises when a preset containing space-separated languages produces a vocab
+    with no space character — a floor tuned for a full run can evict it from a
+    small corpus, and the result would be a model that emits one unbroken string
+    while looking merely unconverged.
+    """
+    text_cfg = text_cfg or TextConfig()
     texts: list[str] = []
     for spec in specs:
         texts.extend(load_texts(spec, "train"))
-    vocab, _ = build_vocab_from_texts(texts)
-    return vocab
+    vocab, evicted = build_vocab_from_texts(
+        texts, policy=text_cfg.policy, min_char_count=text_cfg.min_char_count
+    )
+    if any(spec.word_boundary for spec in specs):
+        require_space_token(vocab)
+    return vocab, evicted
 
 
 def run_phase0(
