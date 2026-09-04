@@ -1,0 +1,58 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "ssl-vs-btm-asr"
+abstract: >-
+  Is it self-supervised pretraining or the Branch-Train-Merge pipeline that
+  carries low-resource multilingual ASR? A clean, multi-seed ablation on the
+  XEUS encoder across three training conditions, three language scales, and
+  five held-out Indic transfer languages.
+type: software
+version: "0.1.0"
+license: MIT
+repository-code: "https://github.com/setsosie/ssl-vs-btm-asr"
+keywords:
+  - automatic-speech-recognition
+  - self-supervised-learning
+  - model-merging
+  - branch-train-merge
+  - multilingual
+  - low-resource-languages
+authors:
+  # TODO before release: replace this entity entry with a person entry
+  # (given-names / family-names) and add an ORCID. It currently carries the git
+  # commit handle because that is the only author identity recorded in the
+  # repository, and guessing a legal name would be worse than leaving this
+  # visible.
+  - name: "setsosie"
+references:
+  # The encoder this work fine-tunes. All credit for the model and weights
+  # belongs to its authors; this repository only loads and adapts them.
+  - type: article
+    title: >-
+      Towards Robust Speech Representation Learning for Thousands of Languages
+    authors:
+      - family-names: Chen
+        given-names: William
+      - family-names: Zhang
+        given-names: Wangyou
+      - family-names: Peng
+        given-names: Yifan
+      - family-names: Li
+        given-names: Xinjian
+      - family-names: Tian
+        given-names: Jinchuan
+      - family-names: Shi
+        given-names: Jiatong
+      - family-names: Chang
+        given-names: Xuankai
+      - family-names: Maiti
+        given-names: Soumi
+      - family-names: Livescu
+        given-names: Karen
+      - family-names: Watanabe
+        given-names: Shinji
+    year: 2024
+    identifiers:
+      - type: other
+        value: "arXiv:2407.00837"
+        description: arXiv preprint

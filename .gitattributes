@@ -1,0 +1,13 @@
+# Normalise line endings so a Windows checkout does not churn every file.
+*.py       text eol=lf
+*.yaml     text eol=lf
+*.yml      text eol=lf
+*.toml     text eol=lf
+*.sh       text eol=lf
+*.sbatch   text eol=lf
+*.md       text eol=lf
+*.tsv      text eol=lf
+*.cff      text eol=lf
+
+# Generated: collapse in PR diffs. Reviewed by regenerating, not by reading.
+uv.lock    linguist-generated=true -diff
