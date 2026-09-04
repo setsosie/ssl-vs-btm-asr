@@ -90,7 +90,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     # no longer fit, evaluation does neither — a truncated test utterance scored
     # against its full reference is a fabricated error rate.
     train_collate = make_ctc_collate(
-        vocab, max_audio_samples=cfg.train.max_audio_samples, drop_overlong=True
+        vocab, max_audio_samples=cfg.train.max_audio_samples, drop_overlong=True, drop_empty=True
     )
     eval_collate = make_ctc_collate(vocab)
     results: dict = {"arm": cfg.arm, "scale": cfg.scale, "seed": cfg.seed, "in_distribution": {}}

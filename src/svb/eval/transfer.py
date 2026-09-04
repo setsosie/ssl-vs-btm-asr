@@ -58,7 +58,10 @@ def transfer_one(
     model.expand_head(new_vocab.size, seed=cfg.seed)
 
     train_collate = make_ctc_collate(
-        new_vocab, max_audio_samples=cfg.train.max_audio_samples, drop_overlong=True
+        new_vocab,
+        max_audio_samples=cfg.train.max_audio_samples,
+        drop_overlong=True,
+        drop_empty=True,
     )
     eval_collate = make_ctc_collate(new_vocab)
     train_ds = load_language(lang, "train", cfg.train.max_audio_samples)
