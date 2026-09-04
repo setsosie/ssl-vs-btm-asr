@@ -506,8 +506,9 @@ class _Encoder(nn.Module):
 class StandaloneXEUS(nn.Module):
     """Standalone XEUS model (frontend + preencoder + encoder).
 
-    Provides the same ``encode()`` interface as the ESPnet SSL model,
-    so it can be used as a drop-in replacement in XEUSASRModel.
+    ``encode()`` keeps the signature of the ESPnet SSL model's own method —
+    waveforms and lengths in, features and output lengths out — so the two are
+    interchangeable behind a CTC head without the caller knowing which it has.
     """
 
     def __init__(self, dropout_rate: float = 0.1) -> None:
@@ -515,10 +516,11 @@ class StandaloneXEUS(nn.Module):
         self.frontend = _Frontend()
         self.preencoder = _Preencoder()
         self.encoder = _Encoder(dropout_rate)
-        # Optional SpecAugment between preencoder and encoder. Left as
-        # None by default; XEUSASRModel attaches an instance when
-        # SpecAug is enabled in the training config. Applied only in
-        # .train() mode (the module self-gates on self.training).
+        # Hook for SpecAugment between preencoder and encoder. Nothing in this
+        # repository assigns it, so it is always None and no run applies
+        # SpecAugment; the attribute exists because `encode` mirrors the
+        # reference model's structure. A module attached here would need to
+        # self-gate on `self.training`.
         self.spec_augment: nn.Module | None = None
 
     @property
