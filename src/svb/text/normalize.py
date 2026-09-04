@@ -59,11 +59,52 @@ import json
 import re
 import unicodedata
 from collections.abc import Iterable
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any, Literal
 
 NORMALIZER_VERSION = "svb-norm-1"
+
+Pipeline = Literal["svb", "whisper"]
+
+# The fields each pipeline reads. A policy records and hashes exactly these:
+# a field its pipeline never consults did not change a character, so recording
+# it would imply a rule that ran and hashing it would mark results incomparable
+# for a setting that had no effect. Constructing a policy with an unread field
+# off its default is refused rather than silently ignored, which is what makes
+# leaving it out of the record sound.
+_HASHED_FIELDS: dict[Pipeline, frozenset[str]] = {
+    "svb": frozenset(
+        {
+            "version",
+            "form",
+            "case",
+            "malayalam_chillu",
+            "strip_invisibles",
+            "strip_arabic_marks",
+            "turkish_dotted_i",
+            "unify_apostrophes",
+            "strip_punctuation",
+            "strip_symbols",
+            "apostrophe_is_letter",
+            "digits",
+        }
+    ),
+    "whisper": frozenset(
+        {
+            "version",
+            "pipeline",
+            "form",
+            "case",
+            "drop_bracketed_spans",
+            "strip_marks",
+            "strip_punctuation",
+            "strip_symbols",
+            "diacritics",
+            "strip_whitespace",
+        }
+    ),
+}
 
 APOSTROPHE = "'"
 
@@ -110,7 +151,13 @@ class NormalizerPolicy:
     """
 
     version: str = NORMALIZER_VERSION
-    form: Literal["NFC", "NFKC"] = "NFKC"
+    # Which order the rules run in. The two pipelines are not reorderings of one
+    # another: Whisper lowercases and deletes bracketed spans *before* the
+    # Unicode form, so a fullwidth-parenthesized span survives it, and a policy
+    # that applied the form first would delete that span while claiming to be
+    # Whisper's normalizer.
+    pipeline: Pipeline = "svb"
+    form: Literal["NFC", "NFKC", "NFKD"] = "NFKC"
     case: Literal["casefold", "lower", "none"] = "casefold"
     malayalam_chillu: Literal["atomic", "keep"] = "atomic"
     strip_invisibles: bool = True
@@ -134,13 +181,47 @@ class NormalizerPolicy:
     # so marked results incomparable, while changing not one character.
     digits: Literal["keep"] = "keep"
 
+    # --- read by the whisper pipeline only ---------------------------------
+    # Whisper deletes <...>, [...] and (...) spans before anything else, a
+    # transcription convention Common Voice and OpenSLR do not use; on corpora
+    # that do not use it, it deletes real words.
+    drop_bracketed_spans: bool = False
+    # Replace Unicode category M with a space. Whisper does this to every mark,
+    # which is what reduces an Indic script to its bare consonants.
+    strip_marks: bool = False
+    # "drop" is Whisper's remove_diacritics path: NFKD, delete category Mn, and
+    # map the letters NFKD does not separate through ADDITIONAL_DIACRITICS.
+    diacritics: Literal["keep", "drop"] = "keep"
+    # Whisper collapses runs of whitespace but never strips the ends, so its
+    # output routinely carries a trailing space. Kept faithful rather than
+    # tidied: a leading space is one character of CER.
+    strip_whitespace: bool = True
+
+    def __post_init__(self) -> None:
+        """Refuse a setting this pipeline cannot act on.
+
+        Accepting one silently would be a knob that changes nothing, and would
+        also make it unsound to leave the field out of :meth:`to_dict`.
+        """
+        read = _HASHED_FIELDS[self.pipeline]
+        for spec in fields(self):
+            if spec.name in read:
+                continue
+            if getattr(self, spec.name) != spec.default:
+                raise ValueError(
+                    f"the {self.pipeline!r} pipeline does not read {spec.name!r}; "
+                    f"leave it at {spec.default!r} or choose a pipeline that runs it"
+                )
+
     def policy_hash(self) -> str:
-        """Short digest over every field, for the resolved config and env.json."""
+        """Short digest over the rules this pipeline runs."""
         payload = json.dumps(self.to_dict(), sort_keys=True, ensure_ascii=False)
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        """The rules this pipeline actually runs, and nothing else."""
+        read = _HASHED_FIELDS[self.pipeline]
+        return {spec.name: getattr(self, spec.name) for spec in fields(self) if spec.name in read}
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> NormalizerPolicy:
