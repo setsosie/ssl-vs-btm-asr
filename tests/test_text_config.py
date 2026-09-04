@@ -15,7 +15,7 @@ import pytest
 import yaml
 
 from svb.config import TextConfig, dump_config, load_config
-from svb.text.normalize import NORMALIZER_VERSION, NormalizerPolicy
+from svb.text.normalize import NORMALIZER_VERSION, NormalizerPolicy, get_policy
 
 
 def test_defaults_are_the_current_policy() -> None:
@@ -147,3 +147,52 @@ def test_an_unset_merge_head_flag_leaves_the_yaml_alone(tmp_path: Path) -> None:
         load_config("B_btm_ssl", "3", 0, yaml_path=path, overrides={"merge_head": True}).merge_head
         is True
     )
+
+
+def test_a_yaml_can_name_a_published_policy() -> None:
+    """The switch the paper's comparability argument turns on: one line."""
+    cfg = load_config("A_ssl", "3", 0, overrides={"text": {"policy": "whisper-basic"}})
+
+    assert cfg.text.policy == get_policy("whisper-basic")
+    assert cfg.text.policy.pipeline == "whisper"
+
+
+def test_naming_a_policy_that_does_not_exist_says_which_do() -> None:
+    with pytest.raises(KeyError, match="unknown normalization policy"):
+        load_config("A_ssl", "3", 0, overrides={"text": {"policy": "whisper"}})
+
+
+def test_explicit_fields_still_work_alongside_the_names() -> None:
+    cfg = load_config("A_ssl", "3", 0, overrides={"text": {"policy": {"case": "lower"}}})
+
+    assert cfg.text.policy.case == "lower"
+    assert cfg.text.policy.pipeline == "svb"
+
+
+def test_the_dumped_config_names_the_policy_and_lists_only_its_rules(tmp_path: Path) -> None:
+    """The name is a label for the reader; the resolved fields are what ran."""
+    cfg = load_config("A_ssl", "3", 0, overrides={"text": {"policy": "whisper-basic"}})
+
+    dumped = yaml.safe_load(dump_config(cfg, tmp_path).read_text(encoding="utf-8"))
+
+    assert dumped["text"]["policy_name"] == "whisper-basic"
+    assert dumped["text"]["policy"]["strip_marks"] is True
+    assert "turkish_dotted_i" not in dumped["text"]["policy"]
+    assert dumped["text"]["policy_hash"] == get_policy("whisper-basic").policy_hash()
+
+
+def test_a_hand_rolled_policy_is_dumped_without_a_name(tmp_path: Path) -> None:
+    cfg = load_config("A_ssl", "3", 0, overrides={"text": {"policy": {"case": "lower"}}})
+
+    dumped = yaml.safe_load(dump_config(cfg, tmp_path).read_text(encoding="utf-8"))
+
+    assert dumped["text"]["policy_name"] is None
+
+
+def test_a_whisper_config_round_trips_through_its_own_dump(tmp_path: Path) -> None:
+    original = load_config("A_ssl", "3", 0, overrides={"text": {"policy": "whisper-basic"}})
+    path = dump_config(original, tmp_path)
+
+    reloaded = load_config("A_ssl", "3", 0, yaml_path=path)
+
+    assert reloaded.text == original.text

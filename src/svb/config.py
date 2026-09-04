@@ -16,7 +16,7 @@ from typing import Any, Literal
 
 import yaml
 
-from .text.normalize import NormalizerPolicy, module_sha256
+from .text.normalize import NormalizerPolicy, get_policy, module_sha256, policy_name
 
 Arm = Literal["A_ssl", "B_btm_ssl", "C_btm_scratch"]
 Scale = Literal["3", "16", "64"]
@@ -79,7 +79,7 @@ class TextConfig:
 
 
 # Written into the dumped config for the reader, derived rather than set.
-_DERIVED_TEXT_KEYS = ("policy_hash", "normalizer_module_sha256")
+_DERIVED_TEXT_KEYS = ("policy_name", "policy_hash", "normalizer_module_sha256")
 
 
 @dataclass(frozen=True)
@@ -116,9 +116,16 @@ class ExperimentConfig:
 
     def to_dict(self) -> dict[str, Any]:
         data = dataclasses.asdict(self)
+        # asdict would emit every policy field, including the ones belonging to
+        # the other pipeline, which reads as a list of rules that ran. The
+        # policy's own record carries only what it actually runs.
+        data["text"]["policy"] = self.text.policy.to_dict()
         # Derived, so that a reader can tell two runs apart without recomputing
-        # anything: the policy hash identifies the settings, and the module hash
-        # catches a normalizer edited without any setting changing.
+        # anything: the policy hash identifies the settings, the module hash
+        # catches a normalizer edited without any setting changing, and the name
+        # says which published policy this is — a label for the reader, not the
+        # thing the run trusts, which is the resolved fields beside it.
+        data["text"]["policy_name"] = policy_name(self.text.policy)
         data["text"]["policy_hash"] = self.text.policy.policy_hash()
         data["text"]["normalizer_module_sha256"] = module_sha256()
         return data
@@ -170,7 +177,11 @@ def _text_config(raw: dict[str, Any]) -> TextConfig:
     raw = dict(raw)
     for key in _DERIVED_TEXT_KEYS:
         raw.pop(key, None)
-    policy = NormalizerPolicy(**raw.pop("policy", {}))
+    spec = raw.pop("policy", {})
+    # A name or the fields themselves. The name is the one-line switch a config
+    # uses to adopt a published policy; the fields are how a run says exactly
+    # what it did, which is also what its own dumped config carries back in.
+    policy = get_policy(spec) if isinstance(spec, str) else NormalizerPolicy(**spec)
     return TextConfig(policy=policy, **raw)
 
 
