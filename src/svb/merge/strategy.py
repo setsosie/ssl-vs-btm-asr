@@ -74,8 +74,17 @@ def _scaffold(experts: list[StateDict], base: StateDict | None, merge_head: bool
         if base is None:
             raise ValueError("merge_head=False needs a base (phase-0) state_dict for the head")
         for key in out:
-            if _is_head_key(key) and key in base:
-                out[key] = base[key].clone()
+            if not _is_head_key(key):
+                continue
+            if key not in base:
+                # Falling back to experts[0] here would leave the head half from
+                # phase 0 and half from one arbitrary expert, which is neither
+                # protocol and would not show up in any artifact.
+                raise ValueError(
+                    f"merge_head=False takes the head from the base, but the base has no "
+                    f"{key!r}; it is not the phase-0 checkpoint these experts branched from"
+                )
+            out[key] = base[key].clone()
     return out
 
 
