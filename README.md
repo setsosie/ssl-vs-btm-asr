@@ -23,7 +23,7 @@ permutation tests available from the per-utterance predictions every run writes.
 ## Status
 
 **No GPU run has been executed against this code.** Everything below is
-implemented and covered by 1040 CPU tests; none of it has yet produced a number
+implemented and covered by 1042 CPU tests; none of it has yet produced a number
 from real audio. Three other gaps are open by design rather than by oversight:
 
 - **The 64-language tier is populated and every preparer is written, but none
