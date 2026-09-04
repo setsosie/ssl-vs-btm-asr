@@ -69,11 +69,6 @@ ignore = [
     "E501",
 ]
 
-[tool.ruff.lint.per-file-ignores]
-# Staged exemptions for findings in modules owned by other in-flight branches.
-# Each line is one branch's to fix and delete; do not add to this block.
-"src/svb/model/ctc_vocab.py" = ["SIM102", "RUF005"]  # -> text-normalization branch
-
 [tool.mypy]
 python_version = "3.12"
 files = ["src", "tests"]

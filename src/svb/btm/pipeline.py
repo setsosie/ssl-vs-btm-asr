@@ -31,7 +31,8 @@ def build_training_vocab(specs: list[LangSpec]) -> CtcVocab:
     texts: list[str] = []
     for spec in specs:
         texts.extend(load_texts(spec, "train"))
-    return build_vocab_from_texts(texts)
+    vocab, _ = build_vocab_from_texts(texts)
+    return vocab
 
 
 def run_phase0(

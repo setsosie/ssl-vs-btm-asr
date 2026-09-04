@@ -44,7 +44,7 @@ def test_a_checkpoint_exists_even_when_every_epoch_is_nan(tmp_path) -> None:
     no floor the file is never written — and the caller then loads it and dies
     with FileNotFoundError after a full training run.
     """
-    vocab = build_vocab_from_texts(["abc"])
+    vocab, _ = build_vocab_from_texts(["abc"])
     model = ScriptedLossCTC([math.nan, math.nan])
 
     result = train(
@@ -63,7 +63,7 @@ def test_a_checkpoint_exists_even_when_every_epoch_is_nan(tmp_path) -> None:
 
 
 def test_finite_validation_loss_still_selects(tmp_path) -> None:
-    vocab = build_vocab_from_texts(["abc"])
+    vocab, _ = build_vocab_from_texts(["abc"])
     model = ScriptedLossCTC([5.0, 2.0])
 
     result = train(
@@ -87,7 +87,7 @@ def test_validation_loss_is_weighted_by_batch_size(tmp_path) -> None:
     Averaging the two batch means would report 2.5; weighting by utterance
     count reports 2.0, which is the actual mean loss over the split.
     """
-    vocab = build_vocab_from_texts(["abc"])
+    vocab, _ = build_vocab_from_texts(["abc"])
     model = ScriptedLossCTC([1.0, 4.0])
 
     result = train(
@@ -111,7 +111,7 @@ def test_a_split_smaller_than_the_batch_still_trains(tmp_path) -> None:
     yields zero steps: the LR schedule collapses to zero and the run reports a
     completed training that touched no data.
     """
-    vocab = build_vocab_from_texts(["abc"])
+    vocab, _ = build_vocab_from_texts(["abc"])
     model = ScriptedLossCTC([1.0])
 
     train(
@@ -129,7 +129,7 @@ def test_a_split_smaller_than_the_batch_still_trains(tmp_path) -> None:
 
 
 def test_an_empty_training_split_fails_loudly(tmp_path) -> None:
-    vocab = build_vocab_from_texts(["abc"])
+    vocab, _ = build_vocab_from_texts(["abc"])
     model = ScriptedLossCTC([1.0])
 
     with pytest.raises(ValueError, match="empty"):
@@ -147,7 +147,7 @@ def test_an_empty_training_split_fails_loudly(tmp_path) -> None:
 
 def test_inert_early_stopping_is_announced(tmp_path, capsys) -> None:
     """patience >= max_epochs cannot fire; say so rather than implying it can."""
-    vocab = build_vocab_from_texts(["abc"])
+    vocab, _ = build_vocab_from_texts(["abc"])
     model = ScriptedLossCTC([1.0])
 
     train(

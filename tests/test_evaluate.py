@@ -35,7 +35,7 @@ def test_hypothesis_is_independent_of_padding() -> None:
     encoder emits over the zero-padded tail, so every WER in the repo would
     depend on which utterances happened to share a batch.
     """
-    vocab = build_vocab_from_texts(["ab", "abc"])
+    vocab, _ = build_vocab_from_texts(["ab", "abc"])
     collate = make_ctc_collate(vocab)
     model = FakeXeusCTC(vocab.size, junk_id=vocab.char_to_id["a"])
 
@@ -69,7 +69,7 @@ def test_reference_keeps_characters_absent_from_the_vocab() -> None:
     hypothesis is missing a whole word and the honest WER is 33.3%; the
     id round-trip reports a perfect 0%.
     """
-    vocab = build_vocab_from_texts(["a b"])
+    vocab, _ = build_vocab_from_texts(["a b"])
     collate = make_ctc_collate(vocab)
     model = FakeXeusCTC(vocab.size)
     dataset = ListDataset([(wav_for(vocab, "a b"), "a b c")])
@@ -89,7 +89,7 @@ def test_predictions_sidecar_carries_every_utterance(tmp_path) -> None:
     """
     import json
 
-    vocab = build_vocab_from_texts(["ab", "abc"])
+    vocab, _ = build_vocab_from_texts(["ab", "abc"])
     collate = make_ctc_collate(vocab)
     model = FakeXeusCTC(vocab.size)
     dataset = ListDataset([(wav_for(vocab, "ab"), "ab"), (wav_for(vocab, "abc"), "abc")])
@@ -118,7 +118,7 @@ def test_evaluation_batches_by_length_and_reports_in_dataset_order() -> None:
     padded beside it. Grouping by length makes that influence a fixed function
     of the split rather than of the order rows happen to appear in.
     """
-    vocab = build_vocab_from_texts(["abcd"])
+    vocab, _ = build_vocab_from_texts(["abcd"])
     collate = make_ctc_collate(vocab)
     model = FakeXeusCTC(vocab.size)
     dataset = ListDataset(
@@ -145,7 +145,7 @@ def test_evaluation_batches_by_length_and_reports_in_dataset_order() -> None:
 def test_length_sorting_can_be_turned_off() -> None:
     from svb.eval.evaluate import evaluate as run_eval
 
-    vocab = build_vocab_from_texts(["abcd"])
+    vocab, _ = build_vocab_from_texts(["abcd"])
     collate = make_ctc_collate(vocab)
     model = FakeXeusCTC(vocab.size)
     dataset = ListDataset([(wav_for(vocab, "a"), "a"), (wav_for(vocab, "abcd"), "abcd")])

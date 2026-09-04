@@ -51,7 +51,7 @@ def transfer_one(
             encoder, which for arm A is the SSL one (``cfg.init``).
         base_vocab: The training vocab whose head rows we preserve.
     """
-    new_vocab, _ = expand_vocab(base_vocab, load_texts(lang, "train"))
+    new_vocab, _, _ = expand_vocab(base_vocab, load_texts(lang, "train"))
     model = make_model(cfg, base_vocab.size)
     if init_ckpt is not None:
         model.load(init_ckpt)
