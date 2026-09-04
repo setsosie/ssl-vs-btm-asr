@@ -10,10 +10,13 @@ honest numbers. Multi-GPU is left to the launcher running independent
 from __future__ import annotations
 
 import math
+import random
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
 
@@ -27,6 +30,22 @@ class TrainResult:
     best_epoch: int
     epochs_run: int
     checkpoint: Path
+
+
+def make_worker_init_fn(seed: int) -> Callable[[int], None]:
+    """Give each DataLoader worker its own reproducible random stream.
+
+    Workers are forked after the parent has been seeded, so without this they
+    all inherit the same Python and NumPy state. Torch reseeds its own
+    generator per worker; ``random`` and ``numpy`` are the two it leaves alone.
+    """
+
+    def init(worker_id: int) -> None:
+        worker_seed = seed + worker_id
+        random.seed(worker_seed)
+        np.random.seed(worker_seed % (2**32))
+
+    return init
 
 
 def _model_inputs(batch: dict[str, Any], device: str) -> dict[str, torch.Tensor]:
@@ -54,12 +73,35 @@ def train(
     out_dir: Path,
     device: str = "cuda",
 ) -> TrainResult:
-    """Train ``model`` on ``train_ds``, selecting the best-val checkpoint."""
+    """Train ``model`` on ``train_ds``, selecting the best-val checkpoint.
+
+    Selection is on validation loss, not WER; with CTC the two can diverge, so
+    the choice is part of the reported protocol. An epoch-0 checkpoint is always
+    written as a floor, so ``TrainResult.checkpoint`` names a file that exists
+    even for a run whose loss never becomes finite.
+
+    Early stopping needs ``patience`` consecutive non-improving epochs, so it
+    cannot fire at all when ``patience >= max_epochs``. That is the case for
+    phase 0 and the experts under the shipped config, and the run log says so
+    rather than leaving the impression that a stop was possible.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     ckpt = out_dir / "best.pt"
     model.to(device)
     if cfg.train.grad_checkpointing:
-        model.encoder.gradient_checkpointing = True  # honored if encoder supports it
+        model.set_gradient_checkpointing(True)
+
+    n_train = len(train_ds)  # type: ignore[arg-type]
+    if n_train == 0:
+        raise ValueError(
+            "empty training split: the loader would yield no batches and the run "
+            "would report a completed training that touched no data"
+        )
+    if cfg.train.patience >= max_epochs:
+        print(
+            f"[svb] early stopping is inert: patience={cfg.train.patience} "
+            f">= max_epochs={max_epochs}"
+        )
 
     train_loader = DataLoader(
         train_ds,
@@ -67,8 +109,12 @@ def train(
         shuffle=True,
         num_workers=cfg.train.num_workers,
         collate_fn=collate,
-        drop_last=True,
+        # Dropping the tail batch is a throughput choice, not a correctness one.
+        # A split smaller than one batch would otherwise yield no batches at
+        # all, collapsing the LR schedule and training on nothing.
+        drop_last=n_train >= cfg.optim.batch_size,
         generator=torch.Generator().manual_seed(cfg.seed),
+        worker_init_fn=make_worker_init_fn(cfg.seed),
     )
     val_loader = DataLoader(
         val_ds,
@@ -76,6 +122,7 @@ def train(
         shuffle=False,
         num_workers=cfg.train.num_workers,
         collate_fn=collate,
+        worker_init_fn=make_worker_init_fn(cfg.seed),
     )
 
     opt = torch.optim.AdamW(
@@ -97,6 +144,9 @@ def train(
     best_epoch = -1
     bad = 0
     epoch = -1
+    # Floor: a run whose validation loss never becomes finite would otherwise
+    # leave no best.pt, and the caller loads that path unconditionally.
+    model.save(ckpt)
     for epoch in range(max_epochs):
         model.train()
         opt.zero_grad(set_to_none=True)
@@ -124,7 +174,10 @@ def train(
             )
 
         val_loss = _validate(model, val_loader, device, autocast)
-        if val_loss < best_val:
+        # NaN never compares less than anything, so an unguarded `<` would
+        # already reject it — the explicit check states the intent, and keeps
+        # a NaN from being adopted should best_val ever start out non-finite.
+        if math.isfinite(val_loss) and val_loss < best_val:
             best_val, best_epoch, bad = val_loss, epoch, 0
             model.save(ckpt)
         else:

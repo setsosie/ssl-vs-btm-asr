@@ -125,6 +125,39 @@ class FakeXeusCTC(XeusCTC):
         return {"logits": logits, "input_lengths": lengths}
 
 
+class ScriptedLossCTC(XeusCTC):
+    """Double whose validation loss follows a script, so control flow is testable.
+
+    Training batches return a constant loss that still carries a gradient, so
+    the optimizer step is exercised. Validation batches return the next entry of
+    ``val_losses`` — one entry per ``_validate`` forward pass, not per epoch, so
+    a test can also probe how batches are combined into the epoch's number.
+    """
+
+    def __init__(self, val_losses: list[float]) -> None:
+        nn.Module.__init__(self)
+        self.hidden_size = 1
+        self.ctc_norm = nn.LayerNorm(1)
+        self.ctc_proj = nn.Linear(1, 2)
+        self.val_losses = list(val_losses)
+        self.train_forwards = 0
+        self.val_forwards = 0
+
+    def forward(  # type: ignore[override]
+        self,
+        input_values: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+        labels: torch.Tensor | None = None,
+    ) -> dict[str, torch.Tensor]:
+        anchor = self.ctc_proj.bias.sum() * 0.0  # keeps the graph alive
+        if self.training:
+            self.train_forwards += 1
+            return {"loss": anchor + 1.0}
+        index = min(self.val_forwards, len(self.val_losses) - 1)
+        self.val_forwards += 1
+        return {"loss": anchor.detach() + self.val_losses[index]}
+
+
 def wav_for(vocab: CtcVocab, text: str) -> torch.Tensor:
     """Waveform that makes :class:`FakeXeusCTC` emit ``text`` verbatim."""
     return torch.tensor([float(i) for i in vocab.encode(text)], dtype=torch.float32)
