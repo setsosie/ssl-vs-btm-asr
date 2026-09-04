@@ -49,6 +49,14 @@ class LangSpec:
     code: str  # short label used in results/paths, e.g. "hi", "telugu"
     source: str  # one of SOURCES
 
+    # Whether the writing system separates words with spaces. False makes CER
+    # the primary metric, because whitespace tokenization of a Japanese
+    # transcript yields one token per sentence and WER over it is meaningless.
+    # Declared beside the language rather than as a set of codes inside the
+    # evaluation module, where no preset author would ever look; the run checks
+    # the declaration against the transcripts and warns when they disagree.
+    word_boundary: bool = True
+
     # commonvoice
     hf_dataset: str = ""  # provenance label for the release, e.g. "common_voice_25"
     hf_config: str = ""  # CV language code == directory name under $CV_ROOT

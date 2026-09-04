@@ -20,5 +20,5 @@ languages:
   - { code: ka, source: commonvoice, hf_dataset: common_voice_25, hf_config: ka, text_column: sentence }
   - { code: tr, source: commonvoice, hf_dataset: common_voice_25, hf_config: tr, text_column: sentence }
   - { code: sw, source: commonvoice, hf_dataset: common_voice_25, hf_config: sw, text_column: sentence }
-  - { code: ja, source: commonvoice, hf_dataset: common_voice_25, hf_config: ja, text_column: sentence }
+  - { code: ja, source: commonvoice, hf_dataset: common_voice_25, hf_config: ja, text_column: sentence, word_boundary: false }
   - { code: fi, source: commonvoice, hf_dataset: common_voice_25, hf_config: fi, text_column: sentence }
