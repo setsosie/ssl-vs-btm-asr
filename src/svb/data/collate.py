@@ -2,11 +2,19 @@
 
 Labels are padded with ``-100`` so the model's CTC loss can recover per-sample
 target lengths via ``(labels != -100).sum(-1)``.
+
+The batch also carries ``texts``, the raw transcripts. Scoring must use those
+rather than decoding the label ids back to characters: any character the
+training vocab never saw encodes to ``<unk>`` and would vanish from the
+reference, quietly shortening the transcript the model is measured against.
+Consumers that forward the batch into the model must therefore pass only its
+tensor entries.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Any
 
 import torch
 
@@ -16,7 +24,7 @@ from ..model.ctc_vocab import CtcVocab
 def make_ctc_collate(vocab: CtcVocab) -> Callable:
     """Return a collate_fn closed over a vocab."""
 
-    def collate(batch: list[tuple[torch.Tensor, str]]) -> dict[str, torch.Tensor]:
+    def collate(batch: list[tuple[torch.Tensor, str]]) -> dict[str, Any]:
         wavs, texts = zip(*batch, strict=True)
         lengths = torch.tensor([w.shape[0] for w in wavs], dtype=torch.long)
         max_len = int(lengths.max())
@@ -32,6 +40,11 @@ def make_ctc_collate(vocab: CtcVocab) -> Callable:
         for i, ids in enumerate(label_ids):
             labels[i, : len(ids)] = ids
 
-        return {"input_values": padded, "attention_mask": attn, "labels": labels}
+        return {
+            "input_values": padded,
+            "attention_mask": attn,
+            "labels": labels,
+            "texts": list(texts),
+        }
 
     return collate

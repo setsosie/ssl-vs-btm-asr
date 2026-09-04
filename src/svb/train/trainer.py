@@ -12,6 +12,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import torch
 from torch.utils.data import DataLoader, Dataset
@@ -26,6 +27,15 @@ class TrainResult:
     best_epoch: int
     epochs_run: int
     checkpoint: Path
+
+
+def _model_inputs(batch: dict[str, Any], device: str) -> dict[str, torch.Tensor]:
+    """Tensor entries of a collated batch, on ``device``.
+
+    The batch also carries the raw transcripts (``texts``), which the model does
+    not take and which cannot be moved to a device.
+    """
+    return {k: v.to(device) for k, v in batch.items() if isinstance(v, torch.Tensor)}
 
 
 def _lr_lambda(step: int, total: int, warmup: int) -> float:
@@ -91,9 +101,8 @@ def train(
         model.train()
         opt.zero_grad(set_to_none=True)
         for i, batch in enumerate(train_loader):
-            batch = {k: v.to(device) for k, v in batch.items()}
             with autocast:
-                out = model(**batch)
+                out = model(**_model_inputs(batch, device))
                 loss = out["loss"] / cfg.optim.accum_steps
             loss.backward()
             if (i + 1) % cfg.optim.accum_steps == 0:
@@ -124,9 +133,8 @@ def _validate(model: XeusCTC, loader: DataLoader, device: str, autocast) -> floa
     model.eval()
     total, n = 0.0, 0
     for batch in loader:
-        batch = {k: v.to(device) for k, v in batch.items()}
         with autocast:
-            loss = model(**batch)["loss"]
+            loss = model(**_model_inputs(batch, device))["loss"]
         total += float(loss)
         n += 1
     return total / max(1, n)

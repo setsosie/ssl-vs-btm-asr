@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 import torch
 from torch.utils.data import Dataset
 
@@ -56,3 +57,23 @@ def test_hypothesis_is_independent_of_padding() -> None:
     assert alone.hyps == ["ab"]
     assert padded.hyps[padded.refs.index("ab")] == alone.hyps[0]
     assert padded.wer == 0.0
+
+
+def test_reference_keeps_characters_absent_from_the_vocab() -> None:
+    """A test-set character the training vocab never saw must stay in the ref.
+
+    Reconstructing the reference from label ids drops every id that mapped to
+    ``<unk>``, so the model is scored against a shortened transcript. Here the
+    hypothesis is missing a whole word and the honest WER is 33.3%; the
+    id round-trip reports a perfect 0%.
+    """
+    vocab = build_vocab_from_texts(["a b"])
+    collate = make_ctc_collate(vocab)
+    model = FakeXeusCTC(vocab.size)
+    dataset = ListDataset([(wav_for(vocab, "a b"), "a b c")])
+
+    result = evaluate(model, dataset, vocab, collate, device="cpu", batch_size=1)
+
+    assert result.refs == ["a b c"]
+    assert result.hyps == ["a b"]
+    assert result.wer == pytest.approx(100.0 / 3.0)

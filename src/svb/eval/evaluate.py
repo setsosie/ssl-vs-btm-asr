@@ -69,9 +69,10 @@ def evaluate(
             # Slice off the padded tail before collapsing: frames past the
             # utterance's own length belong to whatever else shared the batch.
             hyps.append(vocab.decode(row[: int(valid)].tolist()))
-        for lab in batch["labels"]:
-            ids = [int(x) for x in lab.tolist() if x != -100]
-            refs.append("".join(vocab.id_to_char[i] for i in ids if i != vocab.unk_id))
+        # References are the corpus transcripts, never a round-trip through the
+        # label ids: characters absent from the training vocab encode to <unk>
+        # and would be silently deleted from the reference.
+        refs.extend(batch["texts"])
 
     result = EvalResult(
         wer=_wer(refs, hyps), cer=_cer(refs, hyps), n=len(refs), refs=refs, hyps=hyps
