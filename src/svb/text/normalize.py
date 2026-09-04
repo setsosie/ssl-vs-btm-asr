@@ -249,6 +249,16 @@ def has_digits(text: str) -> bool:
     return any(unicodedata.category(c) in _DIGIT_CATEGORIES for c in text)
 
 
+def count_arabic_marks(text: str) -> int:
+    """How many characters the Arabic-script rule would remove.
+
+    Vocalization and tatweel, counted for the run's text statistics. Neither is
+    reachable by a punctuation or symbol rule: the marks are category ``Mn`` and
+    tatweel is ``Lm``.
+    """
+    return len(_ARABIC_MARKS.findall(text)) + text.count(_TATWEEL)
+
+
 def module_sha256() -> str:
     """Digest of this source file, recorded alongside the policy hash.
 
