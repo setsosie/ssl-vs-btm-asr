@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from torch import Tensor
 from torch.utils.data import ConcatDataset
 
 from ..config import ExperimentConfig
@@ -21,7 +22,7 @@ from ..data.datasets import load_language, load_texts
 from ..data.registry import LangSpec
 from ..merge.strategy import MERGE_STRATEGIES
 from ..model.ctc_vocab import CtcVocab, build_vocab_from_texts
-from ..model.xeus_ctc import XeusCTC
+from ..model.xeus_ctc import make_model
 from ..train.trainer import train
 
 
@@ -31,16 +32,6 @@ def build_training_vocab(specs: list[LangSpec]) -> CtcVocab:
     for spec in specs:
         texts.extend(load_texts(spec, "train"))
     return build_vocab_from_texts(texts)
-
-
-def _make_model(cfg: ExperimentConfig, vocab_size: int) -> XeusCTC:
-    return XeusCTC(
-        vocab_size=vocab_size,
-        init=cfg.init,
-        checkpoint=cfg.model.xeus_checkpoint,
-        hidden_size=cfg.model.hidden_size,
-        blank_bias_init=cfg.model.blank_bias_init,
-    )
 
 
 def run_phase0(
@@ -54,13 +45,13 @@ def run_phase0(
     collate = make_ctc_collate(
         vocab, max_audio_samples=cfg.train.max_audio_samples, drop_overlong=True
     )
-    train_ds = ConcatDataset(
+    train_ds: ConcatDataset[tuple[Tensor, str]] = ConcatDataset(
         [load_language(s, "train", cfg.train.max_audio_samples) for s in specs]
     )
-    val_ds = ConcatDataset(
+    val_ds: ConcatDataset[tuple[Tensor, str]] = ConcatDataset(
         [load_language(s, "validation", cfg.train.max_audio_samples) for s in specs]
     )
-    model = _make_model(cfg, vocab.size)
+    model = make_model(cfg, vocab.size)
     result = train(model, cfg, train_ds, val_ds, collate, cfg.train.phase0_epochs, out_dir, device)
     return result.checkpoint
 
@@ -79,7 +70,7 @@ def train_experts(
     )
     experts: dict[str, Path] = {}
     for spec in specs:
-        model = _make_model(cfg, vocab.size)
+        model = make_model(cfg, vocab.size)
         model.load(phase0_ckpt)
         lang_dir = out_dir / f"expert_{spec.code}"
         train_ds = load_language(spec, "train", cfg.train.max_audio_samples)

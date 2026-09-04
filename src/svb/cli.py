@@ -47,7 +47,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     from .data.registry import get_heldout, get_preset
     from .eval.evaluate import evaluate
     from .eval.transfer import transfer_one
-    from .model.xeus_ctc import XeusCTC
+    from .model.xeus_ctc import make_model
     from .train.trainer import train
 
     cfg = load_config(
@@ -81,7 +81,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         experts = train_experts(cfg, phase0, specs, vocab, out / "experts", device)
         merged_path = merge_experts(experts, cfg.merge_strategy, out / "merged", base_ckpt=phase0)
         # Evaluate the merged model in-distribution on every language's test split.
-        merged_model = XeusCTC(vocab.size, init=cfg.init, checkpoint=cfg.model.xeus_checkpoint)
+        merged_model = make_model(cfg, vocab.size)
         merged_model.load_state_dict(torch.load(merged_path, map_location=device))
         for spec in specs:
             test_ds = load_language(spec, "test", None)
@@ -99,7 +99,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     else:
         # Arm A: independent per-language fine-tune from the SSL encoder.
         for spec in specs:
-            model = XeusCTC(vocab.size, init=cfg.init, checkpoint=cfg.model.xeus_checkpoint)
+            model = make_model(cfg, vocab.size)
             lang_dir = out / "finetune" / spec.code
             tr = load_language(spec, "train", cfg.train.max_audio_samples)
             va = load_language(spec, "validation", cfg.train.max_audio_samples)
@@ -123,9 +123,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     # Held-out transfer (all arms).
     results["transfer"] = {}
     for held in get_heldout():
-        r = transfer_one(
-            cfg, transfer_init, cfg.init, vocab, held, out / "transfer" / held.code, device
-        )
+        r = transfer_one(cfg, transfer_init, vocab, held, out / "transfer" / held.code, device)
         results["transfer"][held.code] = {"wer": r.wer, "cer": r.cer, "n": r.n}
 
     (out / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=2))

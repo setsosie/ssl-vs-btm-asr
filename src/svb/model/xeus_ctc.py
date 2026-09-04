@@ -14,13 +14,16 @@ preserving trained rows — used for held-out-language transfer.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import torch
 import torch.nn.functional as F
 from torch import nn
 
 from .xeus_standalone import StandaloneXEUS, load_xeus_from_checkpoint
+
+if TYPE_CHECKING:
+    from ..config import ExperimentConfig
 
 HIDDEN_SIZE = 1024
 
@@ -154,3 +157,22 @@ class XeusCTC(nn.Module):
 
     def load(self, path: str | Path, map_location: str = "cpu") -> None:
         self.load_state_dict(torch.load(path, map_location=map_location))
+
+
+def make_model(cfg: ExperimentConfig, vocab_size: int) -> XeusCTC:
+    """Build the model for a run — the single construction site.
+
+    Every caller must come through here. When the arms built their models
+    inline, three of the five sites omitted ``hidden_size`` and
+    ``blank_bias_init``, so those config fields were honoured for the BTM
+    experts and silently ignored for the merged model and all of arm A. A
+    single factory makes that class of drift impossible rather than merely
+    unlikely.
+    """
+    return XeusCTC(
+        vocab_size=vocab_size,
+        init=cfg.init,
+        checkpoint=cfg.model.xeus_checkpoint,
+        hidden_size=cfg.model.hidden_size,
+        blank_bias_init=cfg.model.blank_bias_init,
+    )
