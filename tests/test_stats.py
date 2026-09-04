@@ -23,7 +23,7 @@ def test_bootstrap_ci_brackets_point():
     hyps = ["the cat sat", "a dog run", "hello word", "good morning"]
     ci = bootstrap_ci(refs, hyps, n=200, seed=0)
     assert ci.lo <= ci.point <= ci.hi
-    assert 0.0 <= ci.lo and ci.hi <= 100.0
+    assert ci.lo >= 0.0 and ci.hi <= 100.0
 
 
 def test_paired_permutation_identical_systems_not_significant():

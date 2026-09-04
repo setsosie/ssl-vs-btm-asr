@@ -40,10 +40,91 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/svb"]
+# Ship the inline type information; without this the marker is packaged but
+# consumers still get `import-untyped` for every `svb.*` module.
+force-include = { "src/svb/py.typed" = "svb/py.typed" }
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py312"
+
+[tool.ruff.lint]
+# Chosen, not inherited: ruff's defaults drift between releases, so the rule set
+# is spelled out. `BLE`/`S` are deliberately absent — every occurrence in this
+# repo is an intentional never-crash guard (provenance capture, optional column
+# casts), so those rules would be 100% false-positive here.
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "PIE", "PLE", "RUF"]
+ignore = [
+    # This repo exists to process non-Latin scripts; ambiguous-unicode rules fire
+    # on legitimate content (Greek letters naming LayerNorm parameters, Indic
+    # transcripts in fixtures).
+    "RUF001",
+    "RUF002",
+    "RUF003",
+    # Line length is the formatter's job; the linter flagging it too is noise.
+    "E501",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Staged exemptions for findings in modules owned by other in-flight branches.
+# Each line is one branch's to fix and delete; do not add to this block.
+"src/svb/data/datasets.py" = ["SIM105"]      # -> held-out data source branch
+"src/svb/eval/evaluate.py" = ["B905"]        # -> eval-correctness branch
+"src/svb/model/ctc_vocab.py" = ["SIM102", "RUF005"]  # -> text-normalization branch
+"src/svb/provenance.py" = ["UP017"]          # -> provenance/run-metadata branch
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src", "tests"]
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+# Third-party packages that ship no stubs and no py.typed marker.
+module = ["torchaudio.*", "datasets.*", "soundfile.*", "jiwer.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Annotations are required for `svb.*` -- except in the modules below, which are
+# being rewritten on parallel branches. Each entry is that branch's to delete;
+# do not add to this block.
+module = ["svb.*"]
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "svb.data.datasets",   # -> held-out data source branch
+    "svb.train.trainer",   # -> eval-correctness branch
+    "svb.eval.evaluate",   # -> eval-correctness branch
+    "svb.btm.pipeline",    # -> eval-correctness branch
+    "svb.model.xeus_ctc",  # -> eval-correctness branch
+]
+disallow_untyped_defs = false
+
+# The three pre-existing type errors below are real defects, not annotation
+# gaps, and each is already scheduled on the branch named beside it. They are
+# silenced by *error code* rather than by module so that any other error
+# appearing in these files still fails the build.
+
+[[tool.mypy.overrides]]
+# `out_lengths` is `Tensor | None` where ctc_loss needs `Tensor`. Fixed by the
+# eval-correctness branch, which makes the encoder return non-optional lengths.
+module = ["svb.model.xeus_ctc"]
+disable_error_code = ["arg-type"]
+
+[[tool.mypy.overrides]]
+# `model.encoder.gradient_checkpointing = True` assigns a bool to an nn.Module
+# attribute. mypy is right: nothing reads it. The eval-correctness branch either
+# implements checkpointing or deletes the line.
+module = ["svb.train.trainer"]
+disable_error_code = ["assignment"]
+
+[[tool.mypy.overrides]]
+# ConcatDataset needs an explicit element type. Eval-correctness branch.
+module = ["svb.btm.pipeline"]
+disable_error_code = ["var-annotated"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-q"
