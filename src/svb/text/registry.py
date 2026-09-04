@@ -124,7 +124,7 @@ LANGUAGE_SCRIPTS: dict[str, str] = {
     "yue": "Hant",
     "th": "Thai",
     "bo": "Tibt",
-    "ko": "Hang",
+    "ko": "Kore",
     # The held-out corpora name their languages in full rather than by code.
     "malayalam": "Mlym",
     "marathi": "Deva",
@@ -165,7 +165,7 @@ SCRIPT_POLICIES: dict[str, str] = {
     "Mlym": "indic-vistaar",
     "Sinh": "indic-vistaar",
     "Jpan": "ja-cer",
-    "Hang": "ko-kspon",
+    "Kore": "ko-kspon",
     "Tibt": "tibetan-syllable",
 }
 

@@ -23,7 +23,7 @@ NEW = {
     "ne": ("Deva", "indic-vistaar"),
     "bn": ("Beng", "indic-vistaar"),
     "kn": ("Knda", "indic-vistaar"),
-    "ko": ("Hang", "ko-kspon"),
+    "ko": ("Kore", "ko-kspon"),
     "hy": ("Armn", "armenian-hy"),
     "kk": ("Cyrl", "whisper-basic"),
     "et": ("Latn", "whisper-basic"),
