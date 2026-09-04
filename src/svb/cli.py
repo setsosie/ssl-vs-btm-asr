@@ -258,13 +258,13 @@ def cmd_run(args: argparse.Namespace) -> None:
     # Held-out transfer (all arms).
     results["transfer"] = {}
     for held in heldout:
-        r = transfer_one(cfg, transfer_init, vocab, held, out / "transfer" / held.code, device)
-        results["transfer"][held.code] = {
-            "wer": r.wer,
-            "cer": r.cer,
-            "n": r.n,
-            "n_empty_refs": r.n_empty_refs,
-        }
+        transferred = transfer_one(
+            cfg, transfer_init, vocab, held, out / "transfer" / held.code, device
+        )
+        # to_record carries the derived split's policy and test-set digest
+        # alongside the metrics: the held-out corpora ship no partition, so
+        # which utterances were scored is part of the number.
+        results["transfer"][held.code] = transferred.to_record()
 
     (out / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=2))
     print(f"[svb] wrote {out / 'results.json'}")
