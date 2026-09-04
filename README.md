@@ -6,7 +6,7 @@
 carries low-resource multilingual ASR?**
 
 A multi-seed ablation on the [XEUS](https://arxiv.org/abs/2407.00837) encoder.
-Three training conditions, compared across 3 / 16 / 32 languages and on four
+Three training conditions, compared across 3 / 16 / 64 languages and on four
 held-out Indic languages absent from every supervised training mix and from the
 output vocabulary, though present in XEUS's self-supervised pretraining data:
 
@@ -23,20 +23,18 @@ permutation tests available from the per-utterance predictions every run writes.
 ## Status
 
 **No GPU run has been executed against this code.** Everything below is
-implemented and covered by 722 CPU tests; none of it has yet produced a number
+implemented and covered by 786 CPU tests; none of it has yet produced a number
 from real audio. Three other gaps are open by design rather than by oversight:
 
-- **The largest scale tier is 32 languages and the preset is out of date.**
-  `configs/scales/64.yaml` is populated and runnable, but it was selected under
-  the official `train.tsv`, which is roughly one clip per sentence and about a
-  third of the validated audio. Training now reads validated minus the
-  evaluation splits, and on that pool **44** of Common Voice 25's 290 locales
-  clear the 50-hour rule rather than 24. The committed preset is a subset of
-  what the rule now selects; the fourteen languages it is missing are listed in
-  [`docs/languages.md`](docs/languages.md), which also has every locale
-  considered with its hours and the reason it is in or out. A 64-language tier
-  is reachable at a 16-hour threshold, which is a decision about the paper
-  rather than about the data.
+- **The large tier is 64 languages, and most of its corpora have no preparer
+  yet.** 46 come from Common Voice 25 and 18 from other public corpora, each
+  recorded in [`configs/corpora.yaml`](configs/corpora.yaml) with its licence,
+  downloads and hours. Only one preparer is written — the five Google
+  crowdsourced OpenSLR sets (Javanese, Sundanese, Sinhala, Bengali, Nepali).
+  The other nine raise `NotImplementedError` and carry their corpus's format
+  notes, so the 64-language tier cannot be staged end to end until they land.
+  Thirty-two preset entries also have no normalization policy yet; the preset
+  header names them and a run fails at policy resolution rather than silently.
 - Odia is not in the held-out set. See [Held-out data](#held-out-data) below —
   the set is **four** languages, and any write-up should say four.
 - The encoder has not been checked against the reference implementation. The
@@ -44,10 +42,15 @@ from real audio. Three other gaps are open by design rather than by oversight:
   [Encoder cross-check](#encoder-cross-check-separate-environment); it needs the
   checkpoint, which is not available here.
 
-Two of the sixteen languages in the 16-language preset are still below 50
-training hours on that wider pool: Hindi at 7.0 and Finnish at 11.1. They were
-kept, and the numbers are in `docs/languages.md`, but they belong beside any
-per-language result for those two.
+Seven of the 64 are below the 50-hour rule and carried deliberately: four NCHLT
+languages just under the bar, Korean at 42.2 h once its 1.2-hour test split is
+repartitioned, and Hindi at 7.0 and Finnish at 11.1, which the smaller presets
+commit to. The numbers are in `docs/languages.md` and belong beside any
+per-language result for them.
+
+The additions are also heavily read-prompt and parliamentary, so the mix gains a
+great deal of typological range and rather little domain range. A result that
+improves on read speech should not be reported as improving on speech.
 
 ## Quickstart
 
@@ -78,9 +81,8 @@ randomly initialized and needs no checkpoint.
 
 ## Data
 
-Two public corpora, both read from a local directory. Nothing downloads at load
-time and nothing goes through the Hugging Face Hub. Full details in
-[`docs/data.md`](docs/data.md).
+Everything is read from a local directory and nothing downloads at load time.
+Full details in [`docs/data.md`](docs/data.md).
 
 **Training and in-distribution evaluation** use Common Voice 25. Since October
 2025 Common Voice is distributed only through
@@ -88,10 +90,16 @@ time and nothing goes through the Hugging Face Hub. Full details in
 an account and a terms acceptance no script can give, so you download and
 extract it yourself and point `CV_ROOT` at the result.
 
-Which languages each scale tier trains on, how many hours each one actually
-has, and why the rest of Common Voice is left out are in
+**The other eighteen languages** come from public corpora on openslr.org,
+CLARIN.SI, SADiLaR and one university page — all served anonymously, none behind
+a gate or a form. Each is converted once by `scripts/prepare_<corpus>.py` into a
+single manifest layout under `CORPORA_ROOT`, so fourteen corpora in ten shapes
+need one loader rather than ten.
+
+Which language comes from which corpus, how many hours each actually has, what
+was rejected and why, and the reserve list are in
 [`docs/languages.md`](docs/languages.md), which `scripts/select_languages.py`
-regenerates from Mozilla's published release statistics.
+regenerates from Mozilla's release statistics and `configs/corpora.yaml`.
 
 ### Held-out data
 
