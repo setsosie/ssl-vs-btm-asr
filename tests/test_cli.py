@@ -80,3 +80,16 @@ def test_run_manifest_records_both_resolved_language_sets() -> None:
     assert manifest["heldout_langs"] == ["telugu"]
     assert manifest["in_distribution"] == {}
     assert (manifest["arm"], manifest["scale"], manifest["seed"]) == ("A_ssl", "3", 0)
+
+
+def test_merge_head_can_be_turned_off_from_the_command_line() -> None:
+    from svb.cli import build_parser
+
+    parser = build_parser()
+    base = ["run", "--arm", "B_btm_ssl", "--scale", "3", "--seed", "0"]
+
+    # None, not True, when unset: an unpassed flag must not outrank a
+    # `merge_head: false` in the YAML with the parser's own default.
+    assert parser.parse_args(base).merge_head is None
+    assert parser.parse_args([*base, "--no-merge-head"]).merge_head is False
+    assert parser.parse_args([*base, "--merge-head"]).merge_head is True
