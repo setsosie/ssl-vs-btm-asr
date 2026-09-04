@@ -22,6 +22,11 @@ dependencies = [
     # happens to be installed is the kind of dependency that disappears on the
     # day jiwer changes its own.
     "rapidfuzz>=3,<4",
+    # Two of the corpora in configs/corpora.yaml are distributed through the
+    # Hugging Face Hub. Only non-gated repositories are used and no token is
+    # ever passed: a gated corpus fails this project's access rule and is left
+    # out rather than worked around.
+    "huggingface-hub>=0.23,<1",
 ]
 
 [project.optional-dependencies]
@@ -72,6 +77,7 @@ ignore = [
 
 [tool.mypy]
 python_version = "3.12"
+mypy_path = "scripts"
 files = ["src", "tests", "scripts"]
 warn_unused_ignores = true
 warn_redundant_casts = true

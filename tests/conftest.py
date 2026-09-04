@@ -181,14 +181,26 @@ def slr_root(tmp_path: Path, fixtures_dir: Path) -> Path:
 
 
 def _load_script(root: Path, name: str) -> ModuleType:
-    """Load a file under `scripts/` as a module without touching sys.path.
+    """Load a file under `scripts/` as a module.
+
+    `scripts/` goes on the path because scripts import their siblings by bare
+    name — which works when one is run directly, since Python puts its own
+    directory first, and does not when it is loaded by path. Every preparer
+    imports `corpus_fetch`, so the alternative is an importlib shim in each.
 
     The module is registered in ``sys.modules`` before it executes, which the
     importlib recipe leaves out and `@dataclass` needs: it resolves a class's
     module out of ``sys.modules`` to evaluate the annotations, and fails on the
     ``None`` an unregistered module leaves there.
     """
-    path = root / "scripts" / f"{name}.py"
+    scripts = root / "scripts"
+    # Scripts import their siblings by bare name, which works when one is run
+    # directly because Python puts its directory on the path. Loading by path
+    # skips that, so it is done here — `corpus_fetch` is imported by every
+    # preparer.
+    if str(scripts) not in sys.path:
+        sys.path.insert(0, str(scripts))
+    path = scripts / f"{name}.py"
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -214,6 +226,16 @@ def run_matrix(pytestconfig: pytest.Config) -> ModuleType:
 @pytest.fixture
 def crosscheck_espnet(pytestconfig: pytest.Config) -> ModuleType:
     return _load_script(Path(pytestconfig.rootpath), "crosscheck_espnet")
+
+
+@pytest.fixture
+def corpus_fetch(pytestconfig: pytest.Config) -> ModuleType:
+    return _load_script(Path(pytestconfig.rootpath), "corpus_fetch")
+
+
+@pytest.fixture
+def prepare_google_crowdsourced(pytestconfig: pytest.Config) -> ModuleType:
+    return _load_script(Path(pytestconfig.rootpath), "prepare_google_crowdsourced")
 
 
 @pytest.fixture

@@ -35,25 +35,27 @@ rather than compared to a published value.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import shutil
 import sys
 import zipfile
-from datetime import UTC, datetime  # `datetime.UTC` needs 3.11; this repo targets 3.10
+from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
-from urllib.error import HTTPError
-from urllib.request import Request, urlopen
 
-import yaml  # type: ignore[import-untyped]  # drop once types-PyYAML is a dev dep
+import yaml
+from corpus_fetch import (
+    CHUNK,
+    archive_record,
+    download,
+    remote_size,
+    verify_archive,
+)
 
 DEFAULT_MIRROR = "https://openslr.trmal.net"
 # Alternates if the primary is slow or down; same paths under /resources/<slr>/.
 MIRRORS = (DEFAULT_MIRROR, "https://openslr.elda.org", "https://openslr.magicdatatech.com")
-CHUNK = 1 << 20
-_UA = {"User-Agent": "ssl-vs-btm-asr/0.1 (openslr fetch script)"}
 
 
 # --- config -------------------------------------------------------------------
@@ -92,113 +94,6 @@ def archive_url(slr: int, name: str, mirror: str = DEFAULT_MIRROR) -> str:
 # --- verification -------------------------------------------------------------
 
 
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with open(path, "rb") as f:
-        for block in iter(lambda: f.read(CHUNK), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
-def verify_archive(path: Path) -> str | None:
-    """None if the zip is intact, else a one-line reason it is not."""
-    try:
-        with zipfile.ZipFile(path) as zf:
-            bad = zf.testzip()
-    except (zipfile.BadZipFile, OSError) as exc:
-        return f"unreadable zip: {exc}"
-    return None if bad is None else f"CRC mismatch on member {bad}"
-
-
-def archive_record(path: Path, url: str) -> dict[str, Any]:
-    return {
-        "name": path.name,
-        "url": url,
-        "bytes": path.stat().st_size,
-        "sha256": sha256_file(path),
-    }
-
-
-# --- download -----------------------------------------------------------------
-
-
-def remote_size(url: str) -> int | None:
-    try:
-        with urlopen(Request(url, headers=_UA, method="HEAD"), timeout=60) as resp:
-            length = resp.headers.get("Content-Length")
-    except (HTTPError, OSError):
-        return None
-    return int(length) if length else None
-
-
-#: A resume offset at or past the end of the resource. Reachable without any
-#: mistake: an interrupted run can leave a `.part` that is already complete.
-_RANGE_NOT_SATISFIABLE = 416
-
-
-def _ranged_request(url: str, have: int) -> Request:
-    request = Request(url, headers=dict(_UA))
-    if have:
-        request.add_header("Range", f"bytes={have}-")
-    return request
-
-
-def download(url: str, dest: Path, *, expected: int | None = None) -> Path:
-    """Stream `url` to `dest`, resuming a partial `.part` file when possible.
-
-    Three resume outcomes, because all three happen on a cluster: the server
-    honours the Range (206, append), ignores it (200, restart), or rejects the
-    offset as past the end (416, discard the `.part` and start over). The last
-    one used to raise an uncaught `HTTPError` and kill the whole fetch.
-    """
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    if expected is not None and dest.exists() and dest.stat().st_size == expected:
-        print(f"    have {dest.name} ({expected} bytes)")
-        return dest
-
-    part = dest.with_name(dest.name + ".part")
-    have = part.stat().st_size if part.exists() else 0
-
-    if expected is not None and have >= expected:
-        # Killed between the last read and the rename: `.part` is the whole
-        # archive and `dest` does not exist. Asking for bytes from the end would
-        # get a 416, so adopt what is already here and let the CRC check judge it.
-        print(f"    {dest.name}: complete .part adopted ({have} bytes)")
-        part.replace(dest)
-        return dest
-
-    try:
-        resp_ctx = urlopen(_ranged_request(url, have), timeout=120)
-    except HTTPError as exc:
-        if exc.code != _RANGE_NOT_SATISFIABLE or not have:
-            raise
-        # The server says the offset is past the end, and without a
-        # Content-Length there was no way to know that before asking. The `.part`
-        # is unusable at this length, so discard it and fetch from scratch.
-        print(f"    {dest.name}: server rejected the resume offset; restarting")
-        part.unlink(missing_ok=True)
-        have = 0
-        resp_ctx = urlopen(_ranged_request(url, 0), timeout=120)
-
-    with resp_ctx as resp:
-        # A server that ignores Range answers 200 with the whole body; restart.
-        resuming = have > 0 and resp.status == 206
-        if have and not resuming:
-            have = 0
-        with open(part, "ab" if resuming else "wb") as out:
-            print(f"    {'resuming' if resuming else 'downloading'} {dest.name} from byte {have}")
-            while block := resp.read(CHUNK):
-                out.write(block)
-
-    if expected is not None:
-        if part.stat().st_size != expected:
-            raise OSError(f"{dest.name}: got {part.stat().st_size} bytes, expected {expected}")
-    else:
-        print(f"    {dest.name}: size unknown, skipped length check")
-    part.replace(dest)
-    return dest
-
-
 # --- extraction ---------------------------------------------------------------
 
 
@@ -209,6 +104,14 @@ def extract_archive(
 
     Only member basenames are used, so on POSIX a crafted archive cannot write
     outside `dest`. Returns the counts the manifest reports.
+
+    `seen` accumulates the names written for one language across its archives.
+    A language's male and female archives share a directory, and the whole flat
+    layout rests on the index being the only name they have in common — true of
+    the real corpora only because the FileIDs carry an archive prefix. Pass a
+    shared set and a second archive reusing a name is refused instead of
+    overwriting the first archive's audio, which would leave the row counts and
+    the manifest perfectly consistent and the corpus wrong.
     """
     dest.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(archive) as zf:
@@ -229,11 +132,18 @@ def extract_archive(
         wavs = 0
         for member in members:
             name = PurePosixPath(member.filename).name
-            target = dest / (index_name if member is index_member else name)
-            if member is not index_member and seen is not None:
-                if name in seen:
-                    raise ValueError(f"Name collision: {name}")
-                seen.add(name)
+            # The index is renamed per archive, so it is expected to repeat and
+            # is never a collision; every other name must be unique.
+            written = index_name if member is index_member else name
+            if seen is not None and member is not index_member:
+                if written in seen:
+                    raise ValueError(
+                        f"{archive.name}: {written!r} was already extracted from another "
+                        "archive of this language; the archives are supposed to use disjoint "
+                        "file ids, and overwriting would silently replace that audio"
+                    )
+                seen.add(written)
+            target = dest / written
             if target.exists() and target.stat().st_size == member.file_size:
                 wavs += name.endswith(".wav")
                 continue
@@ -285,7 +195,7 @@ def is_complete(dest: Path, index_files: list[str]) -> bool:
 
     The audio check is the point. Indices and a manifest are a few kilobytes and
     survive anything; the wavs are the gigabytes, and a pruned or half-copied
-    directory used to be reported complete here, pass `check_data.sh` — which
+    directory used to be reported complete here, pass `check_data.py` — which
     reads indices only — and fail in the middle of training instead.
     """
     manifest = dest / "manifest.json"
@@ -315,6 +225,9 @@ def fetch_language(entry: dict[str, Any], root: Path, *, mirror: str, keep_archi
     archive_dir = root / ".archives" / f"SLR{slr}"
     records: list[dict[str, Any]] = []
     reports: list[dict[str, Any]] = []
+    # Shared across this language's archives so a name written by one is
+    # refused by the next rather than overwritten.
+    seen: set[str] = set()
 
     for name, index_name in zip(entry["archives"], index_files, strict=True):
         url = archive_url(slr, name, mirror)
@@ -326,7 +239,7 @@ def fetch_language(entry: dict[str, Any], root: Path, *, mirror: str, keep_archi
             path.unlink(missing_ok=True)
             raise SystemExit(f"{name}: {problem} — deleted; rerun to download again")
         records.append(archive_record(path, url))
-        reports.append(extract_archive(path, dest, index_name))
+        reports.append(extract_archive(path, dest, index_name, seen=seen))
         print(f"    extracted {reports[-1]['wav_files']} wavs, {reports[-1]['index_rows']} rows")
 
     write_manifest(
