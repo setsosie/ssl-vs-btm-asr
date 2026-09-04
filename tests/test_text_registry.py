@@ -125,10 +125,6 @@ def test_every_recorded_script_either_has_a_default_or_is_documented() -> None:
     assert undefaulted == {"Arab"}
 
 
-@pytest.mark.xfail(
-    reason="policies for the 32 languages added with the 64-language tier land on "
-    "the normalization branch; the preset names them in its header",
-)
 def test_every_shipped_preset_states_its_policy(pytestconfig) -> None:
     """Explicit beside the language, not inferred three modules away."""
     from pathlib import Path
