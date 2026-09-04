@@ -36,7 +36,7 @@ import os
 import shutil
 import sys
 import zipfile
-from datetime import UTC, datetime  # `datetime.UTC` needs 3.11; this repo targets 3.10
+from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.error import HTTPError
@@ -139,7 +139,12 @@ def download(url: str, dest: Path, *, expected: int | None = None) -> Path:
             while block := resp.read(CHUNK):
                 out.write(block)
 
-    if expected is not None and part.stat().st_size != expected:
+    if expected is None:
+        # The HEAD request gave no Content-Length, so the length check cannot
+        # run and the zip CRC is the only integrity evidence left. Say which
+        # check was lost rather than letting the download look fully verified.
+        print(f"    {dest.name}: size unknown (no Content-Length), relying on the zip CRC")
+    elif part.stat().st_size != expected:
         raise OSError(f"{dest.name}: got {part.stat().st_size} bytes, expected {expected}")
     part.replace(dest)
     return dest
