@@ -164,16 +164,56 @@ the Hub path so a preparer can run on a machine with no project install.
 
 ```bash
 export CORPORA_ROOT=/path/to/corpora
-python scripts/prepare_google_crowdsourced.py --root $CORPORA_ROOT          # jv su si ne bn
-python scripts/prepare_google_crowdsourced.py --root $CORPORA_ROOT --langs jv
+python scripts/prepare_google_crowdsourced.py --root $CORPORA_ROOT   # jv su si ne bn
+python scripts/prepare_nchlt.py --root $CORPORA_ROOT --langs zu
 ```
 
-Only that one is implemented. The other nine are documented stubs that raise
-`NotImplementedError` and carry their corpus's format notes:
-`prepare_nchlt.py` (zu xh nso ts ve), `prepare_ksc.py` (kk),
-`prepare_zeroth.py` (ko), `prepare_samromur.py` (is), `prepare_taltech.py` (et),
-`prepare_armenian.py` (hy), `prepare_tibmd.py` (bo),
-`prepare_kannada_mile.py` (kn) and `prepare_parlaspeech.py` (hr).
+**All ten are implemented. None has been run against a real archive.** Every
+format claim below was established by reading a zip central directory or a tar
+header chain over HTTP Range, or by fetching a repository's own metadata — real
+evidence, but not the same as an ingest. Each has a page in
+[`corpora/`](corpora/) recording what was read and where.
+
+| Preparer | Languages | Split | Notes |
+|---|---|---|---|
+| [`prepare_google_crowdsourced.py`](../scripts/prepare_google_crowdsourced.py) | jv su si ne bn | derived | [`corpora/`](corpora/) — sixteen shards each, one `utt_spk_text.tsv` |
+| [`prepare_nchlt.py`](../scripts/prepare_nchlt.py) | zu xh nso ts ve | test shipped, dev derived | [`nchlt.md`](corpora/nchlt.md) |
+| [`prepare_parlaspeech.py`](../scripts/prepare_parlaspeech.py) | hr | shipped | [`parlaspeech.md`](corpora/parlaspeech.md) |
+| [`prepare_taltech.py`](../scripts/prepare_taltech.py) | et | shipped | [`taltech.md`](corpora/taltech.md) |
+| [`prepare_ksc.py`](../scripts/prepare_ksc.py) | kk | shipped | [`slr102_ksc_kazakh.md`](corpora/slr102_ksc_kazakh.md) |
+| [`prepare_samromur.py`](../scripts/prepare_samromur.py) | is | shipped | [`slr112_samromur.md`](corpora/slr112_samromur.md) |
+| [`prepare_zeroth.py`](../scripts/prepare_zeroth.py) | ko | re-derived | [`slr40_zeroth_korean.md`](corpora/slr40_zeroth_korean.md) |
+| [`prepare_kannada_mile.py`](../scripts/prepare_kannada_mile.py) | kn | re-derived | [`slr126_kannada.md`](corpora/slr126_kannada.md) |
+| [`prepare_tibmd.py`](../scripts/prepare_tibmd.py) | bo | derived | [`slr124_tibetan.md`](corpora/slr124_tibetan.md) |
+| [`prepare_armenian.py`](../scripts/prepare_armenian.py) | hy | derived, utterance level | [`slr160_armenian.md`](corpora/slr160_armenian.md) |
+
+Three of them cost real disk. **TalTech is the expensive one: budget about
+320 GB of peak.** Its 159 GB tar and its extracted tree exist at the same time,
+and its half-hour recordings are then cut at their transcript bounds into
+roughly 600,000 small WAVs — the manifest addresses whole files, so long-form
+audio has to be cut somewhere and it is cut here. ParlaSpeech needs about 116 GB
+of slices plus about the same extracted, and each NCHLT language is a 4.6–5.1 GB
+zip.
+
+### Integrity
+
+**Three corpora publish a checksum and are checked against it:** NCHLT, per
+bitstream from the DSpace API; ParlaSpeech, per file from its METS record; and
+Zeroth, at `resources/40/checksum.md5`. A mismatch stops the fetch — a corrupt
+or substituted archive has no useful handling — and `fetch_manifest.json`
+records the value matched under `checksum_verified`.
+
+Every other corpus publishes nothing. For those, the length is checked against
+`Content-Length` where the server sends one, the archive is read end to end, and
+the recorded SHA-256 is good only for comparing one fetch against another.
+`checksum_verified` is null there, which is the difference between an archive
+that was verified and one that was merely digested.
+
+Three preparers go further and check the corpus rather than the bytes: NCHLT and
+ParlaSpeech and TalTech each re-read the licence field at fetch time and refuse
+to ingest a corpus whose licence has changed, and ParlaSpeech refuses a manifest
+whose segment counts differ from the published 380,836 / 500 / 513 / 22,076. A
+licence copied into a config file is a claim about the past.
 
 ### Licences, and a caveat about the mix
 

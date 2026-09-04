@@ -23,18 +23,26 @@ permutation tests available from the per-utterance predictions every run writes.
 ## Status
 
 **No GPU run has been executed against this code.** Everything below is
-implemented and covered by 786 CPU tests; none of it has yet produced a number
+implemented and covered by 1040 CPU tests; none of it has yet produced a number
 from real audio. Three other gaps are open by design rather than by oversight:
 
-- **The large tier is 64 languages, and most of its corpora have no preparer
-  yet.** 46 come from Common Voice 25 and 18 from other public corpora, each
-  recorded in [`configs/corpora.yaml`](configs/corpora.yaml) with its licence,
-  downloads and hours. Only one preparer is written — the five Google
-  crowdsourced OpenSLR sets (Javanese, Sundanese, Sinhala, Bengali, Nepali).
-  The other nine raise `NotImplementedError` and carry their corpus's format
-  notes, so the 64-language tier cannot be staged end to end until they land.
-  Thirty-two preset entries also have no normalization policy yet; the preset
-  header names them and a run fails at policy resolution rather than silently.
+- **The 64-language tier is populated and every preparer is written, but none
+  has been run against a real archive.** 46 languages come from Common Voice 25
+  and 18 from other public corpora, each recorded in
+  [`configs/corpora.yaml`](configs/corpora.yaml) with its licence, downloads,
+  published checksum where there is one, and hours. All ten preparers are
+  implemented. Their format claims come from reading zip central directories and
+  tar header chains over HTTP Range and from repository metadata — real
+  evidence, but not an ingest — and each corpus has a page in
+  [`docs/corpora/`](docs/corpora/) recording what was read. **Staging the tier
+  end to end is therefore still unproven**, and two things will bite first:
+  Tibetan's transcript convention is not verified (its preparer discovers it and
+  refuses rather than guessing), and Samrómur's `info.txt` describes only train
+  and dev, so its test split is confirmed at ingest.
+- **TalTech Estonian needs about 320 GB of peak disk.** Its 159 GB tar and its
+  extracted tree exist at once, and its half-hour recordings are then cut at
+  their transcript bounds into roughly 600,000 small WAVs. ParlaSpeech needs
+  about 116 GB twice over. Budget before starting either.
 - Odia is not in the held-out set. See [Held-out data](#held-out-data) below —
   the set is **four** languages, and any write-up should say four.
 - The encoder has not been checked against the reference implementation. The
@@ -42,11 +50,18 @@ from real audio. Three other gaps are open by design rather than by oversight:
   [Encoder cross-check](#encoder-cross-check-separate-environment); it needs the
   checkpoint, which is not available here.
 
-Seven of the 64 are below the 50-hour rule and carried deliberately: four NCHLT
-languages just under the bar, Korean at 42.2 h once its 1.2-hour test split is
-repartitioned, and Hindi at 7.0 and Finnish at 11.1, which the smaller presets
-commit to. The numbers are in `docs/languages.md` and belong beside any
-per-language result for them.
+Seven of the 64 are below the 50-hour rule and carried deliberately: isiZulu
+(48.5 h), isiXhosa (49.4), Tshivenda (49.6) and Xitsonga (49.8), whose NCHLT
+train side is just under the bar against a ~56 h corpus; Korean (42.2) once its
+1.2-hour test split is discarded and all 52.8 h are repartitioned; and Hindi
+(7.0) and Finnish (11.1), which the smaller presets commit to. Those numbers
+belong beside any per-language result for them.
+
+Two more caveats belong in a write-up rather than in a footnote. **Armenian's
+number is not speaker-independent** — the corpus carries no speaker field and is
+not meant to, so its split is utterance level and the same voice appears in train
+and test. And **TalTech's speaker ids are scoped to a recording**, so its shipped
+split cannot be called speaker-disjoint across recordings either.
 
 The additions are also heavily read-prompt and parliamentary, so the mix gains a
 great deal of typological range and rather little domain range. A result that
@@ -95,6 +110,19 @@ CLARIN.SI, SADiLaR and one university page — all served anonymously, none behi
 a gate or a form. Each is converted once by `scripts/prepare_<corpus>.py` into a
 single manifest layout under `CORPORA_ROOT`, so fourteen corpora in ten shapes
 need one loader rather than ten.
+
+[`docs/corpora/`](docs/corpora/) has a page per corpus recording what was read
+off the real archive and where: [NCHLT](docs/corpora/nchlt.md),
+[ParlaSpeech-HR](docs/corpora/parlaspeech.md),
+[TalTech Estonian](docs/corpora/taltech.md),
+[Kazakh](docs/corpora/slr102_ksc_kazakh.md),
+[Samrómur](docs/corpora/slr112_samromur.md),
+[Zeroth Korean](docs/corpora/slr40_zeroth_korean.md),
+[Kannada](docs/corpora/slr126_kannada.md),
+[Tibetan](docs/corpora/slr124_tibetan.md) and
+[Armenian](docs/corpora/slr160_armenian.md). Licences, download sizes and the
+three published checksums are in
+[`configs/corpora.yaml`](configs/corpora.yaml).
 
 Which language comes from which corpus, how many hours each actually has, what
 was rejected and why, and the reserve list are in
