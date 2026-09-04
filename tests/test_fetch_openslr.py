@@ -143,7 +143,15 @@ def test_language_is_complete_only_once_every_index_and_the_manifest_exist(fetch
         (dest / n).write_text("a_1_1\tx\n")
     assert not fetch_openslr.is_complete(dest, names)
 
+    # A manifest that does not say how much audio it wrote cannot vouch for the
+    # directory, so it is refetched rather than trusted.
     (dest / "manifest.json").write_text("{}")
+    assert not fetch_openslr.is_complete(dest, names)
+
+    (dest / "manifest.json").write_text(json.dumps({"wav_files": 1}))
+    assert not fetch_openslr.is_complete(dest, names)
+
+    (dest / "a_1_1.wav").write_bytes(b"RIFF")
     assert fetch_openslr.is_complete(dest, names)
 
 
@@ -356,3 +364,98 @@ def test_remote_size_is_none_when_the_server_sends_no_length(fetch_openslr, monk
     _capture_requests(fetch_openslr, monkeypatch, _FakeResponse(b"", headers={}))
 
     assert fetch_openslr.remote_size("http://x/a.zip") is None
+
+
+def test_a_complete_part_file_is_adopted_rather_than_re_requested(
+    fetch_openslr, tmp_path, monkeypatch
+):
+    """Killed between the last read and the rename, `.part` holds the whole
+    archive and `dest` does not exist. The next run must not ask for bytes past
+    the end — the server answers 416 and the fetch dies on an uncaught
+    HTTPError, which is the one resume case with no way out."""
+    dest = tmp_path / "a.zip"
+    dest.with_name("a.zip.part").write_bytes(b"abcdef")
+    seen = _capture_requests(fetch_openslr, monkeypatch, _FakeResponse(b"", status=206))
+
+    fetch_openslr.download("http://x/a.zip", dest, expected=6)
+
+    assert dest.read_bytes() == b"abcdef"
+    assert seen == []  # nothing was requested at all
+
+
+def test_a_range_the_server_rejects_restarts_the_download(fetch_openslr, tmp_path, monkeypatch):
+    """416 with no expected size to compare against: discard and start over."""
+    from urllib.error import HTTPError
+
+    dest = tmp_path / "a.zip"
+    dest.with_name("a.zip.part").write_bytes(b"abcdefghij")
+    bodies = [
+        HTTPError("http://x/a.zip", 416, "Range Not Satisfiable", {}, None),
+        _FakeResponse(b"abcdef"),
+    ]
+
+    def fake_urlopen(request, timeout=None):
+        item = bodies.pop(0)
+        if isinstance(item, HTTPError):
+            raise item
+        return item
+
+    monkeypatch.setattr(fetch_openslr, "urlopen", fake_urlopen)
+
+    fetch_openslr.download("http://x/a.zip", dest)
+
+    assert dest.read_bytes() == b"abcdef"
+    assert not bodies  # both responses were used: it retried rather than gave up
+
+
+def test_an_http_error_that_is_not_a_bad_range_still_propagates(
+    fetch_openslr, tmp_path, monkeypatch
+):
+    """A 404 is not something to paper over by restarting."""
+    from urllib.error import HTTPError
+
+    def fake_urlopen(request, timeout=None):
+        raise HTTPError("http://x/a.zip", 404, "Not Found", {}, None)
+
+    monkeypatch.setattr(fetch_openslr, "urlopen", fake_urlopen)
+
+    with pytest.raises(HTTPError):
+        fetch_openslr.download("http://x/a.zip", tmp_path / "a.zip")
+
+
+# --- config and completeness --------------------------------------------------
+
+
+def test_two_archives_declaring_one_index_name_are_refused(fetch_openslr, tmp_path):
+    """A typo here overwrites one index with the other and collapses the
+    manifest's per-index row counts to a single key — the same silent corruption
+    the cross-archive name check exists to prevent."""
+    config = tmp_path / "heldout.yaml"
+    config.write_text(
+        "languages:\n"
+        "  - code: malayalam\n"
+        "    source: openslr\n"
+        "    slr: 63\n"
+        "    archives: [ml_in_female.zip, ml_in_male.zip]\n"
+        "    index_files: [line_index.tsv, line_index.tsv]\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="index_files"):
+        fetch_openslr.read_config(config)
+
+
+def test_a_language_missing_its_audio_is_not_reported_complete(fetch_openslr, tmp_path):
+    """The manifest records how many wavs were written, and nothing compared it
+    to the directory — so a pruned corpus was skipped by the fetcher and blew up
+    mid-training instead."""
+    dest = tmp_path / "SLR63"
+    dest.mkdir()
+    (dest / "line_index.tsv").write_text("a\tb\n", encoding="utf-8")
+    (dest / "manifest.json").write_text(json.dumps({"wav_files": 2}), encoding="utf-8")
+
+    assert not fetch_openslr.is_complete(dest, ["line_index.tsv"])
+
+    for name in ("one.wav", "two.wav"):
+        (dest / name).write_bytes(b"RIFF")
+    assert fetch_openslr.is_complete(dest, ["line_index.tsv"])

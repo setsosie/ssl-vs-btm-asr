@@ -10,11 +10,15 @@ and PyYAML, so the data can be staged on a machine that has no project install.
 Layout it produces, matching what `svb.data.openslr_local` expects::
 
     $OPENSLR_ROOT/
-        .archives/SLR63/ml_in_female.zip          # kept, so a rerun is free
+        .archives/SLR63/ml_in_female.zip          # only with --keep-archives
         SLR63/line_index_female.tsv
         SLR63/line_index_male.tsv
         SLR63/mlf_02879_01795762363.wav ...
         SLR63/manifest.json
+
+The downloaded archives are deleted once extracted, since they are several times
+the size of what is kept and nothing reads them again; pass `--keep-archives` to
+hold on to them and make a re-extraction free.
 
 Two details of the real archives drive the design. Every archive is flat and
 holds its own index member named `line_index.tsv`, so extracting a language's
@@ -22,9 +26,10 @@ male and female archives into one directory would clobber it; each archive's
 index is therefore written under the name the config declares for it, and
 `archives` and `index_files` are parallel lists. And openslr.org publishes no
 checksums for these resources, so an archive is verified by its byte length
-against the server's Content-Length and by a full zip CRC check; the SHA-256 is
-recorded in the manifest for later reference rather than compared to a
-published value.
+against the server's Content-Length *when the server sends one* and by a full
+zip CRC check; where there is no Content-Length the CRC is the only check, and
+the run says so. The SHA-256 is recorded in the manifest for later reference
+rather than compared to a published value.
 """
 
 from __future__ import annotations
@@ -63,9 +68,19 @@ def read_config(path: Path) -> list[dict[str, Any]]:
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     entries = [e for e in raw.get("languages", []) if e.get("source") == "openslr"]
     for entry in entries:
-        if len(entry.get("archives", [])) != len(entry.get("index_files", [])):
+        index_files = entry.get("index_files", [])
+        if len(entry.get("archives", [])) != len(index_files):
             raise ValueError(
                 f"{entry.get('code')}: archives and index_files must be parallel lists"
+            )
+        # Each archive's index is renamed to its declared name, so two archives
+        # declaring one name overwrite each other's index and collapse the
+        # manifest's per-index row counts to a single key. Parallel length alone
+        # does not catch that.
+        if len(set(index_files)) != len(index_files):
+            raise ValueError(
+                f"{entry.get('code')}: index_files must be distinct, got {index_files}; "
+                "two archives renaming their index to one name would overwrite each other"
             )
     return entries
 
@@ -116,8 +131,26 @@ def remote_size(url: str) -> int | None:
     return int(length) if length else None
 
 
+#: A resume offset at or past the end of the resource. Reachable without any
+#: mistake: an interrupted run can leave a `.part` that is already complete.
+_RANGE_NOT_SATISFIABLE = 416
+
+
+def _ranged_request(url: str, have: int) -> Request:
+    request = Request(url, headers=dict(_UA))
+    if have:
+        request.add_header("Range", f"bytes={have}-")
+    return request
+
+
 def download(url: str, dest: Path, *, expected: int | None = None) -> Path:
-    """Stream `url` to `dest`, resuming a partial `.part` file when possible."""
+    """Stream `url` to `dest`, resuming a partial `.part` file when possible.
+
+    Three resume outcomes, because all three happen on a cluster: the server
+    honours the Range (206, append), ignores it (200, restart), or rejects the
+    offset as past the end (416, discard the `.part` and start over). The last
+    one used to raise an uncaught `HTTPError` and kill the whole fetch.
+    """
     dest.parent.mkdir(parents=True, exist_ok=True)
     if expected is not None and dest.exists() and dest.stat().st_size == expected:
         print(f"    have {dest.name} ({expected} bytes)")
@@ -125,11 +158,29 @@ def download(url: str, dest: Path, *, expected: int | None = None) -> Path:
 
     part = dest.with_name(dest.name + ".part")
     have = part.stat().st_size if part.exists() else 0
-    request = Request(url, headers=dict(_UA))
-    if have:
-        request.add_header("Range", f"bytes={have}-")
 
-    with urlopen(request, timeout=120) as resp:
+    if expected is not None and have >= expected:
+        # Killed between the last read and the rename: `.part` is the whole
+        # archive and `dest` does not exist. Asking for bytes from the end would
+        # get a 416, so adopt what is already here and let the CRC check judge it.
+        print(f"    {dest.name}: complete .part adopted ({have} bytes)")
+        part.replace(dest)
+        return dest
+
+    try:
+        resp_ctx = urlopen(_ranged_request(url, have), timeout=120)
+    except HTTPError as exc:
+        if exc.code != _RANGE_NOT_SATISFIABLE or not have:
+            raise
+        # The server says the offset is past the end, and without a
+        # Content-Length there was no way to know that before asking. The `.part`
+        # is unusable at this length, so discard it and fetch from scratch.
+        print(f"    {dest.name}: server rejected the resume offset; restarting")
+        part.unlink(missing_ok=True)
+        have = 0
+        resp_ctx = urlopen(_ranged_request(url, 0), timeout=120)
+
+    with resp_ctx as resp:
         # A server that ignores Range answers 200 with the whole body; restart.
         resuming = have > 0 and resp.status == 206
         if have and not resuming:
@@ -158,8 +209,8 @@ def extract_archive(
 ) -> dict[str, Any]:
     """Extract one archive flat into `dest`, renaming its index to `index_name`.
 
-    Only member basenames are used, so a crafted archive cannot write outside
-    `dest`. Returns the counts the manifest reports.
+    Only member basenames are used, so on POSIX a crafted archive cannot write
+    outside `dest`. Returns the counts the manifest reports.
 
     `seen` accumulates the names written for one language across its archives.
     A language's male and female archives share a directory, and the whole flat
@@ -247,8 +298,22 @@ def write_manifest(
 
 
 def is_complete(dest: Path, index_files: list[str]) -> bool:
-    """True when every declared index and the manifest are already on disk."""
-    return (dest / "manifest.json").exists() and all((dest / n).exists() for n in index_files)
+    """True when the indices, the manifest, and the audio it counts are on disk.
+
+    The audio check is the point. Indices and a manifest are a few kilobytes and
+    survive anything; the wavs are the gigabytes, and a pruned or half-copied
+    directory used to be reported complete here, pass `check_data.sh` — which
+    reads indices only — and fail in the middle of training instead.
+    """
+    manifest = dest / "manifest.json"
+    if not manifest.exists() or not all((dest / n).exists() for n in index_files):
+        return False
+    try:
+        declared = int(json.loads(manifest.read_text(encoding="utf-8"))["wav_files"])
+    except (OSError, ValueError, KeyError, TypeError):
+        # An unreadable manifest cannot vouch for anything; refetch.
+        return False
+    return len(list(dest.glob("*.wav"))) >= declared
 
 
 # --- driver -------------------------------------------------------------------
