@@ -1,4 +1,9 @@
-# Held-out Indic transfer set — never in any training mix (finding #3).
+# Held-out Indic transfer set: in none of this repo's training mixes, and absent
+# from the training vocabulary until the CTC head is expanded for transfer.
+#
+# Not unseen by the encoder. XEUS was pretrained on unlabelled audio from over
+# four thousand languages, these among them, so "held out" means held out of the
+# supervised pipeline rather than a language the model has never heard.
 #
 # Fetched straight from openslr.org as zip archives; no Hugging Face `datasets`,
 # no `trust_remote_code`, no account. Run `python scripts/fetch_openslr.py

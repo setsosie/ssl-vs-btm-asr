@@ -52,7 +52,17 @@ release you actually downloaded rather than against this file.
 ## OpenSLR held-out Indic (`OPENSLR_ROOT`)
 
 Four crowdsourced multi-speaker read-speech corpora, held out of every training
-mix. Fetch them once:
+mix in this repository and absent from the training vocabulary until the CTC
+head is expanded for transfer.
+
+They are **not** unseen by the encoder. XEUS was pretrained on unlabelled audio
+from over four thousand languages, these among them, so "held out" means held
+out of the supervised pipeline rather than a language the model has never heard.
+The transfer experiment measures how far fine-tuning drives each starting point
+down on a language the pipeline never supervised, not zero-shot generalization
+to an unheard one. Any write-up should say it that way.
+
+Fetch them once:
 
 ```bash
 python scripts/fetch_openslr.py --root $OPENSLR_ROOT
