@@ -368,7 +368,7 @@ def cmd_aggregate(args: argparse.Namespace) -> None:
 
 def cmd_analyze(args: argparse.Namespace) -> None:
     from .report.aggregate import load_runs
-    from .report.analyze import render_metric_tables
+    from .report.analyze import render_metric_tables, require_same_policies
 
     root = results_root(args.results_root)
     runs = [r.path for r in load_runs(root, args.arm, args.scale) if _wanted(r.seed, args.seeds)]
@@ -388,6 +388,12 @@ def cmd_analyze(args: argparse.Namespace) -> None:
             for run, seed in zip(runs, _seeds_of(runs), strict=True)
             if seed in other
         ]
+        # Before any sidecar is read. The per-utterance reference check catches
+        # a policy difference too, but only for languages both runs evaluated,
+        # and it reports a string difference where this reports which language
+        # and which two policies.
+        for left, right in comparisons:
+            require_same_policies(left, right)
 
     written = render_metric_tables(
         scale=args.scale,

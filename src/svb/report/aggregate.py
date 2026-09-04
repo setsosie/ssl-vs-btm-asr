@@ -32,11 +32,13 @@ change would otherwise be invisible.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from ..stats.analysis import SeedAgg, aggregate_seeds
+from .analyze import language_policies
 from .tables import fmt_mean_std, fmt_value, render_table
 
 SECTIONS = ("in_distribution", "transfer")
@@ -51,6 +53,9 @@ class RunRecord:
     path: Path
     results: dict[str, Any]
     word_boundary: dict[str, bool]
+    #: Which normalization policy each language ran under. Empty for a run
+    #: written before that was recorded.
+    policies: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -124,6 +129,9 @@ class ScaleAggregate:
     seeds: list[int]
     languages: list[LanguageAgg]
     macro: dict[str, MacroAgg]
+    #: The policy each language ran under, for the table's per-language column
+    #: and for the macro's caption.
+    policies: dict[str, str] = field(default_factory=dict)
 
     @property
     def n_seeds(self) -> int:
@@ -158,6 +166,7 @@ def load_runs(root: Path, arm: str, scale: str) -> list[RunRecord]:
             path=p,
             results=json.loads((p / "results.json").read_text(encoding="utf-8")),
             word_boundary=_word_boundary(p),
+            policies=language_policies(p),
         )
         for p in candidates
     ]
@@ -222,6 +231,10 @@ def aggregate_runs(runs: list[RunRecord]) -> ScaleAggregate:
         seeds=seeds,
         languages=languages,
         macro=macro,
+        # From the first seed: every seed of one arm and scale ran the same
+        # preset, and a seed that disagreed would already have been rejected by
+        # the reference check before any table was drawn.
+        policies=dict(runs[0].policies),
     )
 
 
@@ -332,7 +345,7 @@ def to_markdown(agg: ScaleAggregate) -> str:
         lines += [f"## {section.replace('_', ' ')}", ""]
         lines.append(
             render_table(
-                ["language", "WER", "CER", "primary", "metric", "seeds"],
+                ["language", "WER", "CER", "primary", "metric", "policy", "seeds"],
                 [
                     [
                         row.code,
@@ -340,11 +353,12 @@ def to_markdown(agg: ScaleAggregate) -> str:
                         fmt_mean_std(row.cer.mean, row.cer.std),
                         fmt_mean_std(row.primary.mean, row.primary.std),
                         _METRIC_LABEL[row.primary_kind],
+                        agg.policies.get(row.code, "—"),
                         str(row.wer.n_seeds),
                     ]
                     for row in rows
                 ],
-                aligns=["left", "right", "right", "right", "left", "right"],
+                aligns=["left", "right", "right", "right", "left", "left", "right"],
             )
         )
         lines += [
@@ -367,6 +381,15 @@ def to_markdown(agg: ScaleAggregate) -> str:
                 "including them would change what the average is an average of: "
                 f"{', '.join(macro.excluded_languages)}.",
             ]
+        caption = macro_policy_caption(agg.policies, [row.code for row in rows])
+        if caption:
+            lines += [
+                "",
+                f"The languages in this average were normalized under different rules: "
+                f"{caption}. Averaging across them is how a multilingual system is "
+                "summarised at all, but the result is not one quantity, and it is not "
+                "comparable with a number produced under a single policy.",
+            ]
         if macro.is_mixed:
             lines += [
                 "",
@@ -376,3 +399,17 @@ def to_markdown(agg: ScaleAggregate) -> str:
             ]
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def macro_policy_caption(policies: dict[str, str], languages: Iterable[str]) -> str:
+    """A note for a macro-average whose languages were normalized differently.
+
+    Averaging error rates computed under different text rules is a real thing to
+    do — it is the only way to say anything about a multilingual system at all —
+    but the number is not one quantity, and a reader who does not know that will
+    compare it against one that is.
+    """
+    used = sorted({policies[code] for code in languages if code in policies})
+    if len(used) <= 1:
+        return ""
+    return f"policies differ by language ({', '.join(used)})"
