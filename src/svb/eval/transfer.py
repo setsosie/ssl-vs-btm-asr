@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from ..config import ExperimentConfig
 from ..data.collate import make_ctc_collate
@@ -30,10 +31,48 @@ from .evaluate import EvalResult, evaluate
 
 @dataclass
 class TransferResult:
+    """One held-out language's evaluation, plus how its test split was chosen.
+
+    The held-out corpora ship no train/validation/test partition, so the loader
+    derives one. That derivation is part of the reported number and cannot be
+    recovered from the number, which is why the digest and the policy travel
+    with the result rather than staying an attribute of a dataset object that
+    goes out of scope when ``transfer_one`` returns.
+    """
+
     lang: str
-    wer: float
-    cer: float
-    n: int
+    result: EvalResult
+    #: "speaker" or "utterance" — an utterance-level split puts the same
+    #: speaker in train and test, so the number is not speaker-independent.
+    split_policy: str | None = None
+    #: SHA-1 of the test FileID list: pins the exact held-out set that was
+    #: scored, so two runs can be shown to have used the same one.
+    test_files_sha1: str | None = None
+
+    def to_record(self) -> dict[str, Any]:
+        """The results.json entry for this language."""
+        return {
+            "wer": self.result.wer,
+            "cer": self.result.cer,
+            "n": self.result.n,
+            "n_empty_refs": self.result.n_empty_refs,
+            "split_policy": self.split_policy,
+            "test_files_sha1": self.test_files_sha1,
+        }
+
+
+def _split_provenance(dataset: object) -> tuple[str | None, str | None]:
+    """Read the derived-split markers off a dataset, if it has them.
+
+    Only the OpenSLR loader derives a split, so these are absent for any
+    held-out language read from a corpus that ships its own.
+    """
+    policy = getattr(dataset, "split_policy", None)
+    digest = getattr(dataset, "test_files_sha1", None)
+    return (
+        policy if isinstance(policy, str) else None,
+        digest if isinstance(digest, str) else None,
+    )
 
 
 def transfer_one(
@@ -43,7 +82,7 @@ def transfer_one(
     lang: LangSpec,
     out_dir: Path,
     device: str = "cuda",
-) -> EvalResult:
+) -> TransferResult:
     """Adapt to one held-out language and evaluate.
 
     Args:
@@ -82,7 +121,7 @@ def transfer_one(
     # transcript manufactures deletions that the model never had a chance to
     # avoid.
     test_ds = load_language(lang, "test", None)
-    return evaluate(
+    scored = evaluate(
         model,
         test_ds,
         new_vocab,
@@ -91,4 +130,8 @@ def transfer_one(
         batch_size=cfg.optim.batch_size,
         save_predictions=out_dir / "predictions.json",
         spec=lang,
+    )
+    policy, digest = _split_provenance(test_ds)
+    return TransferResult(
+        lang=lang.code, result=scored, split_policy=policy, test_files_sha1=digest
     )
