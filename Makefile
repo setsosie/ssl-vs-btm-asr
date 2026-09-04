@@ -47,7 +47,7 @@ test:
 lint:
 	uv run ruff check .
 	uv run ruff format --check .
-	uv run mypy src tests
+	uv run mypy src tests scripts
 
 # Everything CI runs.
 check: lint test

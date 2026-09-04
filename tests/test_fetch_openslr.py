@@ -91,7 +91,25 @@ def test_verify_archive_accepts_a_good_zip_and_rejects_a_truncated_one(fetch_ope
 
     bad = tmp_path / "bad.zip"
     bad.write_bytes(good.read_bytes()[:-40])
-    assert fetch_openslr.verify_archive(bad) is not None
+    assert "unreadable zip" in fetch_openslr.verify_archive(bad)
+
+
+def test_verify_archive_catches_a_corrupt_member(fetch_openslr, tmp_path):
+    """Truncating past the end-of-central-directory only proves the file cannot
+    be opened. The CRC pass is the check that matters here, because openslr.org
+    publishes no checksums and it is the only evidence a member is intact.
+    """
+    good = _make_archive(tmp_path / "good.zip", ["a_1_1"])
+    raw = bytearray(good.read_bytes())
+
+    # Flip a byte inside the stored wav payload, leaving every header and the
+    # central directory valid, so the zip opens and only the CRC disagrees.
+    offset = raw.index(b"RIFF____WAVEfmt ")
+    raw[offset + 4] ^= 0xFF
+    corrupt = tmp_path / "corrupt.zip"
+    corrupt.write_bytes(bytes(raw))
+
+    assert "CRC mismatch on member" in fetch_openslr.verify_archive(corrupt)
 
 
 def test_sha256_is_stable(fetch_openslr, tmp_path):

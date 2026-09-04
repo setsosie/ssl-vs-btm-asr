@@ -47,7 +47,7 @@ from typing import Any
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-import yaml  # type: ignore[import-untyped]  # drop once types-PyYAML is a dev dep
+import yaml
 
 DEFAULT_MIRROR = "https://openslr.trmal.net"
 # Alternates if the primary is slow or down; same paths under /resources/<slr>/.

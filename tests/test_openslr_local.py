@@ -156,16 +156,16 @@ def test_max_samples_truncates_the_waveform(slr_root):
 
 
 def test_stereo_and_odd_sample_rate_are_normalised(slr_root, write_silent_wav):
-    dest = slr_root / "SLR63"
-    rows = read_index(dest / "line_index_female.tsv")
-    write_silent_wav(dest / f"{rows[0][0]}.wav", frames=80, sr=8000, channels=2)
-
+    """Take the utterance from the split itself rather than hoping a fixture row
+    lands in it. Skipping when it does not turns the only stereo and resampling
+    coverage in the suite into a silent no-op the next time the fixture moves."""
     ds = OpenSLRLocal(SPEC, "train", root=str(slr_root))
-    fid_to_idx = {fid: i for i, (fid, _) in enumerate(ds.rows)}
-    if rows[0][0] not in fid_to_idx:
-        pytest.skip("fixture utterance did not land in train")
-    wav, _ = ds[fid_to_idx[rows[0][0]]]
-    assert wav.ndim == 1
+    file_id = ds.rows[0][0]
+    write_silent_wav(slr_root / "SLR63" / f"{file_id}.wav", frames=80, sr=8000, channels=2)
+
+    wav, _ = ds[0]
+
+    assert wav.ndim == 1  # downmixed from stereo
     assert 150 <= wav.shape[0] <= 170  # 80 frames @8k -> ~160 @16k
 
 
