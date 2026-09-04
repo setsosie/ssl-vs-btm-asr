@@ -9,7 +9,8 @@ model:
   blank_bias_init: null
 
 optim:
-  # XEUS-HPO-01 Trial 19 (verbatim). Effective batch = batch_size * accum_steps
+  # Best trial of the author's earlier hyperparameter search, verbatim.
+  # Effective batch = batch_size * accum_steps
   # on a single GPU = 16. State this in the paper (the cluster runs used eff 64).
   lr: 7.446693063298197e-05
   weight_decay: 0.0024151339921234323
