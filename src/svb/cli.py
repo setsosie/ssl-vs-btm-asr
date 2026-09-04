@@ -326,6 +326,48 @@ def cmd_analyze(args: argparse.Namespace) -> None:
         print(f"[svb] wrote {path}")
 
 
+SCOPES = (*SCALES, "heldout", "all")
+
+
+def specs_for_scope(scope: str) -> list[LangSpec]:
+    """The languages one ``--scope`` names, each listed once.
+
+    ``all`` sweeps every preset plus the held-out set. A preset that is still a
+    placeholder raises on load, which is right for a run and wrong here: this
+    command reports what is on disk, so an unpopulated scale is named and the
+    sweep continues. English is in both the 3 and 16 presets, so duplicates are
+    dropped — counting a language twice would double its hours in the total.
+    """
+    from .data.registry import get_heldout, get_preset
+
+    collected: list[LangSpec] = []
+    scales = SCALES if scope == "all" else ((scope,) if scope in SCALES else ())
+    for scale in scales:
+        try:
+            collected += get_preset(scale)
+        except ValueError as exc:
+            print(f"[svb] scale {scale}: {exc}")
+    if scope in ("all", "heldout"):
+        collected += get_heldout()
+
+    seen: set[tuple[str, str]] = set()
+    unique: list[LangSpec] = []
+    for spec in collected:
+        key = (spec.source, spec.code)
+        if key not in seen:
+            seen.add(key)
+            unique.append(spec)
+    return unique
+
+
+def cmd_data_stats(args: argparse.Namespace) -> None:
+    from .report.durations import collect_durations, write_tables
+
+    rows = collect_durations(specs_for_scope(args.scope), min_train_hours=args.min_train_hours)
+    for path in write_tables(rows, Path(args.tables_dir), min_train_hours=args.min_train_hours):
+        print(f"[svb] wrote {path}")
+
+
 def _seeds_of(runs: list[Path]) -> list[int]:
     return [int(run.name.removeprefix("seed")) for run in runs]
 
@@ -418,6 +460,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_results_root(n)
     n.set_defaults(func=cmd_analyze)
+
+    d = sub.add_parser(
+        "data-stats", help="per-language audio hours and utterance counts, into tables/"
+    )
+    d.add_argument("--scope", default="all", choices=SCOPES)
+    d.add_argument("--tables-dir", dest="tables_dir", default="tables")
+    d.add_argument(
+        "--min-train-hours",
+        dest="min_train_hours",
+        type=float,
+        default=0.0,
+        help="flag languages with less training audio than this (default: no threshold)",
+    )
+    d.set_defaults(func=cmd_data_stats)
 
     return p
 
