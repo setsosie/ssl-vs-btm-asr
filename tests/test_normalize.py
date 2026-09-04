@@ -20,7 +20,6 @@ import pytest
 from svb.text.normalize import (
     NORMALIZER_VERSION,
     NormalizerPolicy,
-    normalize_batch,
     normalize_text,
 )
 
@@ -215,9 +214,10 @@ def test_georgian_mtavruli_folds_without_an_exception() -> None:
     assert normalize_text("ᲒᲐᲛᲐᲠᲯᲝᲑᲐ") == "გამარჯობა"
 
 
-def test_normalize_batch_preserves_length_and_empties() -> None:
-    out = normalize_batch(["Hello!", "…", "  "])
-    assert out == ["hello", "", ""]
+def test_an_utterance_that_normalizes_to_nothing_stays_empty_rather_than_vanishing() -> None:
+    """The caller decides what empty means — training drops the utterance,
+    scoring excludes and counts it — so the normalizer must not decide for it."""
+    assert [normalize_text(t) for t in ("Hello!", "…", "  ")] == ["hello", "", ""]
 
 
 def test_policy_hash_is_stable_and_tracks_every_field() -> None:

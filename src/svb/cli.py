@@ -407,7 +407,7 @@ def specs_for_scope(scope: str) -> list[LangSpec]:
     for scale in scales:
         try:
             collected += get_preset(scale)
-        except ValueError as exc:
+        except (ValueError, FileNotFoundError) as exc:
             print(f"[svb] scale {scale}: {exc}")
     if scope in ("all", "heldout"):
         collected += get_heldout()
