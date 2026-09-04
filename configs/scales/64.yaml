@@ -30,38 +30,38 @@
 #
 # CV25 is local-only: set $CV_ROOT so $CV_ROOT/<hf_config>/{train,dev,test}.tsv exist.
 languages:
-  - { code: ca, source: commonvoice, hf_dataset: common_voice_25, hf_config: ca, text_column: sentence }
-  - { code: en, source: commonvoice, hf_dataset: common_voice_25, hf_config: en, text_column: sentence }
-  - { code: rw, source: commonvoice, hf_dataset: common_voice_25, hf_config: rw, text_column: sentence }
-  - { code: de, source: commonvoice, hf_dataset: common_voice_25, hf_config: de, text_column: sentence }
-  - { code: fr, source: commonvoice, hf_dataset: common_voice_25, hf_config: fr, text_column: sentence }
-  - { code: es, source: commonvoice, hf_dataset: common_voice_25, hf_config: es, text_column: sentence }
-  - { code: be, source: commonvoice, hf_dataset: common_voice_25, hf_config: be, text_column: sentence }
-  - { code: it, source: commonvoice, hf_dataset: common_voice_25, hf_config: it, text_column: sentence }
-  - { code: gl, source: commonvoice, hf_dataset: common_voice_25, hf_config: gl, text_column: sentence }
-  - { code: eo, source: commonvoice, hf_dataset: common_voice_25, hf_config: eo, text_column: sentence }
-  - { code: mhr, source: commonvoice, hf_dataset: common_voice_25, hf_config: mhr, text_column: sentence }
-  - { code: ps, source: commonvoice, hf_dataset: common_voice_25, hf_config: ps, text_column: sentence }
-  - { code: ug, source: commonvoice, hf_dataset: common_voice_25, hf_config: ug, text_column: sentence }
-  - { code: eu, source: commonvoice, hf_dataset: common_voice_25, hf_config: eu, text_column: sentence }
-  - { code: ab, source: commonvoice, hf_dataset: common_voice_25, hf_config: ab, text_column: sentence }
-  - { code: ba, source: commonvoice, hf_dataset: common_voice_25, hf_config: ba, text_column: sentence }
-  - { code: kab, source: commonvoice, hf_dataset: common_voice_25, hf_config: kab, text_column: sentence }
-  - { code: lg, source: commonvoice, hf_dataset: common_voice_25, hf_config: lg, text_column: sentence }
-  - { code: hu, source: commonvoice, hf_dataset: common_voice_25, hf_config: hu, text_column: sentence }
-  - { code: ka, source: commonvoice, hf_dataset: common_voice_25, hf_config: ka, text_column: sentence }
-  - { code: ta, source: commonvoice, hf_dataset: common_voice_25, hf_config: ta, text_column: sentence }
-  - { code: sw, source: commonvoice, hf_dataset: common_voice_25, hf_config: sw, text_column: sentence }
-  - { code: uz, source: commonvoice, hf_dataset: common_voice_25, hf_config: uz, text_column: sentence }
-  - { code: nl, source: commonvoice, hf_dataset: common_voice_25, hf_config: nl, text_column: sentence }
+  - { code: ca, source: commonvoice, hf_dataset: common_voice_25, hf_config: ca, text_column: sentence, normalizer: whisper-basic }
+  - { code: en, source: commonvoice, hf_dataset: common_voice_25, hf_config: en, text_column: sentence, normalizer: whisper-basic }
+  - { code: rw, source: commonvoice, hf_dataset: common_voice_25, hf_config: rw, text_column: sentence, normalizer: latin-marks }
+  - { code: de, source: commonvoice, hf_dataset: common_voice_25, hf_config: de, text_column: sentence, normalizer: whisper-basic }
+  - { code: fr, source: commonvoice, hf_dataset: common_voice_25, hf_config: fr, text_column: sentence, normalizer: whisper-basic }
+  - { code: es, source: commonvoice, hf_dataset: common_voice_25, hf_config: es, text_column: sentence, normalizer: whisper-basic }
+  - { code: be, source: commonvoice, hf_dataset: common_voice_25, hf_config: be, text_column: sentence, normalizer: whisper-basic }
+  - { code: it, source: commonvoice, hf_dataset: common_voice_25, hf_config: it, text_column: sentence, normalizer: whisper-basic }
+  - { code: gl, source: commonvoice, hf_dataset: common_voice_25, hf_config: gl, text_column: sentence, normalizer: whisper-basic }
+  - { code: eo, source: commonvoice, hf_dataset: common_voice_25, hf_config: eo, text_column: sentence, normalizer: whisper-basic }
+  - { code: mhr, source: commonvoice, hf_dataset: common_voice_25, hf_config: mhr, text_column: sentence, normalizer: whisper-basic }
+  - { code: ps, source: commonvoice, hf_dataset: common_voice_25, hf_config: ps, text_column: sentence, normalizer: perso-arabic }
+  - { code: ug, source: commonvoice, hf_dataset: common_voice_25, hf_config: ug, text_column: sentence, normalizer: uyghur-ug }
+  - { code: eu, source: commonvoice, hf_dataset: common_voice_25, hf_config: eu, text_column: sentence, normalizer: whisper-basic }
+  - { code: ab, source: commonvoice, hf_dataset: common_voice_25, hf_config: ab, text_column: sentence, normalizer: whisper-basic }
+  - { code: ba, source: commonvoice, hf_dataset: common_voice_25, hf_config: ba, text_column: sentence, normalizer: whisper-basic }
+  - { code: kab, source: commonvoice, hf_dataset: common_voice_25, hf_config: kab, text_column: sentence, normalizer: latin-marks }
+  - { code: lg, source: commonvoice, hf_dataset: common_voice_25, hf_config: lg, text_column: sentence, normalizer: latin-marks }
+  - { code: hu, source: commonvoice, hf_dataset: common_voice_25, hf_config: hu, text_column: sentence, normalizer: whisper-basic }
+  - { code: ka, source: commonvoice, hf_dataset: common_voice_25, hf_config: ka, text_column: sentence, normalizer: whisper-basic }
+  - { code: ta, source: commonvoice, hf_dataset: common_voice_25, hf_config: ta, text_column: sentence, normalizer: indic-vistaar }
+  - { code: sw, source: commonvoice, hf_dataset: common_voice_25, hf_config: sw, text_column: sentence, normalizer: latin-marks }
+  - { code: uz, source: commonvoice, hf_dataset: common_voice_25, hf_config: uz, text_column: sentence, normalizer: latin-marks }
+  - { code: nl, source: commonvoice, hf_dataset: common_voice_25, hf_config: nl, text_column: sentence, normalizer: whisper-basic }
 
   # Below the rule at Common Voice 25, kept because the 16-language preset
   # commits to them. Their train-split hours are in docs/languages.md.
-  - { code: tr, source: commonvoice, hf_dataset: common_voice_25, hf_config: tr, text_column: sentence }
-  - { code: ru, source: commonvoice, hf_dataset: common_voice_25, hf_config: ru, text_column: sentence }
-  - { code: uk, source: commonvoice, hf_dataset: common_voice_25, hf_config: uk, text_column: sentence }
-  - { code: ar, source: commonvoice, hf_dataset: common_voice_25, hf_config: ar, text_column: sentence }
-  - { code: pl, source: commonvoice, hf_dataset: common_voice_25, hf_config: pl, text_column: sentence }
-  - { code: ja, source: commonvoice, hf_dataset: common_voice_25, hf_config: ja, text_column: sentence, word_boundary: false }
-  - { code: hi, source: commonvoice, hf_dataset: common_voice_25, hf_config: hi, text_column: sentence }
-  - { code: fi, source: commonvoice, hf_dataset: common_voice_25, hf_config: fi, text_column: sentence }
+  - { code: tr, source: commonvoice, hf_dataset: common_voice_25, hf_config: tr, text_column: sentence, normalizer: turkic-tr }
+  - { code: ru, source: commonvoice, hf_dataset: common_voice_25, hf_config: ru, text_column: sentence, normalizer: whisper-basic }
+  - { code: uk, source: commonvoice, hf_dataset: common_voice_25, hf_config: uk, text_column: sentence, normalizer: whisper-basic }
+  - { code: ar, source: commonvoice, hf_dataset: common_voice_25, hf_config: ar, text_column: sentence, normalizer: arabic-ouaal }
+  - { code: pl, source: commonvoice, hf_dataset: common_voice_25, hf_config: pl, text_column: sentence, normalizer: whisper-basic }
+  - { code: ja, source: commonvoice, hf_dataset: common_voice_25, hf_config: ja, text_column: sentence, word_boundary: false, normalizer: ja-cer }
+  - { code: hi, source: commonvoice, hf_dataset: common_voice_25, hf_config: hi, text_column: sentence, normalizer: indic-vistaar }
+  - { code: fi, source: commonvoice, hf_dataset: common_voice_25, hf_config: fi, text_column: sentence, normalizer: whisper-basic }

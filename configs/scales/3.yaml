@@ -6,6 +6,6 @@
 # For the `commonvoice` source, hf_config = the CV language code (= dir name);
 # hf_dataset is just a version label.
 languages:
-  - { code: en, source: commonvoice, hf_dataset: common_voice_25, hf_config: en, text_column: sentence }
-  - { code: ja, source: commonvoice, hf_dataset: common_voice_25, hf_config: ja, text_column: sentence, word_boundary: false }
-  - { code: hi, source: commonvoice, hf_dataset: common_voice_25, hf_config: hi, text_column: sentence }
+  - { code: en, source: commonvoice, hf_dataset: common_voice_25, hf_config: en, text_column: sentence, normalizer: whisper-basic }
+  - { code: ja, source: commonvoice, hf_dataset: common_voice_25, hf_config: ja, text_column: sentence, word_boundary: false, normalizer: ja-cer }
+  - { code: hi, source: commonvoice, hf_dataset: common_voice_25, hf_config: hi, text_column: sentence, normalizer: indic-vistaar }
