@@ -61,6 +61,12 @@ class TrainConfig:
     grad_checkpointing: bool = True
     max_audio_samples: int = 200_000  # ~12.5s at 16kHz; truncation guard
     num_workers: int = 8
+    # Which Common Voice rows the training split is. "train" is the official
+    # train.tsv; "validated_minus_eval" is every validated clip that is not in
+    # dev or test and does not belong to a dev or test speaker, which is the
+    # standard recipe and roughly three times the audio. It changes the training
+    # set of every Common Voice language, so it is dumped with the config.
+    cv_train_source: Literal["train", "validated_minus_eval"] = "validated_minus_eval"
 
 
 @dataclass(frozen=True)

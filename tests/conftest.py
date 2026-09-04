@@ -23,6 +23,7 @@ import wave
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
+from typing import NamedTuple
 
 import pytest
 import torch
@@ -57,6 +58,67 @@ def write_silent_wav() -> Callable[..., None]:
 @pytest.fixture
 def fixtures_dir(pytestconfig: pytest.Config) -> Path:
     return Path(pytestconfig.rootpath) / "tests" / "fixtures"
+
+
+class CvClip(NamedTuple):
+    path: str
+    client_id: str
+    sentence: str
+    split: str | None  # None: validated, but in no official split
+
+
+#: One synthetic Common Voice language, shaped like a real release.
+#:
+#: ``validated.tsv`` holds every validated clip; ``train``/``dev``/``test`` hold
+#: the speaker-disjoint partition Corpora Creator carved out of the
+#: *deduplicated* validated frame. The interesting rows are the ones in
+#: ``validated`` and in no split: ``v3`` belongs to a training speaker and is
+#: fair game, while ``v5`` and ``v7`` are further recordings by the dev and test
+#: speakers and are exactly what the speaker guard exists to remove.
+CV_ROWS = [
+    CvClip("v1.mp3", "s_train_a", "one", "train"),
+    CvClip("v2.mp3", "s_train_b", "two", "train"),
+    CvClip("v3.mp3", "s_train_a", "three", None),
+    CvClip("v4.mp3", "s_dev", "four", "dev"),
+    CvClip("v5.mp3", "s_dev", "five", None),
+    CvClip("v6.mp3", "s_test", "six", "test"),
+    CvClip("v7.mp3", "s_test", "seven", None),
+]
+
+
+def _tsv(rows: list[CvClip], columns: tuple[str, ...]) -> str:
+    head = "\t".join(columns) + "\n"
+    return head + "".join("\t".join(getattr(row, c) for c in columns) + "\n" for row in rows)
+
+
+@pytest.fixture
+def make_cv_lang(tmp_path: Path) -> Callable[..., Path]:
+    """Build ``$CV_ROOT`` holding one language; returns the root.
+
+    ``columns`` lets a test drop ``client_id`` to check what happens when the
+    speaker guard has nothing to work with.
+    """
+
+    def build(
+        lang: str = "en",
+        rows: list[CvClip] | None = None,
+        *,
+        columns: tuple[str, ...] = ("client_id", "path", "sentence"),
+        with_validated: bool = True,
+        root: Path | None = None,
+    ) -> Path:
+        rows = CV_ROWS if rows is None else rows
+        root = root or (tmp_path / "cv")
+        base = root / lang
+        (base / "clips").mkdir(parents=True, exist_ok=True)
+        for split, name in (("train", "train.tsv"), ("dev", "dev.tsv"), ("test", "test.tsv")):
+            member = [r for r in rows if r.split == split]
+            (base / name).write_text(_tsv(member, columns), encoding="utf-8")
+        if with_validated:
+            (base / "validated.tsv").write_text(_tsv(rows, columns), encoding="utf-8")
+        return root
+
+    return build
 
 
 @pytest.fixture
