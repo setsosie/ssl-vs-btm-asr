@@ -21,11 +21,12 @@ had E-Branchformer forward deviations from the ESPnet reference). See the README
 "ESPnet" note for the planned migration to the reference implementation.
 """
 
-from typing import Any
+from typing import Any, cast
 
 import torch
 import torch.nn.functional as F
 from torch import nn
+from torch.utils.checkpoint import checkpoint
 
 # wav2vec2-style CNN frontend specifications
 _FRONTEND_KERNELS = [10, 3, 3, 3, 3, 2, 2]
@@ -398,6 +399,28 @@ class _Encoder(nn.Module):
             [_EBranchformerBlock(dropout_rate) for _ in range(_NUM_BLOCKS)]
         )
         self.after_norm = nn.LayerNorm(_HIDDEN_SIZE)
+        # Trade compute for activation memory: when set, each block's
+        # activations are discarded after the forward pass and rebuilt during
+        # backward. Plain attribute, not a buffer — it must not enter
+        # state_dict and change checkpoint compatibility.
+        self.gradient_checkpointing = False
+
+    def _run_block(
+        self,
+        block: nn.Module,
+        x: torch.Tensor,
+        padding_mask: torch.Tensor | None,
+    ) -> torch.Tensor:
+        """One encoder block, recomputed on backward when checkpointing is on.
+
+        ``use_reentrant=False`` is the non-deprecated implementation and the
+        one that tolerates a block returning a plain tensor while some of its
+        inputs (the padding mask) need no gradient.
+        """
+        if self.gradient_checkpointing and self.training:
+            out = checkpoint(block, x, padding_mask, use_reentrant=False)
+            return cast(torch.Tensor, out)
+        return cast(torch.Tensor, block(x, padding_mask))
 
     def forward(
         self,
@@ -430,13 +453,13 @@ class _Encoder(nn.Module):
 
         if use_final_output:
             for block in self.encoders:
-                x = block(x, padding_mask)
+                x = self._run_block(block, x, padding_mask)
             return self.after_norm(x), lengths
 
         # Collect intermediate layer outputs (no after_norm)
         layer_outputs: list[torch.Tensor] = []
         for block in self.encoders:
-            x = block(x, padding_mask)
+            x = self._run_block(block, x, padding_mask)
             layer_outputs.append(x)
         return layer_outputs, lengths
 
@@ -463,6 +486,14 @@ class StandaloneXEUS(nn.Module):
         # SpecAug is enabled in the training config. Applied only in
         # .train() mode (the module self-gates on self.training).
         self.spec_augment: nn.Module | None = None
+
+    @property
+    def gradient_checkpointing(self) -> bool:
+        return bool(self.encoder.gradient_checkpointing)
+
+    @gradient_checkpointing.setter
+    def gradient_checkpointing(self, enabled: bool) -> None:
+        self.encoder.gradient_checkpointing = bool(enabled)
 
     def encode(
         self,

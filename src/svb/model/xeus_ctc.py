@@ -54,6 +54,14 @@ class XeusCTC(nn.Module):
     def vocab_size(self) -> int:
         return self.ctc_proj.out_features
 
+    def set_gradient_checkpointing(self, enabled: bool) -> None:
+        """Trade encoder compute for activation memory during training.
+
+        Only the encoder blocks are checkpointed; the CTC head is two ops and
+        holds nothing worth recomputing.
+        """
+        self.encoder.gradient_checkpointing = enabled
+
     def forward(
         self,
         input_values: torch.Tensor,
@@ -80,6 +88,8 @@ class XeusCTC(nn.Module):
             )
 
         feats, out_lengths = self.encoder.encode(input_values, wav_lengths, use_final_output=True)
+        if out_lengths is None:  # only when wav_lengths is None, which cannot happen here
+            raise RuntimeError("encoder returned no output lengths; CTC cannot be scored")
         feats = self.ctc_norm(feats)
         logits = self.ctc_proj(feats)
 
