@@ -66,6 +66,21 @@ reports mean ± standard deviation across seeds. It reads the per-language
 so a preset edited after a run cannot retroactively change which metric that
 run's numbers were chosen under.
 
+The macro-average is built the same way a single language is: the languages are
+averaged within each seed, and those per-seed values are then averaged across
+seeds. Its `±` is therefore run-to-run spread, the same quantity as every
+per-language row's. The dispersion *between* the languages is a different number
+and is reported separately, under its own name, never as an error bar — two
+languages thirty points apart that each move two points between seeds have a
+seed spread of about one and a half, not twenty-one. The macro is unweighted by
+utterance count: the question is how a system does across languages, and a
+corpus-weighted mean is dominated by whichever language shipped the most audio.
+A language absent from any seed is excluded from the macro and named in the
+output, because a mean whose membership changes between seeds is not comparable
+seed to seed. In the JSON, `std_is` records which quantity `std` is,
+`per_seed` carries the values it was computed from, and
+`spread_across_languages` is the between-language number.
+
 `svb analyze` reads the sidecars and reports what the test set leaves uncertain:
 a bootstrap percentile interval per language, and, with `--compare-to`, a
 one-sided paired permutation test against another arm at the same seed. It
