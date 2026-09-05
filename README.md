@@ -160,20 +160,16 @@ utterance list beside the number.
 
 ## Text normalization
 
-Every transcript passes through a normalizer chosen for the **script it is
-written in**, applied at exactly three places — vocabulary construction,
-training targets, and both sides of every score — so training and evaluation
-cannot drift apart on text policy. European-script languages use OpenAI
-Whisper's `BasicTextNormalizer`, reproduced exactly; every other family follows
-the convention of a reference system for that family, because Whisper's own rule
-replaces Unicode category M with a space and that deletes the vowel signs an
-abugida is written with. Turkish is the one European-script exception: the same
-rule splits every sentence-initial `İ`-word in two.
-
-Each preset names its policy on the language's own line, and a run can force one
-policy on everything with a single config line. The family table, its sources,
-the two policies whose base could not be verified, and how to override are in
-[`docs/normalization.md`](docs/normalization.md).
+Every transcript is normalized with OpenAI Whisper's `BasicTextNormalizer`,
+reproduced exactly, applied at three places — vocabulary construction, training
+targets, and both sides of every score — so training and evaluation cannot drift
+apart on text policy. A language moves off that default only where it is
+demonstrably destructive or word-breaking for the orthography: it replaces every
+combining mark with a space, which deletes the vowel signs of an abugida, and it
+treats the apostrophe as punctuation, which splits Swahili `ng'ombe` in two.
+Each of the sixteen exceptions is listed with its failure and the convention
+adopted instead in [`docs/normalization.md`](docs/normalization.md), and a
+per-language test decides membership rather than judgement.
 
 Results produced under different policies are not comparable. Every run records
 the policy each language used by name and hash; `svb analyze` refuses to compare

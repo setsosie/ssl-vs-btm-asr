@@ -137,24 +137,30 @@ nothing.
 ## Normalization policies
 
 Every one of the 64 names its policy on its own line in the preset, and the
-policy column in the table below is generated rather than written by hand —
-a regeneration that dropped it is how the assignments were lost once already.
-The rules behind each policy and the sources they follow are in
+policy column in the table below is generated rather than written by hand — a
+regeneration that dropped it is how the assignments were lost once already.
+
+Whisper's `BasicTextNormalizer` is the default. A language moves off it only
+where that normalizer is demonstrably destructive or word-breaking for its
+orthography, decided by a per-language test rather than by judgement. The
+failures and the conventions adopted instead are in
 [`normalization.md`](normalization.md).
 
 | Policy | Languages | |
 |---|---|---|
-| `whisper-basic` | ab ady ba be ca cs cy de en eo es et eu fi fr fy-NL gl hr hu is it ka kbd kk lv mhr nl pl pt ru uk | 31 |
-| `latin-marks` | jv kab kmr lg nso rw su sw ts uz ve xh zu | 13 |
+| `whisper-basic` | ab ady ba be ca cs cy de en eo es et eu fi fr fy-NL gl hr hu is it jv ka kab kbd kk kmr lg lv mhr nl nso pl pt ru su ts uk uz ve xh zu | 42 |
 | `indic-vistaar` | bn hi kn ne si ta, and held-out gu ml mr te | 6 + 4 |
 | `perso-arabic` | ckb fa ps ur | 4 |
 | `han-mer` | yue zh-CN | 2 |
+| `latin-marks` | rw sw | 2 |
 | `arabic-ouaal` `armenian-hy` `ja-cer` `ko-kspon` `thai-cer` `tibetan-syllable` `turkic-tr` `uyghur-ug` | ar, hy, ja, ko, th, bo, tr, ug | 1 each |
 
-The Latin script splits three ways and the Arabic script three ways, because
-neither can decide a policy on its own: European Latin uses Whisper's normalizer
-and the rest need the mark-preserving one, while the Arabic-script conventions
-fold letters in opposite directions.
+Only two Latin-script languages here leave the default, and both for the same
+reason: Swahili writes its velar nasal `ng'` and Kinyarwanda its elision `y'u`
+with an apostrophe inside the word, and an apostrophe is punctuation, so the
+default turns one word into two. The Arabic script splits three ways because its
+conventions fold letters in opposite directions and there is no script-wide
+answer.
 
 Six of the eighteen bring a script the text layer had never seen — Tibetan,
 Sinhala, Kannada, Bengali, Armenian and Korean — which for a character-CTC model
