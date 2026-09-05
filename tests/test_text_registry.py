@@ -30,30 +30,25 @@ def test_the_script_default_covers_a_language_with_no_explicit_name() -> None:
     assert policy_for_language("ru").version == "whisper-basic"
 
 
-def test_the_latin_default_is_the_mark_preserving_one() -> None:
-    """Failing safe. A European language added without a line gets a policy that
-    differs from whisper-basic only in ways Latin text barely notices; a Yoruba
-    or Vietnamese one added without a line keeps its tone marks."""
-    assert policy_for_language("sw").version == "latin-marks"
-    assert SCRIPT_POLICIES["Latn"] == "latin-marks"
+def test_a_script_with_no_exception_takes_the_default() -> None:
+    """Latin, Cyrillic and Georgian have no entry at all: Whisper's normalizer
+    is what they wanted, and it is now the default rather than a table row."""
+    assert "Latn" not in SCRIPT_POLICIES
+    assert "Cyrl" not in SCRIPT_POLICIES
+    assert policy_for_language("sw", "latin-marks").version == "latin-marks"
+    assert policy_for_language("lg").version == "whisper-basic"
 
 
-def test_the_arabic_script_has_no_default_and_says_why(monkeypatch) -> None:
+def test_the_arabic_script_has_no_entry_of_its_own(monkeypatch) -> None:
     """Its two conventions fold letters in opposite directions, so there is no
-    safe guess: Arabic folds the Persian letters onto the Arabic ones and
-    Perso-Arabic folds them back.
-
-    Every Arabic-script language currently in use names its policy in the
-    language table, so this exercises the mechanism on one that does not.
-    """
-    from svb.text.registry import SCRIPT_POLICIES
-
+    script-wide answer and each language names the one it follows. One absent
+    from the language table takes the default, which normalizes nothing away:
+    the default strips its vocalization along with all of category M."""
     assert "Arab" not in SCRIPT_POLICIES
-    monkeypatch.setitem(LANGUAGE_SCRIPTS, "zz", "Arab")
+    monkeypatch.setitem(LANGUAGE_SCRIPTS, "zq", "Arab")
 
-    with pytest.raises(ValueError, match="no default normalization policy"):
-        policy_for_language("zz")
-    assert policy_for_language("zz", "arabic-ouaal").version == "arabic-ouaal"
+    assert policy_for_language("zq").version == "whisper-basic"
+    assert policy_for_language("zq", "arabic-ouaal").version == "arabic-ouaal"
 
 
 def test_the_arabic_script_languages_each_name_their_own_policy() -> None:
@@ -63,9 +58,11 @@ def test_the_arabic_script_languages_each_name_their_own_policy() -> None:
     assert policy_for_language("ug").version == "uyghur-ug"
 
 
-def test_an_unknown_language_is_refused_rather_than_guessed() -> None:
-    with pytest.raises(KeyError, match="no script recorded"):
-        policy_for_language("xx")
+def test_an_unknown_language_takes_the_default_and_says_so() -> None:
+    """Loudly. A default nobody sees is how a script gets scored under rules
+    written for another one."""
+    with pytest.warns(UserWarning, match="no script recorded"):
+        assert policy_for_language("xx").version == "whisper-basic"
 
 
 def test_an_unknown_policy_name_is_refused() -> None:
@@ -119,10 +116,11 @@ def test_every_in_scope_language_has_a_recorded_script(code: str, script: str) -
     assert LANGUAGE_SCRIPTS[code] == script
 
 
-def test_every_recorded_script_either_has_a_default_or_is_documented() -> None:
-    """A script in the table with no policy must be one the docs explain."""
+def test_every_script_with_an_entry_is_an_exception_to_the_default() -> None:
+    """The table holds only exceptions, so no entry may name the default."""
+    assert "whisper-basic" not in set(SCRIPT_POLICIES.values())
     undefaulted = set(LANGUAGE_SCRIPTS.values()) - set(SCRIPT_POLICIES)
-    assert undefaulted == {"Arab"}
+    assert "Latn" in undefaulted and "Arab" in undefaulted
 
 
 def test_every_shipped_preset_states_its_policy(pytestconfig) -> None:
@@ -157,7 +155,8 @@ def test_the_preset_assignments_are_the_intended_ones(pytestconfig) -> None:
     assert assigned["ug"] == "uyghur-ug"
     assert assigned["ja"] == "ja-cer"
     assert assigned["hi"] == assigned["ta"] == "indic-vistaar"
-    assert {assigned[c] for c in ("sw", "rw", "lg", "kab", "uz")} == {"latin-marks"}
+    assert {assigned[c] for c in ("sw", "rw")} == {"latin-marks"}
+    assert {assigned[c] for c in ("lg", "kab", "uz")} == {"whisper-basic"}
     assert {assigned[c] for c in ("en", "de", "ru", "ka", "hu")} == {"whisper-basic"}
     assert {assigned[c] for c in ("malayalam", "marathi", "telugu")} == {"indic-vistaar"}
 
