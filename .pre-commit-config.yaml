@@ -1,0 +1,42 @@
+# Install once with: uv run pre-commit install   (or `make precommit` to run now)
+#
+# Hook versions are pinned to the same versions as the `dev` extra in
+# pyproject.toml. If you bump ruff there, bump `rev` here in the same commit —
+# otherwise the hook and CI disagree and one of them is lying.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      # Corpora and checkpoints must never enter git history. This is the
+      # backstop for the `data/` ignore rule, which was previously so broad it
+      # hid the source package `src/svb/data/` from the repo entirely.
+      - id: check-added-large-files
+        args: [--maxkb=512]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.6 # keep in sync with `ruff==0.16.6` in pyproject.toml
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  # mypy runs as a local hook rather than via mirrors-mypy on purpose. The
+  # mirror installs mypy into an isolated environment with no torch, numpy or
+  # datasets, so it reports import errors that CI does not have. Running it
+  # through uv uses the project environment, so the hook and CI see the same
+  # code and reach the same verdict.
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: uv run mypy
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true
