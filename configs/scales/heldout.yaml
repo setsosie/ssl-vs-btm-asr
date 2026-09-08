@@ -1,36 +1,58 @@
 # Held-out Indic transfer set — never in any training mix (finding #3).
-# OpenSLR is fully open (no gating). Configs follow the HF `openslr` dataset.
-# NOTE: these corpora ship a single split; scripts/download_data.sh creates a
-# deterministic train/validation/test partition (seeded) and the loader reads
-# those. Verify split availability on first run.
+#
+# Fetched straight from openslr.org as zip archives; no Hugging Face `datasets`,
+# no `trust_remote_code`, no account. Run `python scripts/fetch_openslr.py
+# --root $OPENSLR_ROOT` once, then set $OPENSLR_ROOT so $OPENSLR_ROOT/SLR<slr>/
+# holds the extracted `<FileID>.wav` files and the index files listed below.
+#
+# These corpora ship no train/validation/test split. The loader derives an
+# 80/10/10 partition at load time from a stable SHA-1 of the speaker id, so it
+# does not depend on any library's shuffle implementation and test speakers are
+# unseen during training. See docs/data.md.
+#
+# `archives` and `index_files` are parallel lists: every archive contains its own
+# index member named `line_index.tsv`, so the fetch script renames archive i's
+# index to index_files[i] on extraction. Marathi is female-speakers-only and its
+# single index keeps the in-archive name.
 languages:
   - code: malayalam
     source: openslr
-    hf_dataset: openslr
-    hf_config: SLR63
-    text_column: sentence
-    audio_column: audio
+    slr: 63
+    archives: [ml_in_female.zip, ml_in_male.zip]
+    index_files: [line_index_female.tsv, line_index_male.tsv]
+    license: CC-BY-SA-4.0
   - code: marathi
     source: openslr
-    hf_dataset: openslr
-    hf_config: SLR64
-    text_column: sentence
-    audio_column: audio
+    slr: 64
+    archives: [mr_in_female.zip]
+    index_files: [line_index.tsv]
+    license: CC-BY-SA-4.0
   - code: telugu
     source: openslr
-    hf_dataset: openslr
-    hf_config: SLR66
-    text_column: sentence
-    audio_column: audio
+    slr: 66
+    archives: [te_in_female.zip, te_in_male.zip]
+    index_files: [line_index_female.tsv, line_index_male.tsv]
+    license: CC-BY-SA-4.0
   - code: gujarati
     source: openslr
-    hf_dataset: openslr
-    hf_config: SLR78
-    text_column: sentence
-    audio_column: audio
-  - code: odia
-    source: openslr
-    hf_dataset: openslr
-    hf_config: SLR_odia_mucs2021   # MUCS-2021 Odia; verify config id on the Hub
-    text_column: sentence
-    audio_column: audio
+    slr: 78
+    archives: [gu_in_female.zip, gu_in_male.zip]
+    index_files: [line_index_female.tsv, line_index_male.tsv]
+    license: CC-BY-SA-4.0
+
+# Odia — decision pending, deliberately not enabled.
+#
+# Odia is not one of the crowdsourced CC-BY-SA-4.0 sets above. It is SLR103, the
+# Multilingual and Code-Switching ASR Challenge (MUCS 2021) sub-task 1 corpus,
+# distributed as Odia_train.tar.gz / Odia_test.tar.gz under a Microsoft Research
+# Open Data licence that has not been read yet:
+#   https://msropendata-web-api.azurewebsites.net/licenses/f1f352a6-243f-4905-8e00-389edbca9e83/view
+# It also ships its own train/test split, so the 80/10/10 derivation above must
+# not be applied to it. Enable only after the licence permits this use.
+#
+#  - code: odia
+#    source: openslr
+#    slr: 103
+#    archives: [Odia_train.tar.gz, Odia_test.tar.gz]
+#    index_files: [transcription_train.txt, transcription_test.txt]
+#    license: MSR-Open-Data-see-comment
