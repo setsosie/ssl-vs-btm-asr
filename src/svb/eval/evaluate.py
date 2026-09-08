@@ -71,13 +71,19 @@ def evaluate(
             ids = [int(x) for x in lab.tolist() if x != -100]
             refs.append("".join(vocab.id_to_char[i] for i in ids if i != vocab.unk_id))
 
-    result = EvalResult(wer=_wer(refs, hyps), cer=_cer(refs, hyps), n=len(refs), refs=refs, hyps=hyps)
+    result = EvalResult(
+        wer=_wer(refs, hyps), cer=_cer(refs, hyps), n=len(refs), refs=refs, hyps=hyps
+    )
     if save_predictions is not None:
         save_predictions.parent.mkdir(parents=True, exist_ok=True)
         save_predictions.write_text(
             json.dumps(
-                {"wer": result.wer, "cer": result.cer, "n": result.n,
-                 "pairs": list(zip(refs, hyps))},
+                {
+                    "wer": result.wer,
+                    "cer": result.cer,
+                    "n": result.n,
+                    "pairs": list(zip(refs, hyps)),
+                },
                 ensure_ascii=False,
                 indent=2,
             )

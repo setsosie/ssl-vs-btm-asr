@@ -17,8 +17,8 @@ from pathlib import Path
 from typing import Any, Literal
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 from .xeus_standalone import StandaloneXEUS, load_xeus_from_checkpoint
 
@@ -79,9 +79,7 @@ class XeusCTC(nn.Module):
                 (bsz,), input_values.shape[1], device=input_values.device, dtype=torch.long
             )
 
-        feats, out_lengths = self.encoder.encode(
-            input_values, wav_lengths, use_final_output=True
-        )
+        feats, out_lengths = self.encoder.encode(input_values, wav_lengths, use_final_output=True)
         feats = self.ctc_norm(feats)
         logits = self.ctc_proj(feats)
 

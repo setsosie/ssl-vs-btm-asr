@@ -24,8 +24,8 @@ had E-Branchformer forward deviations from the ESPnet reference). See the README
 from typing import Any
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 # wav2vec2-style CNN frontend specifications
 _FRONTEND_KERNELS = [10, 3, 3, 3, 3, 2, 2]
@@ -61,9 +61,7 @@ class _FrontendLayer(nn.Module):
         bias: bool = True,
     ) -> None:
         super().__init__()
-        self.conv = nn.Conv1d(
-            in_channels, out_channels, kernel_size, stride=stride, bias=bias
-        )
+        self.conv = nn.Conv1d(in_channels, out_channels, kernel_size, stride=stride, bias=bias)
         self.layer_norm = nn.LayerNorm(out_channels)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -86,9 +84,7 @@ class _Frontend(nn.Module):
         )
         # Layers 1-6: 512 -> 512
         for k, s in zip(_FRONTEND_KERNELS[1:], _FRONTEND_STRIDES[1:], strict=False):
-            self.layers.append(
-                _FrontendLayer(_FRONTEND_DIM, _FRONTEND_DIM, k, s, bias=True)
-            )
+            self.layers.append(_FrontendLayer(_FRONTEND_DIM, _FRONTEND_DIM, k, s, bias=True))
 
     def forward(
         self, x: torch.Tensor, lengths: torch.Tensor | None = None
@@ -107,9 +103,7 @@ class _Frontend(nn.Module):
         # exclude padding zeros from the statistics so short utterances
         # padded to the batch max aren't distorted.
         if lengths is not None:
-            mask = torch.arange(x.shape[-1], device=x.device) < lengths.unsqueeze(
-                1
-            )  # (B, T)
+            mask = torch.arange(x.shape[-1], device=x.device) < lengths.unsqueeze(1)  # (B, T)
             mask_f = mask.float()
             n = lengths.float().unsqueeze(1).clamp(min=1)
             mean = (x * mask_f).sum(dim=-1, keepdim=True) / n
@@ -470,9 +464,7 @@ class StandaloneXEUS(nn.Module):
         return self.encoder(features, lengths, use_final_output)
 
 
-def load_xeus_from_checkpoint(
-    checkpoint_path: str, device: str = "cpu"
-) -> StandaloneXEUS:
+def load_xeus_from_checkpoint(checkpoint_path: str, device: str = "cpu") -> StandaloneXEUS:
     """Load XEUS model from HuggingFace checkpoint.
 
     Filters out the SSL training head (losses.*, util_modules.*, global_step)

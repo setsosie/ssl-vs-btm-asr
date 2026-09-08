@@ -40,7 +40,10 @@ def cmd_run(args: argparse.Namespace) -> None:
     from .train.trainer import train
 
     cfg = load_config(
-        args.arm, args.scale, args.seed, yaml_path=args.config,
+        args.arm,
+        args.scale,
+        args.seed,
+        yaml_path=args.config,
         overrides={"merge_strategy": args.merge_strategy} if args.merge_strategy else None,
     )
     device = args.device
@@ -59,9 +62,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     if cfg.uses_btm:
         phase0 = run_phase0(cfg, specs, vocab, out / "phase0", device)
         experts = train_experts(cfg, phase0, specs, vocab, out / "experts", device)
-        merged_path = merge_experts(
-            experts, cfg.merge_strategy, out / "merged", base_ckpt=phase0
-        )
+        merged_path = merge_experts(experts, cfg.merge_strategy, out / "merged", base_ckpt=phase0)
         # Evaluate the merged model in-distribution on every language's test split.
         merged_model = XeusCTC(vocab.size, init=cfg.init, checkpoint=cfg.model.xeus_checkpoint)
         merged_model.load_state_dict(torch.load(merged_path, map_location=device))
@@ -123,8 +124,12 @@ def main() -> None:
     r.add_argument("--scale", required=True, choices=["3", "16", "64"])
     r.add_argument("--seed", type=int, required=True)
     r.add_argument("--config", default=None, help="optional base YAML")
-    r.add_argument("--merge-strategy", dest="merge_strategy", default=None,
-                   choices=["average", "ties", "dare_ties"])
+    r.add_argument(
+        "--merge-strategy",
+        dest="merge_strategy",
+        default=None,
+        choices=["average", "ties", "dare_ties"],
+    )
     r.add_argument("--device", default="cuda")
     r.set_defaults(func=cmd_run)
 

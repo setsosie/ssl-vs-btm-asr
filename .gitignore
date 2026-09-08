@@ -7,7 +7,7 @@ __pycache__/
 .mypy_cache/
 
 # data + weights are large / public — fetch via `make data`, never commit
-data/
+/data/
 checkpoints/
 *.pth
 *.pt
