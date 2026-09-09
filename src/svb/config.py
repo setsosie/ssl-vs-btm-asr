@@ -28,6 +28,10 @@ class ModelConfig:
     # (A, B); ignored for scratch init (C). May be set via $XEUS_CHECKPOINT.
     xeus_checkpoint: str | None = None
     blank_bias_init: float | None = None
+    # Encoder dropout. A training hyperparameter that moves every reported
+    # number, so it belongs in the dumped config rather than in four
+    # constructor defaults.
+    dropout: float = 0.1
 
 
 @dataclass(frozen=True)

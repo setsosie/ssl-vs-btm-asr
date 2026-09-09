@@ -66,9 +66,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Staged exemptions for findings in modules owned by other in-flight branches.
 # Each line is one branch's to fix and delete; do not add to this block.
-"src/svb/eval/evaluate.py" = ["B905"]        # -> eval-correctness branch
 "src/svb/model/ctc_vocab.py" = ["SIM102", "RUF005"]  # -> text-normalization branch
-"src/svb/provenance.py" = ["UP017"]          # -> provenance/run-metadata branch
 
 [tool.mypy]
 python_version = "3.12"
@@ -88,38 +86,6 @@ ignore_missing_imports = true
 # do not add to this block.
 module = ["svb.*"]
 disallow_untyped_defs = true
-
-[[tool.mypy.overrides]]
-module = [
-    "svb.train.trainer",   # -> eval-correctness branch
-    "svb.eval.evaluate",   # -> eval-correctness branch
-    "svb.btm.pipeline",    # -> eval-correctness branch
-    "svb.model.xeus_ctc",  # -> eval-correctness branch
-]
-disallow_untyped_defs = false
-
-# The three pre-existing type errors below are real defects, not annotation
-# gaps, and each is already scheduled on the branch named beside it. They are
-# silenced by *error code* rather than by module so that any other error
-# appearing in these files still fails the build.
-
-[[tool.mypy.overrides]]
-# `out_lengths` is `Tensor | None` where ctc_loss needs `Tensor`. Fixed by the
-# eval-correctness branch, which makes the encoder return non-optional lengths.
-module = ["svb.model.xeus_ctc"]
-disable_error_code = ["arg-type"]
-
-[[tool.mypy.overrides]]
-# `model.encoder.gradient_checkpointing = True` assigns a bool to an nn.Module
-# attribute. mypy is right: nothing reads it. The eval-correctness branch either
-# implements checkpointing or deletes the line.
-module = ["svb.train.trainer"]
-disable_error_code = ["assignment"]
-
-[[tool.mypy.overrides]]
-# ConcatDataset needs an explicit element type. Eval-correctness branch.
-module = ["svb.btm.pipeline"]
-disable_error_code = ["var-annotated"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

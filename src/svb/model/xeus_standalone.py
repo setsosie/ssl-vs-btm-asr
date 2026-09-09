@@ -19,13 +19,41 @@ Architecture (577M params):
 NOTE: a bespoke reimplementation is a known correctness risk (an earlier version
 had E-Branchformer forward deviations from the ESPnet reference). See the README
 "ESPnet" note for the planned migration to the reference implementation.
+
+Padding and the time-axis convolutions
+--------------------------------------
+Self-attention is masked, but the two convolutions over time — the cgMLP's
+depthwise ``_CSGU.conv`` and the branch-fusion ``depthwise_conv_fusion``, both
+kernel 31 — are not. Padded frames therefore bleed up to 15 positions into
+valid ones, so an utterance's encoding depends slightly on what shared its
+batch.
+
+This is deliberate, and it is not a bug to be fixed here. The ESPnet reference
+does not mask either convolution: ``ConvolutionalSpatialGatingUnit.forward``
+normalizes and convolves with no mask, ``ConvolutionalGatingMLP.forward``
+accepts a ``mask`` argument and never uses it, and
+``EBranchformerEncoderLayer.forward`` passes its mask only to the attention
+module. (Verified against the pinned fork at
+raw.githubusercontent.com/wanchichen/espnet/5b52d57b4f872ff7babded35316a79642e9e6c12,
+espnet2/asr/layers/cgmlp.py and espnet2/asr/encoder/e_branchformer_encoder.py.)
+The published weights were pretrained under exactly these conditions, so
+masking here would diverge from the checkpoint rather than correct it.
+
+The consequence belongs to the evaluation protocol instead: batch composition
+is part of a reported number. ``eval.evaluate`` therefore batches in descending
+length order at a fixed batch size, which makes membership a function of the
+split rather than of row order, and results are comparable only across runs
+that used the same batch size.
 """
 
-from typing import Any
+import pickle
+from pathlib import Path
+from typing import Any, cast
 
 import torch
 import torch.nn.functional as F
 from torch import nn
+from torch.utils.checkpoint import checkpoint
 
 # wav2vec2-style CNN frontend specifications
 _FRONTEND_KERNELS = [10, 3, 3, 3, 3, 2, 2]
@@ -42,6 +70,32 @@ _MERGE_KERNEL = 31
 _NUM_BLOCKS = 19
 _POS_KERNEL = 128
 _POS_GROUPS = 16
+
+
+def frontend_output_length(n_samples: int) -> int:
+    """Encoder frames produced by an ``n_samples`` waveform at 16 kHz.
+
+    Closed form of the 7-layer CNN frontend's downsampling, so callers can size
+    a CTC target without running the encoder. The convolutions are unpadded, so
+    each layer maps ``n`` to ``(n - kernel) // stride + 1``, floored at zero for
+    waveforms shorter than the receptive field.
+    """
+    n = int(n_samples)
+    for kernel, stride in zip(_FRONTEND_KERNELS, _FRONTEND_STRIDES, strict=True):
+        n = max(0, (n - kernel) // stride + 1)
+    return n
+
+
+def max_label_len_for_samples(n_samples: int) -> int:
+    """Longest CTC target that ``n_samples`` of audio can still align to.
+
+    CTC needs at least one input frame per target symbol. A target longer than
+    the frame budget cannot be aligned at all: the loss is ``inf``, and the
+    ``zero_infinity`` guard rewrites that to zero — which silences the sample's
+    gradient *and* pulls down the mean loss that checkpoint selection reads.
+    Callers use this to drop such pairs rather than let them score as perfect.
+    """
+    return frontend_output_length(n_samples)
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +208,13 @@ class _ConvPositionalEncoding(nn.Module):
 
     def __init__(self) -> None:
         super().__init__()
+        # nn.utils.weight_norm is deprecated in favour of
+        # nn.utils.parametrizations.weight_norm, and must stay anyway: the two
+        # produce different state_dict keys (weight_g/weight_v here versus
+        # parametrizations.weight.original0/original1), and the published
+        # checkpoint carries the old names. Swapping the call would break
+        # loading, so this deprecation is load-bearing. See the key-name test in
+        # tests/test_xeus_standalone.py.
         self.convs = nn.ModuleList(
             [
                 nn.utils.weight_norm(
@@ -372,6 +433,28 @@ class _Encoder(nn.Module):
             [_EBranchformerBlock(dropout_rate) for _ in range(_NUM_BLOCKS)]
         )
         self.after_norm = nn.LayerNorm(_HIDDEN_SIZE)
+        # Trade compute for activation memory: when set, each block's
+        # activations are discarded after the forward pass and rebuilt during
+        # backward. Plain attribute, not a buffer — it must not enter
+        # state_dict and change checkpoint compatibility.
+        self.gradient_checkpointing = False
+
+    def _run_block(
+        self,
+        block: nn.Module,
+        x: torch.Tensor,
+        padding_mask: torch.Tensor | None,
+    ) -> torch.Tensor:
+        """One encoder block, recomputed on backward when checkpointing is on.
+
+        ``use_reentrant=False`` is the non-deprecated implementation and the
+        one that tolerates a block returning a plain tensor while some of its
+        inputs (the padding mask) need no gradient.
+        """
+        if self.gradient_checkpointing and self.training:
+            out = checkpoint(block, x, padding_mask, use_reentrant=False)
+            return cast(torch.Tensor, out)
+        return cast(torch.Tensor, block(x, padding_mask))
 
     def forward(
         self,
@@ -404,13 +487,13 @@ class _Encoder(nn.Module):
 
         if use_final_output:
             for block in self.encoders:
-                x = block(x, padding_mask)
+                x = self._run_block(block, x, padding_mask)
             return self.after_norm(x), lengths
 
         # Collect intermediate layer outputs (no after_norm)
         layer_outputs: list[torch.Tensor] = []
         for block in self.encoders:
-            x = block(x, padding_mask)
+            x = self._run_block(block, x, padding_mask)
             layer_outputs.append(x)
         return layer_outputs, lengths
 
@@ -427,16 +510,24 @@ class StandaloneXEUS(nn.Module):
     so it can be used as a drop-in replacement in XEUSASRModel.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, dropout_rate: float = 0.1) -> None:
         super().__init__()
         self.frontend = _Frontend()
         self.preencoder = _Preencoder()
-        self.encoder = _Encoder()
+        self.encoder = _Encoder(dropout_rate)
         # Optional SpecAugment between preencoder and encoder. Left as
         # None by default; XEUSASRModel attaches an instance when
         # SpecAug is enabled in the training config. Applied only in
         # .train() mode (the module self-gates on self.training).
         self.spec_augment: nn.Module | None = None
+
+    @property
+    def gradient_checkpointing(self) -> bool:
+        return bool(self.encoder.gradient_checkpointing)
+
+    @gradient_checkpointing.setter
+    def gradient_checkpointing(self, enabled: bool) -> None:
+        self.encoder.gradient_checkpointing = bool(enabled)
 
     def encode(
         self,
@@ -464,22 +555,69 @@ class StandaloneXEUS(nn.Module):
         return self.encoder(features, lengths, use_final_output)
 
 
-def load_xeus_from_checkpoint(checkpoint_path: str, device: str = "cpu") -> StandaloneXEUS:
-    """Load XEUS model from HuggingFace checkpoint.
+def _read_checkpoint(
+    checkpoint_path: str | Path, device: str, allow_pickle: bool
+) -> dict[str, Any]:
+    """Read a checkpoint file, preferring the safe loader.
+
+    ``weights_only=True`` refuses any pickled object that is not a tensor or a
+    plain container. The published ``espnet/xeus`` artifact was written by a
+    training framework that embeds framework-side objects alongside the
+    weights, so it may not load that way. ``allow_pickle=True`` permits one
+    documented retry with ``weights_only=False``, which executes arbitrary
+    code from the file — acceptable only because the file in question is the
+    published XEUS artifact the run is explicitly configured to use. Pass
+    ``allow_pickle=False`` to refuse that instead.
+    """
+    try:
+        obj = torch.load(checkpoint_path, map_location=device, weights_only=True)
+    except pickle.UnpicklingError:
+        if not allow_pickle:
+            raise
+        obj = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    return cast("dict[str, Any]", obj)
+
+
+def _unwrap_state_dict(obj: dict[str, Any]) -> dict[str, Any]:
+    """Return the parameter mapping, unwrapping a trainer's envelope.
+
+    Checkpoints are written either flat or wrapped under ``model_state_dict``
+    (or ``state_dict``) alongside optimizer state and metadata. Which one the
+    published file uses is not something to guess at load time on a cluster.
+    """
+    for key in ("model_state_dict", "state_dict"):
+        inner = obj.get(key)
+        if isinstance(inner, dict):
+            return inner
+    return obj
+
+
+def load_xeus_from_checkpoint(
+    checkpoint_path: str,
+    device: str = "cpu",
+    dropout_rate: float = 0.1,
+    allow_pickle: bool = True,
+) -> StandaloneXEUS:
+    """Load XEUS model from the published checkpoint.
 
     Filters out the SSL training head (losses.*, util_modules.*, global_step)
-    and loads only the frontend, preencoder, and encoder weights.
+    and loads only the frontend, preencoder, and encoder weights. The load is
+    strict: a key this reimplementation does not expect is a divergence from
+    the reference architecture and must fail loudly, not be dropped.
 
     Args:
         checkpoint_path: Path to xeus_checkpoint_new.pth
         device: Device to load weights onto
+        dropout_rate: Dropout for the encoder blocks.
+        allow_pickle: Allow one retry with ``weights_only=False`` when the safe
+            loader refuses the file. See ``_read_checkpoint``.
 
     Returns:
         Loaded StandaloneXEUS model
     """
-    model = StandaloneXEUS()
+    model = StandaloneXEUS(dropout_rate=dropout_rate)
 
-    ckpt = torch.load(checkpoint_path, map_location=device, weights_only=True)
+    ckpt = _unwrap_state_dict(_read_checkpoint(checkpoint_path, device, allow_pickle))
 
     # Filter out SSL training head and metadata
     skip_prefixes = ("losses.", "util_modules.", "global_step")

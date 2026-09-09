@@ -10,9 +10,14 @@ honest numbers. Multi-GPU is left to the launcher running independent
 from __future__ import annotations
 
 import math
+import random
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
 
@@ -28,6 +33,31 @@ class TrainResult:
     checkpoint: Path
 
 
+def make_worker_init_fn(seed: int) -> Callable[[int], None]:
+    """Give each DataLoader worker its own reproducible random stream.
+
+    Workers are forked after the parent has been seeded, so without this they
+    all inherit the same Python and NumPy state. Torch reseeds its own
+    generator per worker; ``random`` and ``numpy`` are the two it leaves alone.
+    """
+
+    def init(worker_id: int) -> None:
+        worker_seed = seed + worker_id
+        random.seed(worker_seed)
+        np.random.seed(worker_seed % (2**32))
+
+    return init
+
+
+def _model_inputs(batch: dict[str, Any], device: str) -> dict[str, torch.Tensor]:
+    """Tensor entries of a collated batch, on ``device``.
+
+    The batch also carries the raw transcripts (``texts``), which the model does
+    not take and which cannot be moved to a device.
+    """
+    return {k: v.to(device) for k, v in batch.items() if isinstance(v, torch.Tensor)}
+
+
 def _lr_lambda(step: int, total: int, warmup: int) -> float:
     if step < warmup:
         return step / max(1, warmup)
@@ -39,17 +69,40 @@ def train(
     cfg: ExperimentConfig,
     train_ds: Dataset,
     val_ds: Dataset,
-    collate,
+    collate: Callable[..., dict[str, Any]],
     max_epochs: int,
     out_dir: Path,
     device: str = "cuda",
 ) -> TrainResult:
-    """Train ``model`` on ``train_ds``, selecting the best-val checkpoint."""
+    """Train ``model`` on ``train_ds``, selecting the best-val checkpoint.
+
+    Selection is on validation loss, not WER; with CTC the two can diverge, so
+    the choice is part of the reported protocol. An epoch-0 checkpoint is always
+    written as a floor, so ``TrainResult.checkpoint`` names a file that exists
+    even for a run whose loss never becomes finite.
+
+    Early stopping needs ``patience`` consecutive non-improving epochs, so it
+    cannot fire at all when ``patience >= max_epochs``. That is the case for
+    phase 0 and the experts under the shipped config, and the run log says so
+    rather than leaving the impression that a stop was possible.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     ckpt = out_dir / "best.pt"
     model.to(device)
     if cfg.train.grad_checkpointing:
-        model.encoder.gradient_checkpointing = True  # honored if encoder supports it
+        model.set_gradient_checkpointing(True)
+
+    n_train = len(train_ds)  # type: ignore[arg-type]
+    if n_train == 0:
+        raise ValueError(
+            "empty training split: the loader would yield no batches and the run "
+            "would report a completed training that touched no data"
+        )
+    if cfg.train.patience >= max_epochs:
+        print(
+            f"[svb] early stopping is inert: patience={cfg.train.patience} "
+            f">= max_epochs={max_epochs}"
+        )
 
     train_loader = DataLoader(
         train_ds,
@@ -57,8 +110,12 @@ def train(
         shuffle=True,
         num_workers=cfg.train.num_workers,
         collate_fn=collate,
-        drop_last=True,
+        # Dropping the tail batch is a throughput choice, not a correctness one.
+        # A split smaller than one batch would otherwise yield no batches at
+        # all, collapsing the LR schedule and training on nothing.
+        drop_last=n_train >= cfg.optim.batch_size,
         generator=torch.Generator().manual_seed(cfg.seed),
+        worker_init_fn=make_worker_init_fn(cfg.seed),
     )
     val_loader = DataLoader(
         val_ds,
@@ -66,6 +123,7 @@ def train(
         shuffle=False,
         num_workers=cfg.train.num_workers,
         collate_fn=collate,
+        worker_init_fn=make_worker_init_fn(cfg.seed),
     )
 
     opt = torch.optim.AdamW(
@@ -87,13 +145,21 @@ def train(
     best_epoch = -1
     bad = 0
     epoch = -1
+    # Floor: a run whose validation loss never becomes finite would otherwise
+    # leave no best.pt, and the caller loads that path unconditionally.
+    model.save(ckpt)
     for epoch in range(max_epochs):
         model.train()
         opt.zero_grad(set_to_none=True)
+        n_at_guard = 0
+        n_dropped = 0
         for i, batch in enumerate(train_loader):
-            batch = {k: v.to(device) for k, v in batch.items()}
+            n_at_guard += int(batch.get("n_at_audio_guard", 0))
+            n_dropped += int(batch.get("n_dropped", 0))
+            if batch["input_values"].shape[0] == 0:
+                continue  # every pair in this batch was dropped as unalignable
             with autocast:
-                out = model(**batch)
+                out = model(**_model_inputs(batch, device))
                 loss = out["loss"] / cfg.optim.accum_steps
             loss.backward()
             if (i + 1) % cfg.optim.accum_steps == 0:
@@ -102,8 +168,17 @@ def train(
                 sched.step()
                 opt.zero_grad(set_to_none=True)
 
+        if n_at_guard or n_dropped:
+            print(
+                f"[svb] epoch {epoch}: {n_at_guard} utterances reached the audio "
+                f"truncation guard, {n_dropped} dropped as unalignable"
+            )
+
         val_loss = _validate(model, val_loader, device, autocast)
-        if val_loss < best_val:
+        # NaN never compares less than anything, so an unguarded `<` would
+        # already reject it — the explicit check states the intent, and keeps
+        # a NaN from being adopted should best_val ever start out non-finite.
+        if math.isfinite(val_loss) and val_loss < best_val:
             best_val, best_epoch, bad = val_loss, epoch, 0
             model.save(ckpt)
         else:
@@ -120,13 +195,26 @@ def train(
 
 
 @torch.no_grad()
-def _validate(model: XeusCTC, loader: DataLoader, device: str, autocast) -> float:
+def _validate(
+    model: XeusCTC,
+    loader: DataLoader,
+    device: str,
+    autocast: AbstractContextManager[Any],
+) -> float:
+    """Mean validation loss per *utterance*, not per batch.
+
+    The val loader keeps its last short batch, so averaging batch means would
+    let a two-sample tail count as much as a full batch in the number that
+    checkpoint selection reads.
+    """
     model.eval()
     total, n = 0.0, 0
     for batch in loader:
-        batch = {k: v.to(device) for k, v in batch.items()}
+        n_in_batch = int(batch["input_values"].shape[0])
+        if n_in_batch == 0:
+            continue
         with autocast:
-            loss = model(**batch)["loss"]
-        total += float(loss)
-        n += 1
+            loss = model(**_model_inputs(batch, device))["loss"]
+        total += float(loss) * n_in_batch
+        n += n_in_batch
     return total / max(1, n)

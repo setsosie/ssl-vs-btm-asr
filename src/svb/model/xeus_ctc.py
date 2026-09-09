@@ -14,13 +14,16 @@ preserving trained rows — used for held-out-language transfer.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import torch
 import torch.nn.functional as F
 from torch import nn
 
 from .xeus_standalone import StandaloneXEUS, load_xeus_from_checkpoint
+
+if TYPE_CHECKING:
+    from ..config import ExperimentConfig
 
 HIDDEN_SIZE = 1024
 
@@ -35,14 +38,17 @@ class XeusCTC(nn.Module):
         checkpoint: str | None = None,
         hidden_size: int = HIDDEN_SIZE,
         blank_bias_init: float | None = None,
+        dropout: float = 0.1,
     ) -> None:
         super().__init__()
         if init == "ssl":
             if not checkpoint:
                 raise ValueError("init='ssl' requires a XEUS checkpoint path")
-            self.encoder: StandaloneXEUS = load_xeus_from_checkpoint(checkpoint, device="cpu")
+            self.encoder: StandaloneXEUS = load_xeus_from_checkpoint(
+                checkpoint, device="cpu", dropout_rate=dropout
+            )
         else:
-            self.encoder = StandaloneXEUS()  # random init
+            self.encoder = StandaloneXEUS(dropout_rate=dropout)  # random init
         self.hidden_size = hidden_size
         self.ctc_norm = nn.LayerNorm(hidden_size)
         self.ctc_proj = nn.Linear(hidden_size, vocab_size)
@@ -53,6 +59,14 @@ class XeusCTC(nn.Module):
     @property
     def vocab_size(self) -> int:
         return self.ctc_proj.out_features
+
+    def set_gradient_checkpointing(self, enabled: bool) -> None:
+        """Trade encoder compute for activation memory during training.
+
+        Only the encoder blocks are checkpointed; the CTC head is two ops and
+        holds nothing worth recomputing.
+        """
+        self.encoder.gradient_checkpointing = enabled
 
     def forward(
         self,
@@ -80,6 +94,8 @@ class XeusCTC(nn.Module):
             )
 
         feats, out_lengths = self.encoder.encode(input_values, wav_lengths, use_final_output=True)
+        if out_lengths is None:  # only when wav_lengths is None, which cannot happen here
+            raise RuntimeError("encoder returned no output lengths; CTC cannot be scored")
         feats = self.ctc_norm(feats)
         logits = self.ctc_proj(feats)
 
@@ -104,10 +120,20 @@ class XeusCTC(nn.Module):
     @torch.no_grad()
     def greedy_decode(
         self, input_values: torch.Tensor, attention_mask: torch.Tensor | None = None
-    ) -> torch.Tensor:
-        """Return per-frame argmax ids, (batch, time')."""
-        logits = self.forward(input_values, attention_mask=attention_mask)["logits"]
-        return logits.argmax(dim=-1)
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return per-frame argmax ids and their valid lengths.
+
+        The lengths are not optional bookkeeping. Rows in a padded batch carry
+        argmax ids for frames that exist only because a longer utterance shared
+        the batch, and those frames decode to real characters. The caller must
+        slice each row to its length before collapsing, or the hypothesis — and
+        therefore the WER — depends on batch composition.
+
+        Returns:
+            ``(ids, lengths)``: ids is (batch, time'), lengths is (batch,).
+        """
+        out = self.forward(input_values, attention_mask=attention_mask)
+        return out["logits"].argmax(dim=-1), out["input_lengths"]
 
     def expand_head(self, new_vocab_size: int, seed: int = 0) -> None:
         """Grow the CTC head to ``new_vocab_size``, preserving trained rows.
@@ -134,3 +160,23 @@ class XeusCTC(nn.Module):
 
     def load(self, path: str | Path, map_location: str = "cpu") -> None:
         self.load_state_dict(torch.load(path, map_location=map_location))
+
+
+def make_model(cfg: ExperimentConfig, vocab_size: int) -> XeusCTC:
+    """Build the model for a run — the single construction site.
+
+    Every caller must come through here. When the arms built their models
+    inline, three of the five sites omitted ``hidden_size`` and
+    ``blank_bias_init``, so those config fields were honoured for the BTM
+    experts and silently ignored for the merged model and all of arm A. A
+    single factory makes that class of drift impossible rather than merely
+    unlikely.
+    """
+    return XeusCTC(
+        vocab_size=vocab_size,
+        init=cfg.init,
+        checkpoint=cfg.model.xeus_checkpoint,
+        hidden_size=cfg.model.hidden_size,
+        blank_bias_init=cfg.model.blank_bias_init,
+        dropout=cfg.model.dropout,
+    )
