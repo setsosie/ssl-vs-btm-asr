@@ -203,7 +203,7 @@ def write_manifest(
     index_files: list[str],
     reports: list[dict[str, Any]],
 ) -> Path:
-    """Record what was fetched, so `check_data.sh` never has to decode audio."""
+    """Record what was fetched, so `check_data.py` never has to decode audio."""
     manifest = {
         "code": code,
         "slr": slr,

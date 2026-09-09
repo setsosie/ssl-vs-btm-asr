@@ -86,3 +86,7 @@ ignore_missing_imports = true
 # do not add to this block.
 module = ["svb.*"]
 disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
