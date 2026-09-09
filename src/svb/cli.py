@@ -1,8 +1,9 @@
 """Command-line entry point: ``svb run|aggregate``.
 
 ``run`` executes one (arm, scale, seed) end to end and writes a single
-``results.json`` plus ``resolved_config.yaml`` and ``env.json``. ``aggregate``
-reads every seed's results for an (arm, scale) and prints mean ± std.
+``results.json`` plus ``resolved_config.yaml``, ``env.json`` and
+``text_stats.json``. ``aggregate`` reads every seed's results for an
+(arm, scale) and prints mean ± std.
 """
 
 from __future__ import annotations
@@ -11,10 +12,16 @@ import argparse
 import json
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
-from .config import dump_config, load_config
+from .config import TextConfig, dump_config, load_config
 from .provenance import dump_run_meta
 from .seeding import set_all_seeds
+from .text.stats import collect_text_stats
+
+if TYPE_CHECKING:
+    from .data.registry import LangSpec
+    from .model.ctc_vocab import CtcVocab
 
 DEFAULT_RESULTS_ROOT = Path("results")
 ARMS = ("A_ssl", "B_btm_ssl", "C_btm_scratch")
@@ -52,6 +59,66 @@ def _predictions_path(out: Path, code: str) -> Path:
     return out / "predictions" / f"{code}.json"
 
 
+SPLITS = ("train", "validation", "test")
+
+
+def write_text_stats(
+    path: Path,
+    specs: list[LangSpec],
+    heldout: list[LangSpec],
+    text_cfg: TextConfig,
+    vocab: CtcVocab,
+    evicted: dict[str, int],
+) -> Path:
+    """Write the per-language evidence for the normalization policy.
+
+    A policy is a set of claims about the corpus — that the vocabulary covers
+    the test set, that digits are rare, that a language declared to use word
+    boundaries writes them. This puts each claim in the results directory as a
+    number, so a reader can check it without re-running anything.
+
+    Held-out languages are measured against their *expanded* vocabulary, not the
+    training one. The expansion is recomputed here rather than shared with
+    ``transfer_one``; it is deterministic and reads only text, and scoring
+    Telugu against an all-Latin training vocab would report an unknown rate near
+    1.0 and bury the number the transfer experiment depends on.
+    """
+    from .data.datasets import load_texts
+    from .model.ctc_vocab import expand_vocab
+
+    languages: dict[str, Any] = {}
+    for spec in [*specs, *heldout]:
+        is_heldout = spec in heldout
+        lang_vocab = vocab
+        lang_evicted: dict[str, int] = {}
+        if is_heldout:
+            lang_vocab, _, lang_evicted = expand_vocab(
+                vocab, load_texts(spec, "train"), min_char_count=text_cfg.min_char_count
+            )
+        splits: dict[str, Any] = {}
+        for split in SPLITS:
+            stats = collect_text_stats(load_texts(spec, split), text_cfg.policy, lang_vocab)
+            if split == "train":
+                stats.evicted_by_floor = lang_evicted
+            splits[split] = stats.to_dict()
+        languages[spec.code] = {
+            "heldout": is_heldout,
+            "word_boundary": spec.word_boundary,
+            "splits": splits,
+        }
+
+    payload = {
+        "normalizer_version": text_cfg.policy.version,
+        "policy_hash": text_cfg.policy.policy_hash(),
+        "min_char_count": text_cfg.min_char_count,
+        "training_vocab_evicted": evicted,
+        "languages": languages,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
 def cmd_run(args: argparse.Namespace) -> None:
     import torch
 
@@ -80,17 +147,19 @@ def cmd_run(args: argparse.Namespace) -> None:
     out = _run_dir(results_root(args.results_root), cfg.arm, cfg.scale, cfg.seed)
     out.mkdir(parents=True, exist_ok=True)
     dump_config(cfg, out)
-    dump_run_meta(out)
+    dump_run_meta(out, policy=cfg.text.policy)
     set_all_seeds(cfg.seed)
 
     specs = get_preset(cfg.scale)
-    vocab = build_training_vocab(specs)
+    vocab, evicted = build_training_vocab(specs, cfg.text)
     vocab.save(out / "vocab.json")
+    heldout = get_heldout()
+    write_text_stats(out / "text_stats.json", specs, heldout, cfg.text, vocab, evicted)
     # Two collates: training truncates long audio and drops the transcripts that
     # no longer fit, evaluation does neither — a truncated test utterance scored
     # against its full reference is a fabricated error rate.
     train_collate = make_ctc_collate(
-        vocab, max_audio_samples=cfg.train.max_audio_samples, drop_overlong=True
+        vocab, max_audio_samples=cfg.train.max_audio_samples, drop_overlong=True, drop_empty=True
     )
     eval_collate = make_ctc_collate(vocab)
     results: dict = {"arm": cfg.arm, "scale": cfg.scale, "seed": cfg.seed, "in_distribution": {}}
@@ -114,8 +183,14 @@ def cmd_run(args: argparse.Namespace) -> None:
                 device,
                 cfg.optim.batch_size,
                 save_predictions=_predictions_path(out, spec.code),
+                spec=spec,
             )
-            results["in_distribution"][spec.code] = {"wer": r.wer, "cer": r.cer, "n": r.n}
+            results["in_distribution"][spec.code] = {
+                "wer": r.wer,
+                "cer": r.cer,
+                "n": r.n,
+                "n_empty_refs": r.n_empty_refs,
+            }
         transfer_init: Path | None = merged_path
     else:
         # Arm A: independent per-language fine-tune from the SSL encoder.
@@ -137,15 +212,26 @@ def cmd_run(args: argparse.Namespace) -> None:
                 device,
                 cfg.optim.batch_size,
                 save_predictions=_predictions_path(out, spec.code),
+                spec=spec,
             )
-            results["in_distribution"][spec.code] = {"wer": r.wer, "cer": r.cer, "n": r.n}
+            results["in_distribution"][spec.code] = {
+                "wer": r.wer,
+                "cer": r.cer,
+                "n": r.n,
+                "n_empty_refs": r.n_empty_refs,
+            }
         transfer_init = None  # arm A transfers from the bare SSL encoder
 
     # Held-out transfer (all arms).
     results["transfer"] = {}
-    for held in get_heldout():
+    for held in heldout:
         r = transfer_one(cfg, transfer_init, vocab, held, out / "transfer" / held.code, device)
-        results["transfer"][held.code] = {"wer": r.wer, "cer": r.cer, "n": r.n}
+        results["transfer"][held.code] = {
+            "wer": r.wer,
+            "cer": r.cer,
+            "n": r.n,
+            "n_empty_refs": r.n_empty_refs,
+        }
 
     (out / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=2))
     print(f"[svb] wrote {out / 'results.json'}")

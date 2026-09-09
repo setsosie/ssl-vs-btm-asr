@@ -17,9 +17,12 @@ import importlib.metadata
 import json
 import platform
 import subprocess
+import unicodedata
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from .text.normalize import NORMALIZER_VERSION, NormalizerPolicy, module_sha256
 
 # Run git against the package's own repository, not the process CWD: a job
 # launched from another checkout would otherwise record that repo's SHA and
@@ -107,7 +110,29 @@ def _gpu() -> dict[str, Any]:
     return {"available": False}
 
 
-def dump_run_meta(out_dir: str | Path) -> Path:
+def _normalizer(policy: NormalizerPolicy | None) -> dict[str, Any]:
+    """What would change the text, beyond the settings themselves.
+
+    ``unicodedata`` tables decide both character categories and case folding, so
+    two Python builds can normalize one transcript differently; the Unicode
+    version is therefore part of what produced a number. The module hash catches
+    a normalizer edited without any setting changing, which the policy hash
+    cannot see.
+    """
+    meta: dict[str, Any] = {
+        "version": NORMALIZER_VERSION,
+        "module_sha256": module_sha256(),
+        "unicode_version": unicodedata.unidata_version,
+    }
+    if policy is not None:
+        # Only when we were told. Recording the default's hash for a run that
+        # used something else would be worse than recording nothing.
+        meta["policy_hash"] = policy.policy_hash()
+        meta["version"] = policy.version
+    return meta
+
+
+def dump_run_meta(out_dir: str | Path, policy: NormalizerPolicy | None = None) -> Path:
     """Write ``env.json`` capturing the run environment."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -117,6 +142,7 @@ def dump_run_meta(out_dir: str | Path) -> Path:
         "git_dirty": _git_dirty(),
         "uv_lock_sha256": _uv_lock_sha256(_REPO_DIR.parents[1]),
         "versions": _versions(),
+        "normalizer": _normalizer(policy),
         "gpu": _gpu(),
         "platform": platform.platform(),
     }

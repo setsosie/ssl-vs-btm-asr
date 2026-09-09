@@ -15,6 +15,8 @@ from typing import Any, Literal
 
 import yaml
 
+from .text.normalize import NormalizerPolicy, module_sha256
+
 Arm = Literal["A_ssl", "B_btm_ssl", "C_btm_scratch"]
 Scale = Literal["3", "16", "64"]
 MergeStrategy = Literal["average", "ties", "dare_ties"]
@@ -59,6 +61,27 @@ class TrainConfig:
 
 
 @dataclass(frozen=True)
+class TextConfig:
+    """How transcripts are normalized, and how thin the vocabulary's tail may be.
+
+    Changing anything here changes every reported number, so it is dumped in
+    full — along with the derived digests — beside each run's results.
+    """
+
+    policy: NormalizerPolicy = field(default_factory=NormalizerPolicy)
+    # Corpus-wide occurrences a character needs to earn a vocabulary slot. The
+    # default keeps everything, which is right for a smoke run where a real
+    # character may also be rare; configs/base.yaml raises it for a full run,
+    # where the tail is stray characters from corpora that had no
+    # collection-time validation.
+    min_char_count: int = 1
+
+
+# Written into the dumped config for the reader, derived rather than set.
+_DERIVED_TEXT_KEYS = ("policy_hash", "normalizer_module_sha256")
+
+
+@dataclass(frozen=True)
 class ExperimentConfig:
     arm: Arm
     scale: Scale
@@ -68,6 +91,7 @@ class ExperimentConfig:
     model: ModelConfig = field(default_factory=ModelConfig)
     optim: OptimConfig = field(default_factory=OptimConfig)
     train: TrainConfig = field(default_factory=TrainConfig)
+    text: TextConfig = field(default_factory=TextConfig)
     # Held-out transfer languages (OpenSLR Indic), never in any training mix.
     heldout_langs: tuple[str, ...] = (
         "odia",
@@ -86,7 +110,13 @@ class ExperimentConfig:
         return self.arm in ("B_btm_ssl", "C_btm_scratch")
 
     def to_dict(self) -> dict[str, Any]:
-        return dataclasses.asdict(self)
+        data = dataclasses.asdict(self)
+        # Derived, so that a reader can tell two runs apart without recomputing
+        # anything: the policy hash identifies the settings, and the module hash
+        # catches a normalizer edited without any setting changing.
+        data["text"]["policy_hash"] = self.text.policy.policy_hash()
+        data["text"]["normalizer_module_sha256"] = module_sha256()
+        return data
 
 
 def _nested_update(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
@@ -122,9 +152,23 @@ def load_config(
     model = ModelConfig(**model_cfg)
     optim = OptimConfig(**cfg.pop("optim", {}))
     train = TrainConfig(**cfg.pop("train", {}))
+    text = _text_config(cfg.pop("text", {}))
     if "heldout_langs" in cfg:
         cfg["heldout_langs"] = tuple(cfg["heldout_langs"])
-    return ExperimentConfig(model=model, optim=optim, train=train, **cfg)
+    return ExperimentConfig(model=model, optim=optim, train=train, text=text, **cfg)
+
+
+def _text_config(raw: dict[str, Any]) -> TextConfig:
+    """Build a TextConfig, tolerating the digests ``to_dict`` writes.
+
+    Dropping them here is what lets a run's own ``resolved_config.yaml`` be fed
+    straight back in to reproduce it.
+    """
+    raw = dict(raw)
+    for key in _DERIVED_TEXT_KEYS:
+        raw.pop(key, None)
+    policy = NormalizerPolicy(**raw.pop("policy", {}))
+    return TextConfig(policy=policy, **raw)
 
 
 def dump_config(cfg: ExperimentConfig, out_dir: str | Path) -> Path:

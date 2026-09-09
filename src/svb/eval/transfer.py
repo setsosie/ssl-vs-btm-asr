@@ -51,14 +51,22 @@ def transfer_one(
             encoder, which for arm A is the SSL one (``cfg.init``).
         base_vocab: The training vocab whose head rows we preserve.
     """
-    new_vocab, _ = expand_vocab(base_vocab, load_texts(lang, "train"))
+    # Same policy the training vocab was built with — expand_vocab refuses
+    # anything else — and the same floor, so the held-out language's tail is
+    # treated the way the training languages' tails were.
+    new_vocab, _, _ = expand_vocab(
+        base_vocab, load_texts(lang, "train"), min_char_count=cfg.text.min_char_count
+    )
     model = make_model(cfg, base_vocab.size)
     if init_ckpt is not None:
         model.load(init_ckpt)
     model.expand_head(new_vocab.size, seed=cfg.seed)
 
     train_collate = make_ctc_collate(
-        new_vocab, max_audio_samples=cfg.train.max_audio_samples, drop_overlong=True
+        new_vocab,
+        max_audio_samples=cfg.train.max_audio_samples,
+        drop_overlong=True,
+        drop_empty=True,
     )
     eval_collate = make_ctc_collate(new_vocab)
     train_ds = load_language(lang, "train", cfg.train.max_audio_samples)
@@ -82,4 +90,5 @@ def transfer_one(
         device=device,
         batch_size=cfg.optim.batch_size,
         save_predictions=out_dir / "predictions.json",
+        spec=lang,
     )

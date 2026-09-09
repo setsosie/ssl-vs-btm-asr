@@ -27,3 +27,26 @@ train:
   grad_checkpointing: true
   max_audio_samples: 200000
   num_workers: 8
+
+text:
+  # svb-norm-1. Anything changed here changes every reported number, so the
+  # policy and its hash are dumped beside each run's results; two runs under
+  # different hashes are not comparable.
+  policy:
+    version: svb-norm-1
+    form: NFKC
+    case: casefold
+    malayalam_chillu: atomic
+    strip_invisibles: true
+    strip_arabic_marks: true
+    turkish_dotted_i: true
+    unify_apostrophes: true
+    strip_punctuation: true
+    strip_symbols: true
+    apostrophe_is_letter: false
+    digits: keep
+  # A full run's corpora are large enough that a character occurring under five
+  # times corpus-wide is a stray from another script, not a letter of any of the
+  # languages. Smoke runs leave this at the code default of 1, where a real
+  # character may legitimately be that rare.
+  min_char_count: 5

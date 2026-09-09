@@ -16,6 +16,12 @@ dependencies = [
     "soundfile>=0.12,<1",
     "jiwer>=4.0,<5",
     "pyyaml>=6.0,<7",
+    # Already present transitively via jiwer, declared directly because the
+    # statistics layer calls its sequence Levenshtein on token lists rather than
+    # going back through jiwer's string interface. An undeclared import that
+    # happens to be installed is the kind of dependency that disappears on the
+    # day jiwer changes its own.
+    "rapidfuzz>=3,<4",
 ]
 
 [project.optional-dependencies]
@@ -63,10 +69,6 @@ ignore = [
     "E501",
 ]
 
-[tool.ruff.lint.per-file-ignores]
-# Staged exemptions for findings in modules owned by other in-flight branches.
-# Each line is one branch's to fix and delete; do not add to this block.
-"src/svb/model/ctc_vocab.py" = ["SIM102", "RUF005"]  # -> text-normalization branch
 
 [tool.mypy]
 python_version = "3.12"
@@ -77,7 +79,7 @@ no_implicit_optional = true
 
 [[tool.mypy.overrides]]
 # Third-party packages that ship no stubs and no py.typed marker.
-module = ["torchaudio.*", "soundfile.*", "jiwer.*"]
+module = ["torchaudio", "torchaudio.*", "soundfile", "soundfile.*", "jiwer", "jiwer.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

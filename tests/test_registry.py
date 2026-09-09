@@ -93,3 +93,28 @@ def test_heldout_marathi_is_female_only_with_a_single_index(pytestconfig):
 def test_commonvoice_presets_still_parse(pytestconfig, scale):
     specs = get_preset(scale, configs_dir=Path(pytestconfig.rootpath) / "configs")
     assert specs and {s.source for s in specs} == {"commonvoice"}
+
+
+def test_word_boundary_defaults_to_true_and_is_declarable():
+    assert _cv().word_boundary is True
+    assert (
+        LangSpec(code="ja", source="commonvoice", hf_config="ja", word_boundary=False).word_boundary
+        is False
+    )
+
+
+@pytest.mark.parametrize("scale", ["3", "16"])
+def test_japanese_is_the_only_preset_language_written_without_spaces(pytestconfig, scale):
+    """Which metric is primary for a language is a property of its writing
+    system, so it is declared beside the language rather than in a set inside
+    the evaluation module that no preset author ever sees."""
+    specs = get_preset(scale, configs_dir=Path(pytestconfig.rootpath) / "configs")
+    unspaced = [s.code for s in specs if not s.word_boundary]
+
+    assert unspaced == ["ja"]
+
+
+def test_heldout_indic_languages_are_written_with_spaces(pytestconfig):
+    specs = get_heldout(configs_dir=Path(pytestconfig.rootpath) / "configs")
+
+    assert all(s.word_boundary for s in specs)
