@@ -19,7 +19,7 @@ fetch:
 
 # Report split sizes for every configured language, from metadata only.
 data:
-	bash scripts/check_data.sh
+	python scripts/check_data.py
 
 # Run all seeds for one (arm, scale). Sequential here; use scripts/run_matrix.py
 # + your scheduler to parallelize across GPUs.

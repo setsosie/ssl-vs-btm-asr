@@ -8,7 +8,7 @@ downloads at load time and nothing goes through the Hugging Face Hub.
 | Training / in-distribution eval | Common Voice 25 | `CV_ROOT` | you, manually |
 | Held-out transfer | OpenSLR Indic (SLR63, 64, 66, 78) | `OPENSLR_ROOT` | `scripts/fetch_openslr.py` |
 
-Check what is reachable and how big each split is with `bash scripts/check_data.sh`.
+Check what is reachable and how big each split is with `bash scripts/check_data.py`.
 It reads transcripts and manifests only and never decodes audio.
 
 For how much *audio* each language contributes rather than how many utterances,
@@ -133,7 +133,7 @@ the split degrades to utterance level. That case carries an obvious caveat: the
 same speaker then appears in train and test, so the result is not
 speaker-independent.
 
-Which policy was used is never left to be assumed. `check_data.sh` prints it per
+Which policy was used is never left to be assumed. `check_data.py` prints it per
 language, and every run records it — together with `test_files_sha1`, the SHA-1
 of the test FileID list — under `transfer.<language>` in its `results.json`. So
 a held-out number always sits beside both the policy that produced it and a

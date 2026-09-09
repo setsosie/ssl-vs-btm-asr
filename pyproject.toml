@@ -69,6 +69,7 @@ ignore = [
     "E501",
 ]
 
+
 [tool.mypy]
 python_version = "3.12"
 files = ["src", "tests"]
@@ -78,10 +79,16 @@ no_implicit_optional = true
 
 [[tool.mypy.overrides]]
 # Third-party packages that ship no stubs and no py.typed marker.
-module = ["torchaudio.*", "soundfile.*", "jiwer.*"]
+module = ["torchaudio", "torchaudio.*", "soundfile", "soundfile.*", "jiwer", "jiwer.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-# Annotations are required throughout `svb.*`, with no exemptions.
+# Annotations are required for `svb.*` -- except in the modules below, which are
+# being rewritten on parallel branches. Each entry is that branch's to delete;
+# do not add to this block.
 module = ["svb.*"]
 disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
