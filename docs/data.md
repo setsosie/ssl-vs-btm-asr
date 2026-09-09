@@ -8,7 +8,7 @@ downloads at load time and nothing goes through the Hugging Face Hub.
 | Training / in-distribution eval | Common Voice 25 | `CV_ROOT` | you, manually |
 | Held-out transfer | OpenSLR Indic (SLR63, 64, 66, 78) | `OPENSLR_ROOT` | `scripts/fetch_openslr.py` |
 
-Check what is reachable and how big each split is with `bash scripts/check_data.sh`.
+Check what is reachable and how big each split is with `python scripts/check_data.py`.
 It reads transcripts and manifests only and never decodes audio.
 
 ## Common Voice 25 (`CV_ROOT`)
@@ -115,7 +115,7 @@ more so the fewer speakers a language has.
 
 If FileIDs do not parse that way, or a language has fewer than three speakers,
 the split degrades to utterance level. That case is reported as
-`split_policy == "utterance"` on the dataset and printed by `check_data.sh`, and
+`split_policy == "utterance"` on the dataset and printed by `check_data.py`, and
 it carries an obvious caveat: the same speaker then appears in train and test, so
 the result is not speaker-independent. None of the four languages above hits it.
 
