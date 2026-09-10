@@ -1,0 +1,39 @@
+# Reference environment for scripts/crosscheck_espnet.py — SEPARATE from the
+# project's own environment, and deliberately not reachable from pyproject.toml.
+#
+# Why it has to be separate. XEUS is not in stock ESPnet, so the reference load
+# path needs the author's fork, pinned here to one commit rather than to the
+# moving @ssl branch. That fork requires numpy<1.24, whose newest release
+# (1.23.5) has no wheel for Python 3.12 and whose sdist cannot build there
+# because distutils left the standard library in 3.12. The fork's own
+# classifiers stop at Python 3.10. Declaring it as an optional extra of this
+# project does not work either: uv resolves extras universally, so its mere
+# presence in pyproject.toml makes `uv sync` unsatisfiable for everyone,
+# installed or not.
+#
+# So: Python 3.10, its own virtual environment, nothing shared with the project
+# except the checkout on disk. The cross-check script imports nothing from the
+# installed `svb` package for exactly this reason.
+#
+#   uv venv --python 3.10 .venv-espnet
+#   uv pip install --python .venv-espnet -r scripts/espnet-crosscheck/requirements.txt
+#
+# For a GPU box, drop `--torch-backend cpu` from the command in
+# docs/espnet-crosscheck.md and let torch resolve to a CUDA build.
+#
+# Resolution of this file on Python 3.10 was verified (71 packages, torch
+# 2.4.1+cpu, numpy 1.23.5, espnet at the pinned commit). The cross-check itself
+# has NOT been executed: it needs the published XEUS checkpoint and a GPU, and
+# neither is available where this was written.
+
+# Pinned below the fork's own ceiling. Nothing here needs numpy 2.
+numpy<1.24
+
+# The fork requires torch>=1.11; the upper bound keeps the resolver on a release
+# that still builds against numpy 1.23.
+torch>=2.0,<2.5
+
+# XEUS's reference implementation. Pinned to a commit, not to @ssl: a moving
+# branch would make the reference model a different one over time, which is the
+# opposite of what a cross-check is for.
+espnet @ git+https://github.com/wanchichen/espnet.git@5b52d57b4f872ff7babded35316a79642e9e6c12

@@ -18,6 +18,7 @@ Two families live here:
 from __future__ import annotations
 
 import importlib.util
+import sys
 import wave
 from collections.abc import Callable
 from pathlib import Path
@@ -79,6 +80,11 @@ def _load_script(root: Path, name: str) -> ModuleType:
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
+    # Register before executing. A module that defines a dataclass under
+    # `from __future__ import annotations` is resolved by looking itself up in
+    # sys.modules, so omitting this fails at class-creation time with an
+    # AttributeError on None rather than anything that names the cause.
+    sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -91,6 +97,11 @@ def fetch_openslr(pytestconfig: pytest.Config) -> ModuleType:
 @pytest.fixture
 def run_matrix(pytestconfig: pytest.Config) -> ModuleType:
     return _load_script(Path(pytestconfig.rootpath), "run_matrix")
+
+
+@pytest.fixture
+def crosscheck_espnet(pytestconfig: pytest.Config) -> ModuleType:
+    return _load_script(Path(pytestconfig.rootpath), "crosscheck_espnet")
 
 
 # --------------------------------------------------------------------------- #
