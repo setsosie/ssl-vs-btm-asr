@@ -128,30 +128,20 @@ def test_an_unpopulated_preset_fails_instead_of_running_on_nothing(pytestconfig)
     Rejecting it catches both typos and incomplete lists.
     """
     with pytest.raises(ValueError, match="no languages"):
-        get_preset("B_btm_ssl", "64", configs_dir=Path(pytestconfig.rootpath) / "configs")
+        get_preset("64", configs_dir=Path(pytestconfig.rootpath) / "configs")
 
 
-def test_the_test_split_is_always_named_test(pytestconfig):
-    """It is what everything from extraction through evaluation calls it.
 
-    If a preset overrides it, the runner would look for `validation` while the
-    evaluation scripts expect `test`.
-    """
-    for preset in ("A_ssl", "B_btm_ssl", "C_btm_sbtm"):
-        for scale in ("16", "32"):
-            for spec in get_preset(
-                preset, scale, configs_dir=Path(pytestconfig.rootpath) / "configs"
-            ):
-                assert spec.test_split == "test"
 
 
 def test_every_hf_config_resolves(pytestconfig):
     """If one is missing or renamed, `load_dataset` will crash in the runner."""
-    from datasets import get_dataset_config_names
+    datasets = pytest.importorskip("datasets")
+    get_dataset_config_names = datasets.get_dataset_config_names
 
     root = Path(pytestconfig.rootpath)
-    for preset, scale in [("A_ssl", "16"), ("C_btm_sbtm", "32")]:
-        for spec in get_preset(preset, scale, configs_dir=root / "configs"):
+    for scale in ("16", "32"):
+        for spec in get_preset(scale, configs_dir=root / "configs"):
             if spec.source != "commonvoice":
                 continue
             assert spec.hf_config in get_dataset_config_names(

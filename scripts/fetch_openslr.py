@@ -190,8 +190,11 @@ def download(url: str, dest: Path, *, expected: int | None = None) -> Path:
             while block := resp.read(CHUNK):
                 out.write(block)
 
-    if expected is not None and part.stat().st_size != expected:
-        raise OSError(f"{dest.name}: got {part.stat().st_size} bytes, expected {expected}")
+    if expected is not None:
+        if part.stat().st_size != expected:
+            raise OSError(f"{dest.name}: got {part.stat().st_size} bytes, expected {expected}")
+    else:
+        print(f"    {dest.name}: size unknown, skipped length check")
     part.replace(dest)
     return dest
 
@@ -199,7 +202,9 @@ def download(url: str, dest: Path, *, expected: int | None = None) -> Path:
 # --- extraction ---------------------------------------------------------------
 
 
-def extract_archive(archive: Path, dest: Path, index_name: str) -> dict[str, Any]:
+def extract_archive(
+    archive: Path, dest: Path, index_name: str, seen: set[str] | None = None
+) -> dict[str, Any]:
     """Extract one archive flat into `dest`, renaming its index to `index_name`.
 
     Only member basenames are used, so on POSIX a crafted archive cannot write
@@ -225,6 +230,10 @@ def extract_archive(archive: Path, dest: Path, index_name: str) -> dict[str, Any
         for member in members:
             name = PurePosixPath(member.filename).name
             target = dest / (index_name if member is index_member else name)
+            if member is not index_member and seen is not None:
+                if name in seen:
+                    raise ValueError(f"Name collision: {name}")
+                seen.add(name)
             if target.exists() and target.stat().st_size == member.file_size:
                 wavs += name.endswith(".wav")
                 continue

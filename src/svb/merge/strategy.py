@@ -74,7 +74,12 @@ def _scaffold(experts: list[StateDict], base: StateDict | None, merge_head: bool
         if base is None:
             raise ValueError("merge_head=False needs a base (phase-0) state_dict for the head")
         for key in out:
-            if _is_head_key(key) and key in base:
+            if _is_head_key(key):
+                if key not in base:
+                    raise ValueError(
+                        f"merge_head=False needs the base to supply the head, "
+                        f"but the base lacks {key!r}"
+                    )
                 out[key] = base[key].clone()
     return out
 

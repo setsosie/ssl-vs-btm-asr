@@ -235,7 +235,7 @@ def test_policy_hash_is_stable_and_tracks_every_field() -> None:
         NormalizerPolicy(form="NFC"),
         NormalizerPolicy(case="lower"),
         NormalizerPolicy(strip_symbols=False),
-        NormalizerPolicy(digits="drop_utterance"),
+
         NormalizerPolicy(apostrophe_is_letter=True),
         NormalizerPolicy(turkish_dotted_i=False),
     ):

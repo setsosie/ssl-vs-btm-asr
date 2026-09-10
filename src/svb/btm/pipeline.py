@@ -123,6 +123,9 @@ def merge_experts(
     """
     import torch
 
+    if device != "cpu":
+        raise ValueError("Merging requires a CPU device.")
+
     merge_fn = MERGE_STRATEGIES[strategy]
     experts = [torch.load(p, map_location=device) for p in expert_ckpts.values()]
     base = torch.load(base_ckpt, map_location=device) if base_ckpt is not None else None
