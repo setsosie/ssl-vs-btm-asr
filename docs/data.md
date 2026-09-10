@@ -173,7 +173,6 @@ ways that all need a decision first:
 - It ships its own train/test split, so the 80/10/10 derivation above must not
   be applied to it.
 
-<<<<<<< HEAD
 There is also a mechanical obstacle, which is worth knowing before anyone spends
 a download on it: `scripts/fetch_openslr.py` handles zip archives with a
 `line_index*.tsv` member, and Odia ships `.tar.gz` archives with
@@ -182,7 +181,5 @@ archives and then fails on the first one as an unreadable zip. Enabling Odia
 therefore needs a tar path and a different index parser as well as the licence
 decision.
 
-=======
->>>>>>> origin/main
 Until that is resolved the held-out set is four languages, and any write-up
 should say four.
