@@ -16,7 +16,6 @@ scoreable reference, which is a silent change to the test set unless reported.
 from __future__ import annotations
 
 import statistics
-
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any

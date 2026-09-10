@@ -1,6 +1,7 @@
 """Merge strategies: identities, sign election, trimming, seeding, head scope."""
 
 import re
+
 import pytest
 import torch
 

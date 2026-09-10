@@ -189,26 +189,33 @@ def test_dropped_training_pairs_reach_the_result_not_only_the_log(tmp_path) -> N
     """A pair whose transcript cannot be aligned to its audio is removed from
     training, and an utterance clipped by the audio guard is trained on
     partially, so reading these from the log post hoc is a chore."""
-    from svb.train.trainer import train
+    vocab, _ = build_vocab_from_texts(["a"])
 
-    vocab = _vocab()
-    # Batch 1: a short pair that works, and an utterance whose transcript needs
-    # more frames than the audio has (16 chars, 5 frames -> unalignable).
-    b1 = _collate([("a", 5), ("aaaaaaaaaaaaaaaa", 5)], vocab)
-    # Batch 2: an utterance longer than max_audio_frames, which gets truncated.
-    b2 = _collate([("a", 15)], vocab)
+    # b1: 320 samples, text "aa". Downsampling by 320 gives max label len 1.
+    # "aa" has len 2 > 1, so it is unalignable and dropped.
+    # b2: 640 samples, max_audio_samples 400 -> hits audio guard.
+    train_ds = ListDataset([
+        (torch.ones(320), "aa"),
+        (torch.ones(640), "a"),
+    ])
+    val_ds = ListDataset([(torch.ones(320), "a")])
+
+    collate = make_ctc_collate(
+        vocab,
+        drop_overlong=True,
+        max_audio_samples=400,
+    )
 
     result = train(
         ScriptedLossCTC([1.0]),
-        [b1, b2],
-        val_batches=[_collate([("a", 5)], vocab)],
-        epochs=1,
-        vocab=vocab,
-        output_dir=tmp_path,
+        _cfg(),
+        train_ds,
+        val_ds,
+        collate,
+        max_epochs=1,
+        out_dir=tmp_path,
         device="cpu",
-        max_audio_frames=10,
     )
 
-    # Two batches of two in the first epoch, so one drop and two guard hits each.
-    assert result.n_dropped_unalignable == 2
-    assert result.n_at_audio_guard == 4
+    assert result.n_dropped_unalignable == 1
+    assert result.n_at_audio_guard == 1
