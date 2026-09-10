@@ -65,7 +65,6 @@ def _model_inputs(batch: dict[str, Any], device: str) -> dict[str, torch.Tensor]
     """
     return {k: v.to(device) for k, v in batch.items() if isinstance(v, torch.Tensor)}
 
-
 def _lr_lambda(step: int, total: int, warmup: int) -> float:
     if step < warmup:
         return step / max(1, warmup)

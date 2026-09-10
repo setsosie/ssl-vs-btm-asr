@@ -154,7 +154,6 @@ The removal counts are tallied by the normalizer as it works, so they describe
 the transformation that happened rather than what a scan of the input would
 guess: an intra-word apostrophe that survives is not counted as removed, and a
 rule the policy switched off removes nothing.
-
 ## Changing the policy
 
 Bump `NORMALIZER_VERSION` for any change in behaviour. Results produced under

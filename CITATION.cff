@@ -8,8 +8,7 @@ abstract: >-
   four held-out Indic transfer languages.
 type: software
 version: "0.1.0"
-date-released: "2026-09-04"
-license: MIT
+date-released: "2026-09-04"license: MIT
 repository-code: "https://github.com/setsosie/ssl-vs-btm-asr"
 keywords:
   - automatic-speech-recognition
@@ -24,8 +23,7 @@ authors:
   # and inventing them to satisfy the schema would put a guess in the citation
   # metadata. Replace with a person entry and an ORCID when archiving.
   - name: "setsosie"
-    email: "shawn@firstlanguages.ai"
-references:
+    email: "shawn@firstlanguages.ai"references:
   # The encoder this work fine-tunes. All credit for the model and weights
   # belongs to its authors; this repository only loads and adapts them.
   - type: article

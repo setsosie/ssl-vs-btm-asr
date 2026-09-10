@@ -1,7 +1,6 @@
 """Merge strategies: identities, sign election, trimming, seeding, head scope."""
 
 import re
-
 import pytest
 import torch
 
@@ -165,8 +164,6 @@ def test_merge_experts_threads_the_run_seed(tmp_path):
         merged.append(torch.load(out, weights_only=True)["w"])
 
     assert not torch.allclose(merged[0], merged[1])
-
-
 def test_merge_head_false_refuses_a_base_that_lacks_the_head():
     """A partial base would leave half the head coming from experts[0].
 

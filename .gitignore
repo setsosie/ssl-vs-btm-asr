@@ -8,8 +8,7 @@ __pycache__/
 
 # data + weights are large / public — fetch via `make fetch`, never commit.
 # Anchored: an unanchored `data/` also matched src/svb/data/ and hid the entire
-# data package from the repository.
-/data/
+# data package from the repository./data/
 checkpoints/
 *.pth
 *.pt

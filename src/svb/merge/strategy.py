@@ -124,7 +124,6 @@ def _trim(tv: torch.Tensor, density: float) -> torch.Tensor:
     of uniform magnitude — or one padded with the exact zeros of a parameter
     the expert never moved — would be kept in full while reporting that it had
     been trimmed to ``density``.
-
     ``topk``'s tie-break among equal magnitudes is unspecified and may differ
     between the CPU and CUDA kernels. That is not a live risk only because
     merging is CPU-only by construction (``merge_experts`` refuses any other

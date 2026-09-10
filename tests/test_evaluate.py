@@ -220,6 +220,16 @@ def test_the_sidecar_reports_the_excluded_utterances(tmp_path) -> None:
     assert len(saved["pairs"]) == 1
 
 
+def test_primary_metric_follows_the_language_spec() -> None:
+    from svb.data.registry import LangSpec
+    from svb.eval.evaluate import EvalResult
+
+    result = EvalResult(wer=40.0, cer=10.0, n=5)
+    spaced = LangSpec(code="de", source="commonvoice", hf_config="de")
+    unspaced = LangSpec(code="ja", source="commonvoice", hf_config="ja", word_boundary=False)
+
+    assert result.primary(spaced) == 40.0
+    assert result.primary(unspaced) == 10.0
 def test_a_language_declared_spaced_whose_text_is_not_warns() -> None:
     """The empirical check on the preset's declaration."""
     from svb.data.registry import LangSpec
@@ -257,8 +267,6 @@ def test_a_split_where_nothing_is_scoreable_fails_loudly() -> None:
 
     with pytest.raises(ValueError, match="nothing to score"):
         evaluate(model, dataset, vocab, collate, device="cpu", batch_size=2)
-
-
 def test_a_collate_that_drops_rows_is_refused_when_sorting_by_length() -> None:
     """The length sort is undone by index, so every row must come back.
 

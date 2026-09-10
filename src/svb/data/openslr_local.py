@@ -42,7 +42,7 @@ exact: whole speakers are indivisible, so the realised proportions drift from
 80/10/10, and the fewer and more uneven a language's speakers the further they
 drift. Nine evenly-sized speakers land near 78/11/11; nine uneven ones — one
 dominant speaker and eight small — land near 94/3/3. Read the realised sizes
-from ``check_data.sh`` rather than assuming the nominal fractions.
+from ``check_data.py`` rather than assuming the nominal fractions.
 
 The shortfall rule alone can leave a split empty, which one dominant speaker is
 enough to do, so a second pass moves the smallest speaker out of whichever split

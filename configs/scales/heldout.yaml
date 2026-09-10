@@ -3,8 +3,7 @@
 #
 # Not unseen by the encoder. XEUS was pretrained on unlabelled audio from over
 # four thousand languages, these among them, so "held out" means held out of the
-# supervised pipeline rather than a language the model has never heard.
-#
+# supervised pipeline rather than a language the model has never heard.#
 # Fetched straight from openslr.org as zip archives; no Hugging Face `datasets`,
 # no `trust_remote_code`, no account. Run `python scripts/fetch_openslr.py
 # --root $OPENSLR_ROOT` once, then set $OPENSLR_ROOT so $OPENSLR_ROOT/SLR<slr>/
@@ -56,8 +55,7 @@ languages:
 # not be applied to it. And the fetch script only handles zip archives with a
 # `line_index*.tsv` member, so the entry below would download both tarballs and
 # then fail on the first as an unreadable zip: enabling Odia needs a tar path and
-# a different index parser too. Enable only after the licence permits this use.
-#
+# a different index parser too. Enable only after the licence permits this use.#
 #  - code: odia
 #    source: openslr
 #    slr: 103

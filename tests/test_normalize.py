@@ -20,6 +20,7 @@ import pytest
 from svb.text.normalize import (
     NORMALIZER_VERSION,
     NormalizerPolicy,
+    normalize_batch,
     normalize_text,
 )
 
@@ -219,6 +220,10 @@ def test_an_utterance_that_normalizes_to_nothing_stays_empty_rather_than_vanishi
     scoring excludes and counts it — so the normalizer must not decide for it."""
     assert [normalize_text(t) for t in ("Hello!", "…", "  ")] == ["hello", "", ""]
 
+def test_normalize_batch_preserves_length_and_empties() -> None:
+    out = normalize_batch(["Hello!", "…", "  "])
+    assert out == ["hello", "", ""]
+
 
 def test_policy_hash_is_stable_and_tracks_every_field() -> None:
     baseline = NormalizerPolicy()
@@ -229,6 +234,7 @@ def test_policy_hash_is_stable_and_tracks_every_field() -> None:
         NormalizerPolicy(form="NFC"),
         NormalizerPolicy(case="lower"),
         NormalizerPolicy(strip_symbols=False),
+        NormalizerPolicy(digits="drop_utterance"),
         NormalizerPolicy(apostrophe_is_letter=True),
         NormalizerPolicy(turkish_dotted_i=False),
     ):
@@ -275,8 +281,6 @@ def test_legacy_policy_reproduces_the_pre_normalization_behaviour() -> None:
     assert LEGACY_POLICY.version == "svb-norm-0"
     assert normalize_text("Hello, World!", LEGACY_POLICY) == "Hello, World!"
     assert normalize_text("café", LEGACY_POLICY) == "café"
-
-
 def test_the_apostrophe_rule_follows_the_punctuation_setting() -> None:
     """U+0027 is category Po, so it is the punctuation rule's business.
 

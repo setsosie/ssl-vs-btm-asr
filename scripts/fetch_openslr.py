@@ -41,13 +41,13 @@ import os
 import shutil
 import sys
 import zipfile
-from datetime import UTC, datetime
+from datetime import UTC, datetime  # `datetime.UTC` needs 3.11; this repo targets 3.10
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-import yaml
+import yaml  # type: ignore[import-untyped]  # drop once types-PyYAML is a dev dep
 
 DEFAULT_MIRROR = "https://openslr.trmal.net"
 # Alternates if the primary is slow or down; same paths under /resources/<slr>/.
@@ -280,7 +280,7 @@ def write_manifest(
     index_files: list[str],
     reports: list[dict[str, Any]],
 ) -> Path:
-    """Record what was fetched, so `check_data.sh` never has to decode audio."""
+    """Record what was fetched, so `check_data.py` never has to decode audio."""
     manifest = {
         "code": code,
         "slr": slr,

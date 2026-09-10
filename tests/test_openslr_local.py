@@ -196,8 +196,6 @@ def test_load_texts_does_not_touch_audio(slr_root):
         wav.unlink()
     texts = load_openslr_texts(SPEC, "train", root=str(slr_root))
     assert texts and all(isinstance(t, str) and t for t in texts)
-
-
 def test_few_and_uneven_speakers_drift_far_from_the_nominal_fractions():
     """Whole speakers are indivisible, so 80/10/10 is nominal, not realised.
 

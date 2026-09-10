@@ -93,8 +93,6 @@ def test_stats_serialize_for_the_run_sidecar() -> None:
     assert payload["n_chars_raw"] == 6
     assert isinstance(payload["removed_by_category"], dict)
     assert "evicted_by_floor" in payload
-
-
 def test_a_protected_apostrophe_is_not_reported_as_removed() -> None:
     """The tally must describe what happened, not what a category scan would say.
 

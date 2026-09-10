@@ -19,7 +19,6 @@ either: Common Voice durations come from the release's own `clip_durations.tsv`
 where one is shipped, and OpenSLR durations from WAV headers. Utterance counts
 are not a proxy for hours — sentence length varies by an order of magnitude
 across Common Voice languages.
-
 ## Common Voice 25 (`CV_ROOT`)
 
 Since October 2025 Common Voice is distributed only through
@@ -63,7 +62,6 @@ down on a language the pipeline never supervised, not zero-shot generalization
 to an unheard one. Any write-up should say it that way.
 
 Fetch them once:
-
 ```bash
 python scripts/fetch_openslr.py --root $OPENSLR_ROOT
 python scripts/fetch_openslr.py --root $OPENSLR_ROOT --langs marathi   # one language
@@ -113,7 +111,6 @@ published value.
 The downloaded archives themselves are deleted once extracted; pass
 `--keep-archives` to `scripts/fetch_openslr.py` to keep them under
 `$OPENSLR_ROOT/.archives/` and make a re-extraction free.
-
 **Licence.** All four are
 [CC-BY-SA-4.0](https://creativecommons.org/licenses/by-sa/4.0/), stated on each
 `openslr.org/<n>/` page. Attribute the corpora and share derivatives alike.
@@ -137,7 +134,6 @@ are documented the same way on openslr.org and are expected to match, but the
 loader does not assume it: it parses the ids at load time and reports which
 policy it ended up with, so a corpus that turns out to be shaped differently
 says so rather than quietly producing a split of another kind.
-
 Speakers are ordered by SHA-1 of the speaker key, then each is given to whichever
 split has the largest remaining shortfall. Bucketing by hash alone would be far
 too lumpy at these sizes: Malayalam has 42 speakers across both archives and
@@ -163,7 +159,6 @@ language, and every run records it — together with `test_files_sha1`, the SHA-
 of the test FileID list — under `transfer.<language>` in its `results.json`. So
 a held-out number always sits beside both the policy that produced it and a
 digest pinning the exact set of utterances scored.
-
 ### Odia — decision pending
 
 Odia is deliberately **not** part of the held-out set. It is kept as a commented
@@ -178,6 +173,7 @@ ways that all need a decision first:
 - It ships its own train/test split, so the 80/10/10 derivation above must not
   be applied to it.
 
+<<<<<<< HEAD
 There is also a mechanical obstacle, which is worth knowing before anyone spends
 a download on it: `scripts/fetch_openslr.py` handles zip archives with a
 `line_index*.tsv` member, and Odia ships `.tar.gz` archives with
@@ -186,5 +182,7 @@ archives and then fails on the first one as an unreadable zip. Enabling Odia
 therefore needs a tar path and a different index parser as well as the licence
 decision.
 
+=======
+>>>>>>> origin/main
 Until that is resolved the held-out set is four languages, and any write-up
 should say four.

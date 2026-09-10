@@ -58,6 +58,7 @@ import hashlib
 import json
 import re
 import unicodedata
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -177,7 +178,6 @@ def _replace_punctuation_and_symbols(
 
     A space rather than a deletion: sources that omit the space after a comma
     would otherwise have two words fused into one.
-
     Tallies what it actually replaced into ``counts``. A character it decided to
     keep — a protected apostrophe, or anything at all under a policy with the
     rule switched off — is not a removal and is not counted.
@@ -291,6 +291,15 @@ def normalize_text(text: str, policy: NormalizerPolicy = DEFAULT_POLICY) -> str:
         the utterance, scoring excludes and counts it.
     """
     return normalize_with_counts(text, policy)[0]
+
+
+def normalize_batch(texts: Iterable[str], policy: NormalizerPolicy = DEFAULT_POLICY) -> list[str]:
+    """:func:`normalize_text` over an iterable, preserving length.
+
+    Results that normalize to empty are kept as empty strings rather than
+    dropped, so positions still line up with whatever the caller read them from.
+    """
+    return [normalize_text(t, policy) for t in texts]
 
 
 def has_digits(text: str) -> bool:

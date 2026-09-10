@@ -188,30 +188,25 @@ def test_worker_seeding_is_per_worker_and_reproducible() -> None:
 def test_dropped_training_pairs_reach_the_result_not_only_the_log(tmp_path) -> None:
     """A pair whose transcript cannot be aligned to its audio is removed from
     training, and an utterance clipped by the audio guard is trained on
-    truncated. Both are properties of the run, so they belong in an artifact
-    rather than in scrollback nobody keeps.
+    partially, so reading these from the log post hoc is a chore."""
+    from svb.train.trainer import train
 
-    Counted over the first epoch only: later epochs see the same split and would
-    multiply one dropped pair by the epoch count.
-    """
-    vocab, _ = build_vocab_from_texts(["abc"])
-    inner = make_ctc_collate(vocab)
-
-    def collate(batch: list[tuple[torch.Tensor, str]]) -> dict[str, object]:
-        out = inner(batch)
-        out["n_dropped"] = 1
-        out["n_at_audio_guard"] = 2
-        return out
+    vocab = _vocab()
+    # Batch 1: a short pair that works, and an utterance whose transcript needs
+    # more frames than the audio has (16 chars, 5 frames -> unalignable).
+    b1 = _collate([("a", 5), ("aaaaaaaaaaaaaaaa", 5)], vocab)
+    # Batch 2: an utterance longer than max_audio_frames, which gets truncated.
+    b2 = _collate([("a", 15)], vocab)
 
     result = train(
-        ScriptedLossCTC([5.0, 4.0]),
-        _cfg(),
-        _data(4),
-        _data(2),
-        collate,
-        max_epochs=2,
-        out_dir=tmp_path,
+        ScriptedLossCTC([1.0]),
+        [b1, b2],
+        val_batches=[_collate([("a", 5)], vocab)],
+        epochs=1,
+        vocab=vocab,
+        output_dir=tmp_path,
         device="cpu",
+        max_audio_frames=10,
     )
 
     # Two batches of two in the first epoch, so one drop and two guard hits each.

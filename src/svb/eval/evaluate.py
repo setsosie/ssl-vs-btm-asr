@@ -56,6 +56,9 @@ class EvalResult:
     refs: list[str] = field(default_factory=list)
     hyps: list[str] = field(default_factory=list)
 
+    def primary(self, spec: LangSpec) -> float:
+        return self.wer if spec.word_boundary else self.cer
+
 
 def _wer(refs: list[str], hyps: list[str]) -> float:
     import jiwer

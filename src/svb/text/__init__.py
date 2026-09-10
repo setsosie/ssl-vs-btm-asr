@@ -9,6 +9,7 @@ from .normalize import (
     empty_removal_counts,
     has_digits,
     module_sha256,
+    normalize_batch,
     normalize_text,
     normalize_with_counts,
 )
@@ -25,6 +26,7 @@ __all__ = [
     "empty_removal_counts",
     "has_digits",
     "module_sha256",
+    "normalize_batch",
     "normalize_text",
     "normalize_with_counts",
 ]

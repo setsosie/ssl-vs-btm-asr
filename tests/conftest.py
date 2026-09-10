@@ -91,8 +91,6 @@ def fetch_openslr(pytestconfig: pytest.Config) -> ModuleType:
 @pytest.fixture
 def run_matrix(pytestconfig: pytest.Config) -> ModuleType:
     return _load_script(Path(pytestconfig.rootpath), "run_matrix")
-
-
 # --------------------------------------------------------------------------- #
 # Model double
 # --------------------------------------------------------------------------- #

@@ -16,6 +16,7 @@ scoreable reference, which is a silent change to the test set unless reported.
 from __future__ import annotations
 
 import statistics
+
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -107,7 +108,6 @@ def collect_text_stats(
         stats.case_changed_chars += removed.pop("case_changed")
         for category, count in removed.items():
             stats.removed_by_category[category] += count
-
         stats.n_chars_normalized += len(normalized)
         if not normalized:
             stats.n_utts_empty_after_norm += 1

@@ -55,8 +55,6 @@ def test_aggregate_accepts_the_same_names_as_run() -> None:
 
     assert args.arm == "B_btm_ssl"
     assert args.scale == "64"
-
-
 def test_run_manifest_records_both_resolved_language_sets() -> None:
     """The held-out set is a fact of the results file, not an inference from it.
 

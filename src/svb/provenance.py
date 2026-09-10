@@ -36,6 +36,7 @@ _REPO_DIR = Path(__file__).resolve().parent
 _TRACKED_DISTRIBUTIONS = (
     "torch",
     "torchaudio",
+
     "jiwer",
     "numpy",
     "soundfile",

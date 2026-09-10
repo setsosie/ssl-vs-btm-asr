@@ -147,3 +147,8 @@ def test_an_unset_merge_head_flag_leaves_the_yaml_alone(tmp_path: Path) -> None:
         load_config("B_btm_ssl", "3", 0, yaml_path=path, overrides={"merge_head": True}).merge_head
         is True
     )
+
+
+def test_missing_config_fails_loudly() -> None:
+    with pytest.raises(FileNotFoundError, match="B_btm_ssl/2"):
+        load_config("B_btm_ssl", "2", 0)  # scale 2 is not a thing
