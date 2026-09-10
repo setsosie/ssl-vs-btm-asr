@@ -157,7 +157,6 @@ refuses otherwise.
 The macro-average is computed within each seed and then across seeds, so its `±`
 is run-to-run spread like every per-language row's. How far apart the languages
 themselves are is reported separately, under its own name, never as an error bar.
-
 ## Provenance
 
 Every run writes a self-contained directory —

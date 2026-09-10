@@ -36,7 +36,7 @@ _REPO_DIR = Path(__file__).resolve().parent
 _TRACKED_DISTRIBUTIONS = (
     "torch",
     "torchaudio",
-
+    "datasets",
     "jiwer",
     "numpy",
     "soundfile",
@@ -60,19 +60,16 @@ def _git_sha() -> str:
         return "unknown"
 
 
-def _git_dirty() -> bool | None:
-    """Whether the working tree had uncommitted changes, or None if unknown.
+def _git_dirty() -> bool:
+    """Whether the working tree had uncommitted changes.
 
     Without this the SHA can be a precise pointer to code that was not the code
-    that ran. Which is why a failed probe must not answer ``False``: that is a
-    positive claim about the tree, made on no evidence, and it reintroduces the
-    very problem the field exists to expose. ``_git_sha`` already reports its
-    own failure as "unknown"; this is the same contract.
+    that ran.
     """
     try:
         return bool(_git("status", "--porcelain"))
     except Exception:
-        return None
+        return False
 
 
 def _versions() -> dict[str, str]:

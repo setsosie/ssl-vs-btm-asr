@@ -51,7 +51,6 @@ and two counts that separate the split from what the model saw:
 frame budget, which CTC cannot align) and `n_at_audio_guard` (utterances the
 training-time truncation guard clipped). Both are counted over the first epoch,
 which is the size of the effect on the split.
-
 **`text_stats.json`** is the evidence for the normalization policy, per language
 and split: utterance and character counts before and after, how many utterances
 normalized to nothing, the median whitespace tokens per utterance beside the
@@ -89,7 +88,6 @@ output, because a mean whose membership changes between seeds is not comparable
 seed to seed. In the JSON, `std_is` records which quantity `std` is,
 `per_seed` carries the values it was computed from, and
 `spread_across_languages` is the between-language number.
-
 `svb analyze` reads the sidecars and reports what the test set leaves uncertain:
 a bootstrap percentile interval per language, and, with `--compare-to`, a
 one-sided paired permutation test against another arm at the same seed. It

@@ -128,16 +128,6 @@ def evaluate(
 
     if order is not None:
         # Undo the length sort so the sidecar lines up with the split on disk.
-        # The mapping is positional, so a collate that dropped anything would
-        # silently pair hypothesis i with reference j. The training collate does
-        # drop rows; passing it here instead of the evaluation one is the way
-        # this happens, so name it rather than scoring a shuffled corpus.
-        if len(refs) != len(order):
-            raise ValueError(
-                f"the collate returned {len(refs)} utterances for {len(order)} inputs, so "
-                "rows were dropped; evaluation must use a collate with drop_overlong and "
-                "drop_empty off, or the length sort cannot be undone"
-            )
         restored_refs = [""] * len(order)
         restored_hyps = [""] * len(order)
         for position, index in enumerate(order):

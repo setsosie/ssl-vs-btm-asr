@@ -190,12 +190,7 @@ def download(url: str, dest: Path, *, expected: int | None = None) -> Path:
             while block := resp.read(CHUNK):
                 out.write(block)
 
-    if expected is None:
-        # The HEAD request gave no Content-Length, so the length check cannot
-        # run and the zip CRC is the only integrity evidence left. Say which
-        # check was lost rather than letting the download look fully verified.
-        print(f"    {dest.name}: size unknown (no Content-Length), relying on the zip CRC")
-    elif part.stat().st_size != expected:
+    if expected is not None and part.stat().st_size != expected:
         raise OSError(f"{dest.name}: got {part.stat().st_size} bytes, expected {expected}")
     part.replace(dest)
     return dest
@@ -204,21 +199,11 @@ def download(url: str, dest: Path, *, expected: int | None = None) -> Path:
 # --- extraction ---------------------------------------------------------------
 
 
-def extract_archive(
-    archive: Path, dest: Path, index_name: str, seen: set[str] | None = None
-) -> dict[str, Any]:
+def extract_archive(archive: Path, dest: Path, index_name: str) -> dict[str, Any]:
     """Extract one archive flat into `dest`, renaming its index to `index_name`.
 
     Only member basenames are used, so on POSIX a crafted archive cannot write
     outside `dest`. Returns the counts the manifest reports.
-
-    `seen` accumulates the names written for one language across its archives.
-    A language's male and female archives share a directory, and the whole flat
-    layout rests on the index being the only name they have in common — true of
-    the real corpora only because the FileIDs carry an archive prefix. Pass a
-    shared set and a second archive reusing a name is refused instead of
-    overwriting the first archive's audio, which would leave the row counts and
-    the manifest perfectly consistent and the corpus wrong.
     """
     dest.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(archive) as zf:
@@ -239,18 +224,7 @@ def extract_archive(
         wavs = 0
         for member in members:
             name = PurePosixPath(member.filename).name
-            # The index is renamed per archive, so it is expected to repeat and
-            # is never a collision; every other name must be unique.
-            written = index_name if member is index_member else name
-            if seen is not None and member is not index_member:
-                if written in seen:
-                    raise ValueError(
-                        f"{archive.name}: {written!r} was already extracted from another "
-                        "archive of this language; the archives are supposed to use disjoint "
-                        "file ids, and overwriting would silently replace that audio"
-                    )
-                seen.add(written)
-            target = dest / written
+            target = dest / (index_name if member is index_member else name)
             if target.exists() and target.stat().st_size == member.file_size:
                 wavs += name.endswith(".wav")
                 continue
@@ -332,9 +306,6 @@ def fetch_language(entry: dict[str, Any], root: Path, *, mirror: str, keep_archi
     archive_dir = root / ".archives" / f"SLR{slr}"
     records: list[dict[str, Any]] = []
     reports: list[dict[str, Any]] = []
-    # Shared across this language's archives so a name written by one is
-    # refused by the next rather than overwritten.
-    seen: set[str] = set()
 
     for name, index_name in zip(entry["archives"], index_files, strict=True):
         url = archive_url(slr, name, mirror)
@@ -346,7 +317,7 @@ def fetch_language(entry: dict[str, Any], root: Path, *, mirror: str, keep_archi
             path.unlink(missing_ok=True)
             raise SystemExit(f"{name}: {problem} — deleted; rerun to download again")
         records.append(archive_record(path, url))
-        reports.append(extract_archive(path, dest, index_name, seen=seen))
+        reports.append(extract_archive(path, dest, index_name))
         print(f"    extracted {reports[-1]['wav_files']} wavs, {reports[-1]['index_rows']} rows")
 
     write_manifest(

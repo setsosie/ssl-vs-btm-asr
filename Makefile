@@ -1,4 +1,5 @@
 .PHONY: install fetch data exp aggregate tables test lint check precommit
+
 ARM   ?= A_ssl
 SCALE ?= 3
 DEVICE ?= cuda
@@ -18,7 +19,7 @@ fetch:
 
 # Report split sizes for every configured language, from metadata only.
 data:
-	bash scripts/check_data.sh
+	python scripts/check_data.py
 
 # Run all seeds for one (arm, scale). Sequential here; use scripts/run_matrix.py
 # + your scheduler to parallelize across GPUs.
@@ -37,6 +38,15 @@ aggregate:
 #   make tables SCALE=3 ARM=A_ssl COMPARE_TO=B_btm_ssl
 tables:
 	uv run svb analyze --arm $(ARM) --scale $(SCALE) $(if $(COMPARE_TO),--compare-to $(COMPARE_TO),)
+test:
+	uv run pytest
+
+# Same three commands, over the same paths, as the `checks` job in
+# .github/workflows/ci.yml. If this passes locally, CI passes.
+lint:
+	uv run ruff check .
+	uv run ruff format --check .
+	uv run mypy src tests
 # Everything CI runs.
 check: lint test
 

@@ -14,6 +14,48 @@ concurrency:
 permissions:
   contents: read
 
+jobs:
+  checks:
+    name: lint, types, tests (CPU)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # setup-uv stopped publishing floating major tags at v8, so the action and
+      # the uv it installs are both pinned exactly.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          version: "0.7.8"
+          enable-cache: true
+
+      - name: Install Python 3.12
+        run: uv python install 3.12
+
+      # CPU-only PyTorch. The committed lock resolves torch from PyPI, which on
+      # Linux drags in ~3.3 GB of nvidia-* CUDA wheels that CI never executes.
+      # `--torch-backend cpu` sources torch and torchaudio from the PyTorch CPU
+      # index instead: same versions, no CUDA, ~1.2 GB instead of ~5.2 GB
+      # installed. It is a `uv pip install` flag only — `uv sync` has no
+      # equivalent in any uv release, so the environment is built with pip
+      # rather than synced, and the `lock` job below is what guards the lock.
+      - name: Create CPU-only environment
+        run: |
+          uv venv --python 3.12
+          uv pip install --preview --torch-backend cpu -e ".[dev]"
+
+      # --no-sync everywhere: a plain `uv run` would re-sync from the lock and
+      # silently replace the CPU wheels with the CUDA ones.
+      - name: ruff check
+        run: uv run --no-sync ruff check --output-format=github .
+
+      - name: ruff format
+        run: uv run --no-sync ruff format --check .
+
+      - name: mypy
+        run: uv run --no-sync mypy src tests
+
+
       - name: pytest
         run: uv run --no-sync pytest
 
