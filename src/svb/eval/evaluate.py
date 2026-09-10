@@ -127,6 +127,11 @@ def evaluate(
         refs.extend(batch["texts"])
 
     if order is not None:
+        if len(refs) != len(order):
+            raise ValueError(
+                f"The collate function dropped {len(order) - len(refs)} utterances. "
+                "This cannot be done during evaluation."
+            )
         # Undo the length sort so the sidecar lines up with the split on disk.
         restored_refs = [""] * len(order)
         restored_hyps = [""] * len(order)

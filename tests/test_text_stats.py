@@ -93,3 +93,44 @@ def test_stats_serialize_for_the_run_sidecar() -> None:
     assert payload["n_chars_raw"] == 6
     assert isinstance(payload["removed_by_category"], dict)
     assert "evicted_by_floor" in payload
+
+
+def test_a_protected_apostrophe_is_not_reported_as_removed() -> None:
+    """The tally must describe what happened, not what a category scan would say.
+
+    Counting every punctuation character in the input reports the intra-word
+    apostrophes the policy goes out of its way to keep as removals, which
+    overstates punctuation removal for French, Italian, Ukrainian and Swahili by
+    exactly the characters that survived.
+    """
+    stats = collect_text_stats(["ng'ombe, l'été!"])
+
+    assert stats.removed_by_category["P"] == 2  # the comma and the exclamation mark
+    assert stats.n_chars_normalized == len("ng'ombe l'été")
+
+
+def test_a_rule_that_is_switched_off_removes_nothing() -> None:
+    from svb.text.normalize import NormalizerPolicy
+
+    stats = collect_text_stats(
+        ["Hello, world!"], NormalizerPolicy(strip_punctuation=False, strip_symbols=False)
+    )
+
+    assert stats.removed_by_category["P"] == 0
+    assert stats.removed_by_category["S"] == 0
+
+
+def test_case_changes_are_not_counted_when_case_folding_is_off() -> None:
+    from svb.text.normalize import NormalizerPolicy
+
+    assert collect_text_stats(["Hello"], NormalizerPolicy(case="none")).case_changed_chars == 0
+    assert collect_text_stats(["Hello"]).case_changed_chars == 1
+
+
+def test_every_category_a_rule_can_delete_has_a_slot() -> None:
+    """A removal with nowhere to be counted is a removal nobody sees."""
+    stats = collect_text_stats(["anything"])
+
+    assert set(stats.removed_by_category) >= {"P", "S", "Cf", "Cc", "Cs", "Co", "Cn"}
+    assert "arabic_marks" in stats.removed_by_category
+    assert "case_changed" not in stats.removed_by_category  # its own field

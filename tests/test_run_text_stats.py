@@ -17,13 +17,16 @@ from svb.config import TextConfig
 from svb.data.registry import LangSpec
 from svb.model.ctc_vocab import build_vocab_from_texts
 
+# Every split's characters appear in its language's training split, as a real
+# corpus split of one language mostly does. Anything else would make the
+# unknown-character warning fire throughout the suite and bury a real one.
 CORPUS = {
     ("en", "train"): ["Hello, world!", "the cat sat", "a dog ran"],
-    ("en", "validation"): ["good morning"],
+    ("en", "validation"): ["the dog ran"],
     ("en", "test"): ["hello there", "!!!"],
     ("ja", "train"): ["コーヒーを飲む", "今日はいい天気"],
-    ("ja", "validation"): ["犬が走る"],
-    ("ja", "test"): ["猫が寝る"],
+    ("ja", "validation"): ["今日は飲む"],
+    ("ja", "test"): ["いい天気"],
     ("telugu", "train"): ["ఇది తెలుగు భాష."],
     ("telugu", "validation"): ["ఇది తెలుగు"],
     ("telugu", "test"): ["తెలుగు భాష"],
@@ -130,7 +133,58 @@ def test_the_heldout_language_is_measured_against_its_expanded_vocab(tmp_path, s
 
 
 def test_what_the_floor_evicted_is_recorded(tmp_path, stub_texts) -> None:
-    data = _write(tmp_path, min_char_count=2)
+    """A floor of two on a corpus this small evicts most of the alphabet, which
+    is exactly when the unknown-character warning should be shouting: the floor
+    is what put those characters out of reach."""
+    with pytest.warns(UserWarning, match="absent from the vocabulary"):
+        data = _write(tmp_path, min_char_count=2)
 
     assert data["training_vocab_evicted"]
     assert all(count < 2 for count in data["training_vocab_evicted"].values())
+
+
+def test_a_vocabulary_that_cannot_spell_a_split_warns(tmp_path, monkeypatch) -> None:
+    """The number always lands in the file, but a file nobody opens is not a
+    warning. Unknown characters are a floor under the language's error rate."""
+    import svb.data.datasets as datasets
+
+    corpus = dict(CORPUS)
+    # A Greek sentence the Latin/Japanese/Telugu training vocab has no ids for.
+    corpus[("en", "test")] = ["καλημέρα κόσμε"]
+    monkeypatch.setattr(datasets, "load_texts", lambda spec, split: corpus[(spec.code, split)])
+
+    training, heldout = _specs()
+    text_cfg = TextConfig()
+    vocab, evicted = build_vocab_from_texts(
+        [t for (code, split), texts in CORPUS.items() if split == "train" for t in texts],
+        policy=text_cfg.policy,
+    )
+
+    with pytest.warns(UserWarning, match=r"en/test:.*absent from the vocabulary"):
+        write_text_stats(tmp_path / "s.json", training, heldout, text_cfg, vocab, evicted)
+
+
+def test_full_coverage_says_nothing(recwarn) -> None:
+    """A vocabulary that can spell the split is the normal case and is silent."""
+    from svb.cli import _warn_on_unknown_characters
+    from svb.text.stats import TextStats
+
+    _warn_on_unknown_characters("en", "train", TextStats(n_chars_normalized=1000, unk_chars=0))
+
+    assert recwarn.list == []
+
+
+def test_the_warning_threshold_is_a_rate_not_a_count(recwarn) -> None:
+    """One stray character in a large corpus is not a floor worth flagging; a
+    tenth of a percent of them is."""
+    from svb.cli import UNK_RATE_WARNING, _warn_on_unknown_characters
+    from svb.text.stats import TextStats
+
+    assert UNK_RATE_WARNING == 0.001
+    below = TextStats(n_chars_normalized=100_000, unk_chars=100, unk_rate=0.001)
+    _warn_on_unknown_characters("en", "train", below)
+    assert recwarn.list == []
+
+    above = TextStats(n_chars_normalized=100_000, unk_chars=101, unk_rate=0.00101)
+    with pytest.warns(UserWarning, match="floor"):
+        _warn_on_unknown_characters("en", "train", above)

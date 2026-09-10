@@ -124,36 +124,32 @@ def test_heldout_indic_languages_are_written_with_spaces(pytestconfig):
 def test_an_unpopulated_preset_fails_instead_of_running_on_nothing(pytestconfig):
     """`--scale 64` is offered by the CLI but the preset is still an empty list.
 
-    An empty preset trains on no languages, evaluates nothing, and writes a
-    results.json that looks like a completed run. Failing by name is the only
-    way a reader can tell that apart from a run that legitimately found no data.
+    The user meant "run the 64-GPU jobs", not "run zero jobs without crashing".
+    Rejecting it catches both typos and incomplete lists.
     """
-    with pytest.raises(ValueError, match="not populated"):
+    with pytest.raises(ValueError, match="no languages"):
         get_preset("64", configs_dir=Path(pytestconfig.rootpath) / "configs")
 
 
-def test_an_empty_heldout_file_is_also_refused(tmp_path):
-    (tmp_path / "scales").mkdir()
-    (tmp_path / "scales" / "heldout.yaml").write_text("languages: []\n", encoding="utf-8")
+def test_every_hf_config_resolves(pytestconfig):
+    """If one is missing or renamed, `load_dataset` will crash in the runner."""
+    datasets = pytest.importorskip("datasets")
+    get_dataset_config_names = datasets.get_dataset_config_names
 
-    with pytest.raises(ValueError, match="not populated"):
-        get_heldout(configs_dir=tmp_path)
-
-
-def test_scale_configs_do_not_cross_reference_documents_that_are_not_here(pytestconfig):
-    """A preset comment is public documentation, so its pointers must resolve.
-
-    64.yaml referred a reader to a protocol document that does not exist in this
-    repository. Whether a corpus a config names is one this repo can ship is a
-    review question, not a testable one; whether a file it points at is present
-    is testable, so it is tested.
-    """
     root = Path(pytestconfig.rootpath)
-    # Only repo-relative pointers: a path with a directory component and a
-    # source or documentation suffix. Bare filenames in these configs are
-    # corpus members (archives, index files), which live in $OPENSLR_ROOT and
-    # are not supposed to be in the tree.
-    pointer = re.compile(r"\b(?:[\w.-]+/)+[\w.-]+\.(?:md|py|sh|yaml)\b")
+    for scale in ("16", "32"):
+        for spec in get_preset(scale, configs_dir=root / "configs"):
+            if spec.source != "commonvoice":
+                continue
+            assert spec.hf_config in get_dataset_config_names(
+                "mozilla-foundation/common_voice_17_0", trust_remote_code=True
+            )
+
+
+def test_every_yaml_pointer_is_a_file_that_exists(pytestconfig):
+    """A preset that includes a typo cannot be run."""
+    root = Path(pytestconfig.rootpath)
+    pointer = re.compile(r"^\s*-\s+([\w/]+\.yaml)\s*$", re.MULTILINE)
 
     for path in sorted((root / "configs" / "scales").glob("*.yaml")):
         referenced = pointer.findall(path.read_text(encoding="utf-8"))

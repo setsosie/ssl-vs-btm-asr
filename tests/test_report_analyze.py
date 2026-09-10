@@ -199,3 +199,21 @@ def test_a_run_with_no_sidecars_is_named_rather_than_silently_empty(tmp_path: Pa
     )
     with pytest.raises(FileNotFoundError, match="no prediction sidecars"):
         intervals_for_run(run, metric="wer")
+
+
+def test_the_refusal_names_what_actually_differs(tmp_path: Path):
+    """Two policies produce the same number of references from one corpus and
+    different strings, so a message that reports only the counts describes the
+    rarer case and says nothing about this one."""
+    for arm, ref in (("A_ssl", "a b c d"), ("B_btm_ssl", "a b c e")):
+        run = write_run(
+            tmp_path, arm, "3", 0, in_dist={"en": metrics(0.0, 0.0)}, word_boundary={"en": True}
+        )
+        write_sidecar(run, "en", [("x y", "x y"), (ref, "a b c d")], transfer=False)
+
+    with pytest.raises(ValueError, match=r"reference 1 is 'a b c d' vs 'a b c e'"):
+        compare_runs(
+            tmp_path / "A_ssl" / "3" / "seed0",
+            tmp_path / "B_btm_ssl" / "3" / "seed0",
+            metric="wer",
+        )

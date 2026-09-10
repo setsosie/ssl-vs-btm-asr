@@ -73,15 +73,24 @@ def slr_root(tmp_path: Path, fixtures_dir: Path) -> Path:
     return root
 
 
-@pytest.fixture
-def fetch_openslr(pytestconfig: pytest.Config) -> ModuleType:
-    """Load `scripts/fetch_openslr.py` as a module without touching sys.path."""
-    path = Path(pytestconfig.rootpath) / "scripts" / "fetch_openslr.py"
-    spec = importlib.util.spec_from_file_location("fetch_openslr", path)
+def _load_script(root: Path, name: str) -> ModuleType:
+    """Load a file under `scripts/` as a module without touching sys.path."""
+    path = root / "scripts" / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(name, path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+@pytest.fixture
+def fetch_openslr(pytestconfig: pytest.Config) -> ModuleType:
+    return _load_script(Path(pytestconfig.rootpath), "fetch_openslr")
+
+
+@pytest.fixture
+def run_matrix(pytestconfig: pytest.Config) -> ModuleType:
+    return _load_script(Path(pytestconfig.rootpath), "run_matrix")
 
 
 # --------------------------------------------------------------------------- #

@@ -52,8 +52,17 @@ release you actually downloaded rather than against this file.
 ## OpenSLR held-out Indic (`OPENSLR_ROOT`)
 
 Four crowdsourced multi-speaker read-speech corpora, held out of every training
-mix. Fetch them once:
+mix in this repository and absent from the training vocabulary until the CTC
+head is expanded for transfer.
 
+They are **not** unseen by the encoder. XEUS was pretrained on unlabelled audio
+from over four thousand languages, these among them, so "held out" means held
+out of the supervised pipeline rather than a language the model has never heard.
+The transfer experiment measures how far fine-tuning drives each starting point
+down on a language the pipeline never supervised, not zero-shot generalization
+to an unheard one. Any write-up should say it that way.
+
+Fetch them once:
 ```bash
 python scripts/fetch_openslr.py --root $OPENSLR_ROOT
 python scripts/fetch_openslr.py --root $OPENSLR_ROOT --langs marathi   # one language
@@ -92,11 +101,17 @@ name the config declares. That is why `archives` and `index_files` in
 `configs/scales/heldout.yaml` are parallel lists.
 
 **Integrity.** openslr.org publishes no checksums for these resources. An
-archive is accepted when its length matches the server's `Content-Length` and a
-full zip CRC pass succeeds; a failing archive is deleted rather than extracted.
-The SHA-256 of each archive is recorded in `manifest.json` for later reference,
-not compared against a published value.
+archive is accepted when its length matches the server's `Content-Length` — when
+the server sends one — and a full zip CRC pass succeeds; a failing archive is
+deleted rather than extracted. Where there is no `Content-Length` the length
+check cannot run and the CRC is the only evidence, which the fetch says out loud
+rather than reporting the download as fully verified. The SHA-256 of each archive
+is recorded in `manifest.json` for later reference, not compared against a
+published value.
 
+The downloaded archives themselves are deleted once extracted; pass
+`--keep-archives` to `scripts/fetch_openslr.py` to keep them under
+`$OPENSLR_ROOT/.archives/` and make a re-extraction free.
 **Licence.** All four are
 [CC-BY-SA-4.0](https://creativecommons.org/licenses/by-sa/4.0/), stated on each
 `openslr.org/<n>/` page. Attribute the corpora and share derivatives alike.
@@ -120,25 +135,31 @@ are documented the same way on openslr.org and are expected to match, but the
 loader does not assume it: it parses the ids at load time and reports which
 policy it ended up with, so a corpus that turns out to be shaped differently
 says so rather than quietly producing a split of another kind.
-
 Speakers are ordered by SHA-1 of the speaker key, then each is given to whichever
 split has the largest remaining shortfall. Bucketing by hash alone would be far
 too lumpy at these sizes: Malayalam has 42 speakers across both archives and
-Marathi only 9, and single speakers contribute up to 18% of a corpus. Because
-whole speakers are indivisible, the realised proportions drift from 80/10/10 —
-more so the fewer speakers a language has.
+Marathi only 9, and one speaker can be a large fraction of a small corpus — in
+SLR63's female index the biggest contributes 160 of 2103 rows. Because whole
+speakers are indivisible, the realised proportions drift from 80/10/10 — more so
+the fewer speakers a language has.
 
-If FileIDs do not parse that way, or a language has fewer than three speakers,
-the split degrades to utterance level. That case carries an obvious caveat: the
-same speaker then appears in train and test, so the result is not
-speaker-independent.
+That shortfall rule on its own can leave a split with nothing in it, which one
+dominant speaker in a nine-speaker corpus is enough to do. So a second pass
+fills any empty split: the split holding the most speakers donates its smallest
+one, until none is empty. Reading the shortfall rule alone would suggest an
+empty test split is reachable for Marathi; it is not, and the difference is this
+pass rather than luck.
+
+If **any** FileID does not parse that way, or a language has fewer than three
+speakers, the split degrades to utterance level for that whole language. That
+case carries an obvious caveat: the same speaker then appears in train and test,
+so the result is not speaker-independent.
 
 Which policy was used is never left to be assumed. `check_data.py` prints it per
 language, and every run records it — together with `test_files_sha1`, the SHA-1
 of the test FileID list — under `transfer.<language>` in its `results.json`. So
 a held-out number always sits beside both the policy that produced it and a
 digest pinning the exact set of utterances scored.
-
 ### Odia — decision pending
 
 Odia is deliberately **not** part of the held-out set. It is kept as a commented
@@ -152,6 +173,14 @@ ways that all need a decision first:
   redistributing anything derived from it or committing its transcripts.
 - It ships its own train/test split, so the 80/10/10 derivation above must not
   be applied to it.
+
+There is also a mechanical obstacle, which is worth knowing before anyone spends
+a download on it: `scripts/fetch_openslr.py` handles zip archives with a
+`line_index*.tsv` member, and Odia ships `.tar.gz` archives with
+`transcription_*.txt`. Enabling the commented block as written downloads the
+archives and then fails on the first one as an unreadable zip. Enabling Odia
+therefore needs a tar path and a different index parser as well as the licence
+decision.
 
 Until that is resolved the held-out set is four languages, and any write-up
 should say four.

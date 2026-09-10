@@ -147,8 +147,13 @@ whitespace tokens per utterance alongside the declared `word_boundary`, and the
 unknown-character rate against the vocabulary that language is actually scored
 with. That last number is an irreducible floor under the language's error rate,
 because a character the vocabulary lacks cannot be produced however good the
-model is.
+model is, and a run warns when it rises above a tenth of a percent rather than
+leaving it in a file nobody opens.
 
+The removal counts are tallied by the normalizer as it works, so they describe
+the transformation that happened rather than what a scan of the input would
+guess: an intra-word apostrophe that survives is not counted as removed, and a
+rule the policy switched off removes nothing.
 ## Changing the policy
 
 Bump `NORMALIZER_VERSION` for any change in behaviour. Results produced under

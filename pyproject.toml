@@ -72,7 +72,7 @@ ignore = [
 
 [tool.mypy]
 python_version = "3.12"
-files = ["src", "tests"]
+files = ["src", "tests", "scripts"]
 warn_unused_ignores = true
 warn_redundant_casts = true
 no_implicit_optional = true

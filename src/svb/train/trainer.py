@@ -31,6 +31,14 @@ class TrainResult:
     best_epoch: int
     epochs_run: int
     checkpoint: Path
+    #: Training pairs removed because the transcript could not be aligned to the
+    #: audio, and utterances the audio guard truncated. Counted over the first
+    #: epoch, which is the size of the effect on the split; later epochs see the
+    #: same data and would multiply it by the epoch count. Reported so the
+    #: reader knows what the run actually trained on rather than what the split
+    #: contains.
+    n_dropped_unalignable: int = 0
+    n_at_audio_guard: int = 0
 
 
 def make_worker_init_fn(seed: int) -> Callable[[int], None]:
@@ -143,6 +151,8 @@ def train(
 
     best_val = float("inf")
     best_epoch = -1
+    first_epoch_dropped = 0
+    first_epoch_at_guard = 0
     bad = 0
     epoch = -1
     # Floor: a run whose validation loss never becomes finite would otherwise
@@ -173,6 +183,10 @@ def train(
                 f"[svb] epoch {epoch}: {n_at_guard} utterances reached the audio "
                 f"truncation guard, {n_dropped} dropped as unalignable"
             )
+        if epoch == 0:
+            # The first pass over the split is the size of the effect. Summing
+            # every epoch would report one dropped pair as `max_epochs` of them.
+            first_epoch_dropped, first_epoch_at_guard = n_dropped, n_at_guard
 
         val_loss = _validate(model, val_loader, device, autocast)
         # NaN never compares less than anything, so an unguarded `<` would
@@ -191,6 +205,8 @@ def train(
         best_epoch=best_epoch,
         epochs_run=epoch + 1,
         checkpoint=ckpt,
+        n_dropped_unalignable=first_epoch_dropped,
+        n_at_audio_guard=first_epoch_at_guard,
     )
 
 

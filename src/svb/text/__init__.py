@@ -6,10 +6,12 @@ from .normalize import (
     NORMALIZER_VERSION,
     NormalizerPolicy,
     count_arabic_marks,
+    empty_removal_counts,
     has_digits,
     module_sha256,
     normalize_batch,
     normalize_text,
+    normalize_with_counts,
 )
 from .stats import TextStats, collect_text_stats
 
@@ -21,8 +23,10 @@ __all__ = [
     "TextStats",
     "collect_text_stats",
     "count_arabic_marks",
+    "empty_removal_counts",
     "has_digits",
     "module_sha256",
     "normalize_batch",
     "normalize_text",
+    "normalize_with_counts",
 ]

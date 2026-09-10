@@ -81,7 +81,16 @@ def _audio_seconds(path: Path) -> float | None:
 
 
 def _read_clip_durations(path: Path) -> dict[str, float]:
-    """``clip`` → seconds, from Common Voice's own manifest."""
+    """``clip`` → seconds, from Common Voice's own manifest.
+
+    The release documents ``clip`` as the clip filename and the split tsvs'
+    ``path`` as the relative path of the audio file. In every release checked
+    those are the same bare filename, which is what makes the join below work.
+    The tests here validate against a fixture written from that documentation
+    rather than against a real release, so a release that put a directory prefix
+    in ``path`` would miss every lookup — reported as ``n_missing`` and as an
+    "undercount" line in the table, not silently absorbed into the totals.
+    """
     durations: dict[str, float] = {}
     with open(path, encoding="utf-8") as handle:
         for row in csv.DictReader(handle, delimiter="\t"):
