@@ -30,19 +30,11 @@ library's shuffle, whose output is not stable across versions.
 The FileID is ``<corpus-prefix>_<speaker>_<utterance>``: in SLR63's female index
 2103 utterances carry only 24 distinct middle fields (160, 142, 140 ... rows
 each) while every third field is unique, so the middle field is a speaker id.
-That inspection covered SLR63's female index; the other corpora are parsed the
-same way at load time and report the policy they actually got. The split is
-therefore **speaker-disjoint** — test speakers are never seen in training, which
-is what a transfer number should measure.
-
-Languages are small in speakers (SLR63 has 24 female + 18 male, SLR64 only 9),
-so groups are assigned to whichever split has the largest remaining shortfall
-rather than bucketed by hash, which is far less lumpy at these sizes. It is not
-exact: whole speakers are indivisible, so the realised proportions drift from
-80/10/10, and the fewer and more uneven a language's speakers the further they
-drift. Nine evenly-sized speakers land near 78/11/11; nine uneven ones can put
-under 3% of the utterances in the test split. Read the realised sizes from
-``check_data.sh`` rather than assuming the nominal fractions.
+The split is therefore **speaker-disjoint** — test speakers are never seen in
+training, which is what a transfer number should measure. Languages are small in
+speakers (SLR63 has 24 female + 18 male, SLR64 only 9), so groups are assigned
+to whichever split has the largest remaining shortfall rather than bucketed by
+hash, which keeps the utterance counts near 80/10/10 with so few groups.
 
 If FileIDs do not parse as ``prefix_speaker_utterance``, or fewer than three
 speakers exist, the split falls back to utterance level. That is reported as

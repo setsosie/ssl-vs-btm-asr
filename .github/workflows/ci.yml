@@ -9,11 +9,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Read-only: these jobs lint, typecheck and test. Nothing writes to the
-# repository, so the default token scope is more than they need.
-permissions:
-  contents: read
-
 jobs:
   checks:
     name: lint, types, tests (CPU)

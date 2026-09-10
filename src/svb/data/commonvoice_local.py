@@ -89,3 +89,20 @@ def load_cv_texts(
 ) -> list[str]:
     base = _cv_root(root) / lang
     return [t for _, t in _read_rows(base / _SPLIT_FILE[split], text_column)]
+
+
+def cv_split_dir(lang: str, root: str | None = None) -> Path:
+    """The directory holding one language's split tsvs and ``clips/``."""
+    return _cv_root(root) / lang
+
+
+def load_cv_rows(
+    lang: str, split: str, root: str | None = None, text_column: str = "sentence"
+) -> list[tuple[str, str]]:
+    """``(clip filename, transcript)`` for one split.
+
+    The audio accounting needs the filenames, which ``load_cv_texts`` discards.
+    Both go through the same reader so the two cannot disagree about which rows
+    a split contains.
+    """
+    return _read_rows(cv_split_dir(lang, root) / _SPLIT_FILE[split], text_column)

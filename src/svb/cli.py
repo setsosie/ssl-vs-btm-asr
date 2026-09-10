@@ -1,9 +1,19 @@
-"""Command-line entry point: ``svb run|aggregate``.
+"""Command-line entry point: ``svb run|aggregate|analyze``.
 
 ``run`` executes one (arm, scale, seed) end to end and writes a single
-``results.json`` plus ``resolved_config.yaml``, ``env.json`` and
-``text_stats.json``. ``aggregate`` reads every seed's results for an
-(arm, scale) and prints mean ± std.
+``results.json`` plus ``resolved_config.yaml``, ``env.json``,
+``text_stats.json`` and a per-language predictions sidecar.
+
+``aggregate`` reads every seed's results for an (arm, scale) and reports WER,
+CER and the per-language primary metric as mean ± std across seeds.
+
+``analyze`` reads the sidecars instead, and reports what a single run's test set
+leaves uncertain: utterance-level bootstrap intervals, and paired permutation
+tests between two arms at the same seed. It writes ``tables/``.
+
+The split between the last two is the point. Seed spread and test-set sampling
+uncertainty are different quantities, and a five-seed standard deviation is not
+a confidence interval.
 """
 
 from __future__ import annotations
@@ -271,21 +281,100 @@ def cmd_run(args: argparse.Namespace) -> None:
 
 
 def cmd_aggregate(args: argparse.Namespace) -> None:
-    from .stats.analysis import aggregate_seeds
+    from .report.aggregate import aggregate_runs, load_runs, to_json, to_markdown
 
-    rows: dict[str, list[float]] = {}
-    base = results_root(args.results_root) / args.arm / args.scale
-    seeds = sorted(p for p in base.glob("seed*") if (p / "results.json").exists())
-    for p in seeds:
-        data = json.loads((p / "results.json").read_text())
-        for section in ("in_distribution", "transfer"):
-            for lang, m in data.get(section, {}).items():
-                rows.setdefault(f"{section}/{lang}", []).append(m["wer"])
-    print(f"# {args.arm} scale={args.scale}  ({len(seeds)} seeds)")
-    print(f"{'metric':32s} {'mean':>8s} {'std':>7s}  n")
-    for k in sorted(rows):
-        agg = aggregate_seeds(rows[k])
-        print(f"{k:32s} {agg.mean:8.2f} {agg.std:7.2f}  {agg.n_seeds}")
+    agg = aggregate_runs(load_runs(results_root(args.results_root), args.arm, args.scale))
+    if args.as_json:
+        # Nothing else on stdout, so the command can be piped straight into a
+        # parser without a filtering step that would have to know the layout.
+        print(json.dumps(to_json(agg), ensure_ascii=False, indent=2))
+        return
+    print(to_markdown(agg), end="")
+
+
+def cmd_analyze(args: argparse.Namespace) -> None:
+    from .report.aggregate import load_runs
+    from .report.analyze import render_metric_tables
+
+    root = results_root(args.results_root)
+    runs = [r.path for r in load_runs(root, args.arm, args.scale) if _wanted(r.seed, args.seeds)]
+    if not runs:
+        raise FileNotFoundError(
+            f"no runs for {args.arm}/{args.scale} with seed(s) {sorted(args.seeds)} under {root}"
+        )
+
+    comparisons: list[tuple[Path, Path]] = []
+    if args.compare_to:
+        # Pair within a seed. Two arms at the same seed scored the same test
+        # split, which is what makes the test paired; across seeds it would not
+        # be, and the sidecar reference check would reject it anyway.
+        other = {r.seed: r.path for r in load_runs(root, args.compare_to, args.scale)}
+        comparisons = [
+            (run, other[seed])
+            for run, seed in zip(runs, _seeds_of(runs), strict=True)
+            if seed in other
+        ]
+
+    written = render_metric_tables(
+        scale=args.scale,
+        runs=runs,
+        comparisons=comparisons,
+        out_dir=Path(args.tables_dir),
+        n_resamples=args.resamples,
+    )
+    for path in written:
+        print(f"[svb] wrote {path}")
+
+
+SCOPES = (*SCALES, "heldout", "all")
+
+
+def specs_for_scope(scope: str) -> list[LangSpec]:
+    """The languages one ``--scope`` names, each listed once.
+
+    ``all`` sweeps every preset plus the held-out set. A preset that is still a
+    placeholder raises on load, which is right for a run and wrong here: this
+    command reports what is on disk, so an unpopulated scale is named and the
+    sweep continues. English is in both the 3 and 16 presets, so duplicates are
+    dropped — counting a language twice would double its hours in the total.
+    """
+    from .data.registry import get_heldout, get_preset
+
+    collected: list[LangSpec] = []
+    scales = SCALES if scope == "all" else ((scope,) if scope in SCALES else ())
+    for scale in scales:
+        try:
+            collected += get_preset(scale)
+        except ValueError as exc:
+            print(f"[svb] scale {scale}: {exc}")
+    if scope in ("all", "heldout"):
+        collected += get_heldout()
+
+    seen: set[tuple[str, str]] = set()
+    unique: list[LangSpec] = []
+    for spec in collected:
+        key = (spec.source, spec.code)
+        if key not in seen:
+            seen.add(key)
+            unique.append(spec)
+    return unique
+
+
+def cmd_data_stats(args: argparse.Namespace) -> None:
+    from .report.durations import collect_durations, write_tables
+
+    rows = collect_durations(specs_for_scope(args.scope), min_train_hours=args.min_train_hours)
+    for path in write_tables(rows, Path(args.tables_dir), min_train_hours=args.min_train_hours):
+        print(f"[svb] wrote {path}")
+
+
+def _seeds_of(runs: list[Path]) -> list[int]:
+    return [int(run.name.removeprefix("seed")) for run in runs]
+
+
+def _wanted(seed: int, chosen: list[int]) -> bool:
+    """No ``--seed`` means every seed that has results."""
+    return not chosen or seed in chosen
 
 
 def _add_results_root(parser: argparse.ArgumentParser) -> None:
@@ -328,13 +417,63 @@ def build_parser() -> argparse.ArgumentParser:
     _add_results_root(r)
     r.set_defaults(func=cmd_run)
 
-    a = sub.add_parser("aggregate", help="mean±std across seeds")
+    a = sub.add_parser("aggregate", help="mean±std across seeds (WER, CER, primary)")
     # Same choices as `run`: unvalidated, a misspelled arm printed an empty
     # table, which reads like a run that has not happened rather than a typo.
     a.add_argument("--arm", required=True, choices=ARMS)
     a.add_argument("--scale", required=True, choices=SCALES)
+    a.add_argument(
+        "--json",
+        dest="as_json",
+        action="store_true",
+        help="emit JSON on stdout instead of the Markdown table",
+    )
     _add_results_root(a)
     a.set_defaults(func=cmd_aggregate)
+
+    n = sub.add_parser(
+        "analyze", help="utterance-level bootstrap CIs and paired tests, into tables/"
+    )
+    n.add_argument("--arm", required=True, choices=ARMS)
+    n.add_argument("--scale", required=True, choices=SCALES)
+    n.add_argument(
+        "--seed",
+        dest="seeds",
+        type=int,
+        action="append",
+        default=[],
+        help="restrict to this seed; repeatable. Default: every seed with results.",
+    )
+    n.add_argument(
+        "--compare-to",
+        dest="compare_to",
+        default=None,
+        choices=ARMS,
+        help="also run a paired permutation test against this arm, seed for seed",
+    )
+    n.add_argument("--tables-dir", dest="tables_dir", default="tables")
+    n.add_argument(
+        "--resamples",
+        type=int,
+        default=10_000,
+        help="bootstrap and permutation draws (default: 10000)",
+    )
+    _add_results_root(n)
+    n.set_defaults(func=cmd_analyze)
+
+    d = sub.add_parser(
+        "data-stats", help="per-language audio hours and utterance counts, into tables/"
+    )
+    d.add_argument("--scope", default="all", choices=SCOPES)
+    d.add_argument("--tables-dir", dest="tables_dir", default="tables")
+    d.add_argument(
+        "--min-train-hours",
+        dest="min_train_hours",
+        type=float,
+        default=0.0,
+        help="flag languages with less training audio than this (default: no threshold)",
+    )
+    d.set_defaults(func=cmd_data_stats)
 
     return p
 
