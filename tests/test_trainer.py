@@ -194,10 +194,12 @@ def test_dropped_training_pairs_reach_the_result_not_only_the_log(tmp_path) -> N
     # b1: 320 samples, text "aa". Downsampling by 320 gives max label len 1.
     # "aa" has len 2 > 1, so it is unalignable and dropped.
     # b2: 640 samples, max_audio_samples 400 -> hits audio guard.
-    train_ds = ListDataset([
-        (torch.ones(320), "aa"),
-        (torch.ones(640), "a"),
-    ])
+    train_ds = ListDataset(
+        [
+            (torch.ones(320), "aa"),
+            (torch.ones(640), "a"),
+        ]
+    )
     val_ds = ListDataset([(torch.ones(320), "a")])
 
     collate = make_ctc_collate(

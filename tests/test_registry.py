@@ -119,6 +119,8 @@ def test_heldout_indic_languages_are_written_with_spaces(pytestconfig):
     specs = get_heldout(configs_dir=Path(pytestconfig.rootpath) / "configs")
 
     assert all(s.word_boundary for s in specs)
+
+
 def test_an_unpopulated_preset_fails_instead_of_running_on_nothing(pytestconfig):
     """`--scale 64` is offered by the CLI but the preset is still an empty list.
 
