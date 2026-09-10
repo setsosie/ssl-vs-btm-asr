@@ -1,8 +1,9 @@
 """Typed, frozen configuration for a single run.
 
 A run is fully determined by ``(arm, scale, seed)`` plus the shared defaults
-here. Optimizer defaults are the XEUS-HPO-01 Trial 19 values used throughout the
-paper; they are reported verbatim in every run's dumped config.
+here. Optimizer defaults are the best trial of the author's earlier
+hyperparameter search on this encoder, used verbatim throughout; they are
+reported in every run's dumped config.
 """
 
 from __future__ import annotations
@@ -38,7 +39,7 @@ class ModelConfig:
 
 @dataclass(frozen=True)
 class OptimConfig:
-    # XEUS-HPO-01 Trial 19 (verbatim).
+    # Best trial of the author's earlier hyperparameter search, verbatim.
     lr: float = 7.446693063298197e-05
     weight_decay: float = 0.0024151339921234323
     grad_clip: float = 0.507731238072093

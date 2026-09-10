@@ -28,7 +28,7 @@ repos:
 
   # mypy runs as a local hook rather than via mirrors-mypy on purpose. The
   # mirror installs mypy into an isolated environment with no torch, numpy or
-  # soundfile, so it reports import errors that CI does not have. Running it
+  # datasets, so it reports import errors that CI does not have. Running it
   # through uv uses the project environment, so the hook and CI see the same
   # code and reach the same verdict.
   - repo: local

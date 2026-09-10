@@ -8,8 +8,17 @@ downloads at load time and nothing goes through the Hugging Face Hub.
 | Training / in-distribution eval | Common Voice 25 | `CV_ROOT` | you, manually |
 | Held-out transfer | OpenSLR Indic (SLR63, 64, 66, 78) | `OPENSLR_ROOT` | `scripts/fetch_openslr.py` |
 
-Check what is reachable and how big each split is with `bash scripts/check_data.sh`.
+Check what is reachable and how big each split is with `bash scripts/check_data.py`.
 It reads transcripts and manifests only and never decodes audio.
+
+For how much *audio* each language contributes rather than how many utterances,
+run `svb data-stats`. It reports train, dev and test hours per language, flags
+anything under a `--min-train-hours` threshold, and writes
+`tables/data_durations.{md,json}` for the data appendix. It decodes no audio
+either: Common Voice durations come from the release's own `clip_durations.tsv`
+where one is shipped, and OpenSLR durations from WAV headers. Utterance counts
+are not a proxy for hours — sentence length varies by an order of magnitude
+across Common Voice languages.
 
 ## Common Voice 25 (`CV_ROOT`)
 
@@ -124,7 +133,7 @@ the split degrades to utterance level. That case carries an obvious caveat: the
 same speaker then appears in train and test, so the result is not
 speaker-independent.
 
-Which policy was used is never left to be assumed. `check_data.sh` prints it per
+Which policy was used is never left to be assumed. `check_data.py` prints it per
 language, and every run records it — together with `test_files_sha1`, the SHA-1
 of the test FileID list — under `transfer.<language>` in its `results.json`. So
 a held-out number always sits beside both the policy that produced it and a

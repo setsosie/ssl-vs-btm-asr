@@ -120,19 +120,9 @@ def merge_experts(
     """
     import torch
 
-    if device != "cpu":
-        raise ValueError(
-            f"merging runs on CPU (got device={device!r}): the checkpoints are memory-mapped "
-            "and DARE's drop mask comes from a CPU generator, so a GPU merge would need both "
-            "the whole expert set resident and a different RNG stream"
-        )
     merge_fn = MERGE_STRATEGIES[strategy]
-    # mmap=True leaves each expert's tensors on disk until a key is touched.
-    # With the strategies stacking one key at a time, resident memory is one
-    # merged model plus one key across the experts, rather than the whole expert
-    # set at once — the difference between merging 64 experts and not.
-    experts = [torch.load(p, map_location="cpu", mmap=True) for p in expert_ckpts.values()]
-    base = torch.load(base_ckpt, map_location="cpu", mmap=True) if base_ckpt is not None else None
+    experts = [torch.load(p, map_location=device) for p in expert_ckpts.values()]
+    base = torch.load(base_ckpt, map_location=device) if base_ckpt is not None else None
     merged = merge_fn(experts, base=base, seed=seed, merge_head=merge_head)
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"merged_{strategy}.pt"

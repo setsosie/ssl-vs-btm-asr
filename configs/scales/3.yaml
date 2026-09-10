@@ -1,5 +1,5 @@
 # Scale-3 preset: typologically diverse (Latin / CJK / Devanagari).
-# Matches the ABL-01-LITE 3-language set (en, ja, hi).
+# Matches the three-language set of the author's earlier ablation (en, ja, hi).
 #
 # Common Voice 25 is local-only (Mozilla Data Collective, post-Oct-2025). Download
 # + extract it and set $CV_ROOT so $CV_ROOT/<hf_config>/{train,dev,test}.tsv exist.
