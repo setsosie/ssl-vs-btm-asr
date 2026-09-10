@@ -48,8 +48,15 @@ The order of operations is fixed and each step earns its place:
 Combining marks are otherwise **kept**. This is a deliberate departure from
 Whisper's ``BasicTextNormalizer``, which replaces every character in categories
 M, S and P with a space and so destroys every Indic script: ``हिंदी में``
-becomes ``ह  द  म  ``. We also protect the intra-word apostrophe, where that
+becomes ``ह द म``. We also protect the intra-word apostrophe, where that
 normalizer turns ``don't`` into ``don t``, and we do not delete bracketed spans.
+
+Whisper's normalizer is nevertheless available, as the ``whisper-basic`` preset,
+reproduced exactly rather than approximated — comparing against published
+Whisper numbers means scoring the way Whisper scored. It runs its own step
+order, because it is not a reordering of the one above. Which preset a run used
+is recorded in its config; the choice, and when each is the right one, is in
+``docs/normalization.md``.
 """
 
 from __future__ import annotations
@@ -59,11 +66,52 @@ import json
 import re
 import unicodedata
 from collections.abc import Iterable
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any, Literal
 
 NORMALIZER_VERSION = "svb-norm-1"
+
+Pipeline = Literal["svb", "whisper"]
+
+# The fields each pipeline reads. A policy records and hashes exactly these:
+# a field its pipeline never consults did not change a character, so recording
+# it would imply a rule that ran and hashing it would mark results incomparable
+# for a setting that had no effect. Constructing a policy with an unread field
+# off its default is refused rather than silently ignored, which is what makes
+# leaving it out of the record sound.
+_HASHED_FIELDS: dict[Pipeline, frozenset[str]] = {
+    "svb": frozenset(
+        {
+            "version",
+            "form",
+            "case",
+            "malayalam_chillu",
+            "strip_invisibles",
+            "strip_arabic_marks",
+            "turkish_dotted_i",
+            "unify_apostrophes",
+            "strip_punctuation",
+            "strip_symbols",
+            "apostrophe_is_letter",
+            "digits",
+        }
+    ),
+    "whisper": frozenset(
+        {
+            "version",
+            "pipeline",
+            "form",
+            "case",
+            "drop_bracketed_spans",
+            "strip_marks",
+            "strip_punctuation",
+            "strip_symbols",
+            "diacritics",
+            "strip_whitespace",
+        }
+    ),
+}
 
 APOSTROPHE = "'"
 
@@ -99,6 +147,60 @@ _WHITESPACE = re.compile(r"\s+")
 
 _DIGIT_CATEGORIES = frozenset({"Nd", "Nl", "No"})
 
+# --------------------------------------------------------------------------- #
+# Whisper's normalizer, transcribed from openai/whisper
+# --------------------------------------------------------------------------- #
+#
+# Source: whisper/normalizers/basic.py, sha256
+# 4742eaa040e0657fa1247a1361e0d856c62317a43326ea59a40c2e9edd8d2c38, and
+# Radford et al. 2023 appendix C. ``BasicTextNormalizer.__call__`` is, verbatim:
+#
+#     s = s.lower()
+#     s = re.sub(r"[<\[][^>\]]*[>\]]", "", s)  # remove words between brackets
+#     s = re.sub(r"\(([^)]+?)\)", "", s)  # remove words between parenthesis
+#     s = self.clean(s).lower()
+#     ...
+#     s = re.sub(r"\s+", " ", s)
+#
+# where ``clean`` is ``remove_symbols``:
+#
+#     "".join(" " if unicodedata.category(c)[0] in "MSP" else c
+#             for c in unicodedata.normalize("NFKC", s))
+#
+# or, with remove_diacritics=True, ``remove_symbols_and_diacritics``, which runs
+# over ``unicodedata.normalize("NFKD", s)`` and, per character, prefers
+# ADDITIONAL_DIACRITICS, then deletes category Mn, then spaces category MSP.
+#
+# Three details decide whether a reimplementation is faithful. The lowercasing
+# and the span deletion happen BEFORE the Unicode form, so a fullwidth-
+# parenthesized span survives. The lowercasing happens again after cleaning,
+# which is what makes the uppercase entries of the diacritics table work. And
+# there is no strip, so the output routinely carries a trailing space.
+
+# Non-ASCII letters that NFKD does not separate. Copied verbatim from upstream;
+# a divergence here is a wrong answer, not a style choice.
+ADDITIONAL_DIACRITICS = {
+    "œ": "oe",
+    "Œ": "OE",
+    "ø": "o",
+    "Ø": "O",
+    "æ": "ae",
+    "Æ": "AE",
+    "ß": "ss",
+    "ẞ": "SS",
+    "đ": "d",
+    "Đ": "D",
+    "ð": "d",
+    "Ð": "D",
+    "þ": "th",
+    "Þ": "th",
+    "ł": "l",
+    "Ł": "L",
+}
+
+_BRACKETED_SPAN = re.compile(r"[<\[][^>\]]*[>\]]")
+_PARENTHESIZED_SPAN = re.compile(r"\(([^)]+?)\)")
+
 
 @dataclass(frozen=True)
 class NormalizerPolicy:
@@ -110,7 +212,13 @@ class NormalizerPolicy:
     """
 
     version: str = NORMALIZER_VERSION
-    form: Literal["NFC", "NFKC"] = "NFKC"
+    # Which order the rules run in. The two pipelines are not reorderings of one
+    # another: Whisper lowercases and deletes bracketed spans *before* the
+    # Unicode form, so a fullwidth-parenthesized span survives it, and a policy
+    # that applied the form first would delete that span while claiming to be
+    # Whisper's normalizer.
+    pipeline: Pipeline = "svb"
+    form: Literal["NFC", "NFKC", "NFKD"] = "NFKC"
     case: Literal["casefold", "lower", "none"] = "casefold"
     malayalam_chillu: Literal["atomic", "keep"] = "atomic"
     strip_invisibles: bool = True
@@ -134,13 +242,47 @@ class NormalizerPolicy:
     # so marked results incomparable, while changing not one character.
     digits: Literal["keep"] = "keep"
 
+    # --- read by the whisper pipeline only ---------------------------------
+    # Whisper deletes <...>, [...] and (...) spans before anything else, a
+    # transcription convention Common Voice and OpenSLR do not use; on corpora
+    # that do not use it, it deletes real words.
+    drop_bracketed_spans: bool = False
+    # Replace Unicode category M with a space. Whisper does this to every mark,
+    # which is what reduces an Indic script to its bare consonants.
+    strip_marks: bool = False
+    # "drop" is Whisper's remove_diacritics path: NFKD, delete category Mn, and
+    # map the letters NFKD does not separate through ADDITIONAL_DIACRITICS.
+    diacritics: Literal["keep", "drop"] = "keep"
+    # Whisper collapses runs of whitespace but never strips the ends, so its
+    # output routinely carries a trailing space. Kept faithful rather than
+    # tidied: a leading space is one character of CER.
+    strip_whitespace: bool = True
+
+    def __post_init__(self) -> None:
+        """Refuse a setting this pipeline cannot act on.
+
+        Accepting one silently would be a knob that changes nothing, and would
+        also make it unsound to leave the field out of :meth:`to_dict`.
+        """
+        read = _HASHED_FIELDS[self.pipeline]
+        for spec in fields(self):
+            if spec.name in read:
+                continue
+            if getattr(self, spec.name) != spec.default:
+                raise ValueError(
+                    f"the {self.pipeline!r} pipeline does not read {spec.name!r}; "
+                    f"leave it at {spec.default!r} or choose a pipeline that runs it"
+                )
+
     def policy_hash(self) -> str:
-        """Short digest over every field, for the resolved config and env.json."""
+        """Short digest over the rules this pipeline runs."""
         payload = json.dumps(self.to_dict(), sort_keys=True, ensure_ascii=False)
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        """The rules this pipeline actually runs, and nothing else."""
+        read = _HASHED_FIELDS[self.pipeline]
+        return {spec.name: getattr(self, spec.name) for spec in fields(self) if spec.name in read}
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> NormalizerPolicy:
@@ -164,6 +306,74 @@ LEGACY_POLICY = NormalizerPolicy(
     strip_punctuation=False,
     strip_symbols=False,
 )
+
+
+WHISPER_BASIC_POLICY = NormalizerPolicy(
+    version="whisper-basic",
+    pipeline="whisper",
+    form="NFKC",
+    case="lower",
+    drop_bracketed_spans=True,
+    strip_marks=True,
+    strip_punctuation=True,
+    strip_symbols=True,
+    diacritics="keep",
+    strip_whitespace=False,
+)
+
+WHISPER_BASIC_NODIACRITICS_POLICY = NormalizerPolicy(
+    version="whisper-basic-nodiacritics",
+    pipeline="whisper",
+    form="NFKD",
+    case="lower",
+    drop_bracketed_spans=True,
+    strip_marks=True,
+    strip_punctuation=True,
+    strip_symbols=True,
+    diacritics="drop",
+    strip_whitespace=False,
+)
+
+# The policies a config may name. Each records only the rules its own pipeline
+# runs, so the version string is what distinguishes two records that would
+# otherwise share a shape — hence one version per preset, checked below.
+POLICIES: dict[str, NormalizerPolicy] = {
+    "svb-norm-1": DEFAULT_POLICY,
+    "whisper-basic": WHISPER_BASIC_POLICY,
+    "whisper-basic-nodiacritics": WHISPER_BASIC_NODIACRITICS_POLICY,
+}
+
+assert len({p.version for p in POLICIES.values()}) == len(POLICIES), (
+    "two presets share a version, so their records could not be told apart"
+)
+
+
+def get_policy(name: str) -> NormalizerPolicy:
+    """Look up a named policy.
+
+    Args:
+        name: A key of :data:`POLICIES`.
+
+    Raises:
+        KeyError: When no preset carries that name.
+    """
+    try:
+        return POLICIES[name]
+    except KeyError:
+        known = ", ".join(sorted(POLICIES))
+        raise KeyError(f"unknown normalization policy {name!r}; known presets: {known}") from None
+
+
+def policy_name(policy: NormalizerPolicy) -> str | None:
+    """The preset name for a policy, or ``None`` when it is hand-rolled.
+
+    Recorded beside the resolved fields so a config says which published policy
+    it is, without that name being the thing the run trusts.
+    """
+    for name, preset in POLICIES.items():
+        if preset == policy:
+            return name
+    return None
 
 
 def _is_word_char(ch: str) -> bool:
@@ -210,6 +420,51 @@ def _replace_punctuation_and_symbols(
     return "".join(out)
 
 
+def _apply_case(text: str, case: str) -> str:
+    if case == "casefold":
+        return text.casefold()
+    return text.lower() if case == "lower" else text
+
+
+def _whisper_normalize(text: str, policy: NormalizerPolicy, counts: dict[str, int]) -> str:
+    """Whisper's ``BasicTextNormalizer``, in its own order.
+
+    Deliberately not routed through the svb steps. Its lowercasing and span
+    deletion run before the Unicode form, so folding it into a pipeline that
+    normalizes first would delete fullwidth-parenthesized spans that upstream
+    keeps — a normalizer that is not Whisper's, under Whisper's name.
+    """
+    text = _apply_case(text, policy.case)
+    if policy.drop_bracketed_spans:
+        text = _BRACKETED_SPAN.sub("", text)
+        text = _PARENTHESIZED_SPAN.sub("", text)
+
+    out: list[str] = []
+    for ch in unicodedata.normalize(policy.form, text):
+        category = unicodedata.category(ch)
+        if policy.diacritics == "drop":
+            if ch in ADDITIONAL_DIACRITICS:
+                out.append(ADDITIONAL_DIACRITICS[ch])
+                continue
+            if category == "Mn":
+                counts["M"] += 1
+                continue
+        group = category[0]
+        if (
+            (group == "M" and policy.strip_marks)
+            or (group == "S" and policy.strip_symbols)
+            or (group == "P" and policy.strip_punctuation)
+        ):
+            counts[group] += 1
+            out.append(" ")
+        else:
+            out.append(ch)
+
+    text = _apply_case("".join(out), policy.case)
+    text = _WHITESPACE.sub(" ", text)
+    return text.strip() if policy.strip_whitespace else text
+
+
 def empty_removal_counts() -> dict[str, int]:
     """The removal tally's fixed shape: every category any rule can delete.
 
@@ -217,7 +472,9 @@ def empty_removal_counts() -> dict[str, int]:
     of as an absent key, and every deletable category has somewhere to be
     counted — a removal with nowhere to go is a removal nobody sees.
     """
-    return {"P": 0, "S": 0, "arabic_marks": 0} | dict.fromkeys(sorted(_INVISIBLE_CATEGORIES), 0)
+    return {"M": 0, "P": 0, "S": 0, "arabic_marks": 0} | dict.fromkeys(
+        sorted(_INVISIBLE_CATEGORIES), 0
+    )
 
 
 def normalize_with_counts(
@@ -240,6 +497,13 @@ def normalize_with_counts(
     if not text:
         return "", counts
 
+    if policy.case in ("casefold", "lower"):
+        # Counted here rather than at the case step, so both pipelines tally it
+        # against the same input and neither has to duplicate the rule.
+        counts["case_changed"] += sum(1 for ch in text if ch.casefold() != ch)
+    if policy.pipeline == "whisper":
+        return _whisper_normalize(text, policy, counts), counts
+
     text = unicodedata.normalize(policy.form, text)
 
     if policy.malayalam_chillu == "atomic":
@@ -261,9 +525,7 @@ def normalize_with_counts(
         text = _ARABIC_MARKS.sub("", text).replace(_TATWEEL, "")
 
     if policy.case in ("casefold", "lower"):
-        folded = text.casefold() if policy.case == "casefold" else text.lower()
-        counts["case_changed"] += sum(1 for ch in text if ch.casefold() != ch)
-        text = unicodedata.normalize(policy.form, folded)
+        text = unicodedata.normalize(policy.form, _apply_case(text, policy.case))
 
     if policy.turkish_dotted_i:
         text = text.replace(_DOTTED_I, "i")

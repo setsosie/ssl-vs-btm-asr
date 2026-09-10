@@ -335,3 +335,53 @@ def test_normalize_text_and_normalize_with_counts_agree() -> None:
 
     for case in ("Hello, World!", "مَرْحَبًا", "コーヒーを飲む。", "soft\xadhyphen", "…!?"):
         assert normalize_with_counts(case)[0] == normalize_text(case)
+
+
+def test_a_policy_records_only_the_rules_its_pipeline_runs() -> None:
+    """A field the pipeline never reads did not change a character.
+
+    Recording it would imply a rule that ran, and hashing it would mark results
+    incomparable while changing nothing about the text.
+    """
+    svb = NormalizerPolicy()
+
+    assert set(svb.to_dict()) == {
+        "version",
+        "form",
+        "case",
+        "malayalam_chillu",
+        "strip_invisibles",
+        "strip_arabic_marks",
+        "turkish_dotted_i",
+        "unify_apostrophes",
+        "strip_punctuation",
+        "strip_symbols",
+        "apostrophe_is_letter",
+        "digits",
+    }
+    assert "drop_bracketed_spans" not in svb.to_dict()
+    assert "pipeline" not in svb.to_dict()
+
+
+def test_adding_whisper_rules_did_not_move_the_default_hash() -> None:
+    """Runs already produced under svb-norm-1 stay comparable.
+
+    Fields the svb pipeline does not read are outside its record, so extending
+    the policy for another pipeline cannot re-label existing results.
+    """
+    assert NormalizerPolicy().policy_hash() == "205fefc26d0e"
+
+
+def test_a_rule_the_pipeline_cannot_run_is_refused_rather_than_ignored() -> None:
+    """Silently accepting it would be a setting that changes nothing."""
+    with pytest.raises(ValueError, match=r"svb.*does not read"):
+        NormalizerPolicy(drop_bracketed_spans=True)
+    with pytest.raises(ValueError, match=r"svb.*does not read"):
+        NormalizerPolicy(strip_marks=True)
+    with pytest.raises(ValueError, match=r"whisper.*does not read"):
+        NormalizerPolicy(pipeline="whisper", version="x", turkish_dotted_i=False)
+
+
+def test_a_policy_still_round_trips_through_its_own_record() -> None:
+    for policy in (NormalizerPolicy(), NormalizerPolicy(case="lower")):
+        assert NormalizerPolicy.from_dict(policy.to_dict()) == policy
