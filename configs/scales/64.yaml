@@ -1,24 +1,67 @@
-# Scale-64 preset — NOT YET POPULATED.
+# Large-scale preset — 32 languages, not 64.
 #
-# `get_preset("64")` raises while this list is empty, rather than letting a run
-# train on no languages and write a results.json that reads like a finished one.
+# The scale tiers were planned as 3 / 16 / 64 and this file keeps the name of
+# the tier it fills, so `get_preset("64")` and `--scale 64` still resolve. What
+# it does not do is contain 64 languages, and no amount of searching Common
+# Voice 25 would make it.
 #
-# To populate it, start from the 16-language set and add 48 more Common Voice
-# languages under these criteria:
+# The rule this list applies is at least 50 hours of training audio plus a real
+# dev and a real test split — at least 2 hours of each. Applied to the official
+# train/dev/test partitions of Common Voice 25 as Mozilla's own release
+# statistics report them, exactly **24** of 290 locales clear it. Reaching 64
+# would mean dropping the training threshold to about 5 hours, a tenth of the
+# rule, which is the opposite of what the threshold is for: a language with a
+# few hours contributes variance to a multilingual mix rather than signal, and
+# teaches a merge nothing.
 #
-#   - Common Voice only. The author's earlier 64-language work drew on corpora
-#     this repository does not redistribute, so the membership here is
-#     necessarily different and every language must be re-checked rather than
-#     carried over.
-#   - Enough validated training audio in the release you pin. Check it against
-#     that release's own totals; a language whose train split is an hour will
-#     dominate the variance and teach the merge nothing.
-#   - Typological spread over families and scripts, not the 48 largest
-#     corpora, which are almost all Indo-European.
-#   - Declare `word_boundary: false` for any language whose script does not
-#     separate words, so character error rate is reported as its primary
-#     metric. The run cross-checks the declaration against the transcripts.
+# The other 8 entries are the members of the 16-language preset that miss the
+# rule at this release. They are kept, and marked below, because the paper's
+# design already commits to the 16 and to the 3 inside it; dropping them here
+# would stop the smaller tiers from being subsets of this one, and a scale
+# comparison between tiers that do not nest is a comparison of which languages
+# as much as of how many.
 #
-# Until it is populated the 64-language tier is a single-run scale anchor
-# citing the existing large-scale result, not a fresh multi-seed target.
-languages: []
+# So: 24 languages that qualify + 8 that the design carries = 32. Whether a
+# 32-language tier is what the paper should call its largest scale, or whether
+# the scale ladder should be renumbered, is a decision this file cannot make.
+#
+# Every locale considered, with its hours and the reason it is in or out, is in
+# docs/languages.md. Regenerate the list with scripts/select_languages.py.
+#
+# CV25 is local-only: set $CV_ROOT so $CV_ROOT/<hf_config>/{train,dev,test}.tsv exist.
+languages:
+  - { code: ca, source: commonvoice, hf_dataset: common_voice_25, hf_config: ca, text_column: sentence }
+  - { code: en, source: commonvoice, hf_dataset: common_voice_25, hf_config: en, text_column: sentence }
+  - { code: rw, source: commonvoice, hf_dataset: common_voice_25, hf_config: rw, text_column: sentence }
+  - { code: de, source: commonvoice, hf_dataset: common_voice_25, hf_config: de, text_column: sentence }
+  - { code: fr, source: commonvoice, hf_dataset: common_voice_25, hf_config: fr, text_column: sentence }
+  - { code: es, source: commonvoice, hf_dataset: common_voice_25, hf_config: es, text_column: sentence }
+  - { code: be, source: commonvoice, hf_dataset: common_voice_25, hf_config: be, text_column: sentence }
+  - { code: it, source: commonvoice, hf_dataset: common_voice_25, hf_config: it, text_column: sentence }
+  - { code: gl, source: commonvoice, hf_dataset: common_voice_25, hf_config: gl, text_column: sentence }
+  - { code: eo, source: commonvoice, hf_dataset: common_voice_25, hf_config: eo, text_column: sentence }
+  - { code: mhr, source: commonvoice, hf_dataset: common_voice_25, hf_config: mhr, text_column: sentence }
+  - { code: ps, source: commonvoice, hf_dataset: common_voice_25, hf_config: ps, text_column: sentence }
+  - { code: ug, source: commonvoice, hf_dataset: common_voice_25, hf_config: ug, text_column: sentence }
+  - { code: eu, source: commonvoice, hf_dataset: common_voice_25, hf_config: eu, text_column: sentence }
+  - { code: ab, source: commonvoice, hf_dataset: common_voice_25, hf_config: ab, text_column: sentence }
+  - { code: ba, source: commonvoice, hf_dataset: common_voice_25, hf_config: ba, text_column: sentence }
+  - { code: kab, source: commonvoice, hf_dataset: common_voice_25, hf_config: kab, text_column: sentence }
+  - { code: lg, source: commonvoice, hf_dataset: common_voice_25, hf_config: lg, text_column: sentence }
+  - { code: hu, source: commonvoice, hf_dataset: common_voice_25, hf_config: hu, text_column: sentence }
+  - { code: ka, source: commonvoice, hf_dataset: common_voice_25, hf_config: ka, text_column: sentence }
+  - { code: ta, source: commonvoice, hf_dataset: common_voice_25, hf_config: ta, text_column: sentence }
+  - { code: sw, source: commonvoice, hf_dataset: common_voice_25, hf_config: sw, text_column: sentence }
+  - { code: uz, source: commonvoice, hf_dataset: common_voice_25, hf_config: uz, text_column: sentence }
+  - { code: nl, source: commonvoice, hf_dataset: common_voice_25, hf_config: nl, text_column: sentence }
+
+  # Below the rule at Common Voice 25, kept because the 16-language preset
+  # commits to them. Their train-split hours are in docs/languages.md.
+  - { code: tr, source: commonvoice, hf_dataset: common_voice_25, hf_config: tr, text_column: sentence }
+  - { code: ru, source: commonvoice, hf_dataset: common_voice_25, hf_config: ru, text_column: sentence }
+  - { code: uk, source: commonvoice, hf_dataset: common_voice_25, hf_config: uk, text_column: sentence }
+  - { code: ar, source: commonvoice, hf_dataset: common_voice_25, hf_config: ar, text_column: sentence }
+  - { code: pl, source: commonvoice, hf_dataset: common_voice_25, hf_config: pl, text_column: sentence }
+  - { code: ja, source: commonvoice, hf_dataset: common_voice_25, hf_config: ja, text_column: sentence, word_boundary: false }
+  - { code: hi, source: commonvoice, hf_dataset: common_voice_25, hf_config: hi, text_column: sentence }
+  - { code: fi, source: commonvoice, hf_dataset: common_voice_25, hf_config: fi, text_column: sentence }

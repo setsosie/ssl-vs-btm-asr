@@ -90,7 +90,16 @@ def test_heldout_marathi_is_female_only_with_a_single_index(pytestconfig):
     assert mr.index_files == ("line_index.tsv",)
 
 
-@pytest.mark.parametrize("scale", ["3", "16"])
+SCALES = ["3", "16", "64"]
+
+# Common Voice locales whose writing system does not separate words with spaces.
+# Small and hard-coded on purpose: it is the independent check on what the
+# presets declare, so deriving it the way the presets were built would make it
+# agree with them by construction.
+NO_SPACE_LOCALES = frozenset({"ja", "th", "zh-CN", "zh-HK", "zh-TW", "yue", "nan-tw"})
+
+
+@pytest.mark.parametrize("scale", SCALES)
 def test_commonvoice_presets_still_parse(pytestconfig, scale):
     specs = get_preset(scale, configs_dir=Path(pytestconfig.rootpath) / "configs")
     assert specs and {s.source for s in specs} == {"commonvoice"}
@@ -104,7 +113,7 @@ def test_word_boundary_defaults_to_true_and_is_declarable():
     )
 
 
-@pytest.mark.parametrize("scale", ["3", "16"])
+@pytest.mark.parametrize("scale", SCALES)
 def test_japanese_is_the_only_preset_language_written_without_spaces(pytestconfig, scale):
     """Which metric is primary for a language is a property of its writing
     system, so it is declared beside the language rather than in a set inside
@@ -121,35 +130,117 @@ def test_heldout_indic_languages_are_written_with_spaces(pytestconfig):
     assert all(s.word_boundary for s in specs)
 
 
-def test_an_unpopulated_preset_fails_instead_of_running_on_nothing(pytestconfig):
-    """`--scale 64` is offered by the CLI but the preset is still an empty list.
+def test_an_unpopulated_preset_fails_instead_of_running_on_nothing(tmp_path):
+    """An empty preset trains on no languages, evaluates nothing, and writes a
+    results.json that a reader cannot tell from a completed run. Failing by name
+    is the only way that is distinguishable from a run that found no data.
 
-    The user meant "run the 64-GPU jobs", not "run zero jobs without crashing".
-    Rejecting it catches both typos and incomplete lists.
+    Every preset in the tree is populated now, so the guard is exercised against
+    a written-out empty one rather than against `configs/scales/64.yaml`.
     """
-    with pytest.raises(ValueError, match="no languages"):
-        get_preset("64", configs_dir=Path(pytestconfig.rootpath) / "configs")
+    (tmp_path / "scales").mkdir()
+    (tmp_path / "scales" / "64.yaml").write_text("languages: []\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="not populated"):
+        get_preset("64", configs_dir=tmp_path)
 
 
-def test_every_hf_config_resolves(pytestconfig):
-    """If one is missing or renamed, `load_dataset` will crash in the runner."""
-    datasets = pytest.importorskip("datasets")
-    get_dataset_config_names = datasets.get_dataset_config_names
+# --------------------------------------------------------------------------- #
+# How the presets relate to each other
+# --------------------------------------------------------------------------- #
 
+
+def _codes(pytestconfig, scale):
+    return [
+        s.hf_config for s in get_preset(scale, configs_dir=Path(pytestconfig.rootpath) / "configs")
+    ]
+
+
+def test_each_preset_is_a_subset_of_the_next_one_up(pytestconfig):
+    """A scale tier is meant to answer "what does adding languages do?".
+
+    That reading only holds if the larger tier contains the smaller one. If the
+    16 and the 64 shared only part of their membership, a difference between
+    their results would be a difference of *which* languages as much as of how
+    many, and the scaling claim would not be about scale.
+    """
+    three, sixteen, large = (set(_codes(pytestconfig, s)) for s in SCALES)
+
+    assert three <= sixteen, sorted(three - sixteen)
+    assert sixteen <= large, sorted(sixteen - large)
+
+
+@pytest.mark.parametrize("scale", SCALES)
+def test_no_preset_lists_a_language_twice(pytestconfig, scale):
+    """A duplicate would silently double that language's weight in the mix."""
+    codes = _codes(pytestconfig, scale)
+
+    assert len(codes) == len(set(codes)), sorted({c for c in codes if codes.count(c) > 1})
+
+
+@pytest.mark.parametrize("scale", SCALES)
+def test_word_boundary_agrees_with_the_writing_system(pytestconfig, scale):
+    """`word_boundary` decides whether word error rate is reported as primary.
+
+    It is declared per language in the preset, where a preset author will see
+    it, so it can be declared wrong. This is the check against that.
+    """
+    for spec in get_preset(scale, configs_dir=Path(pytestconfig.rootpath) / "configs"):
+        expected = spec.hf_config not in NO_SPACE_LOCALES
+        assert spec.word_boundary is expected, spec.hf_config
+
+
+def test_the_large_preset_holds_the_languages_that_qualified_not_sixty_four(pytestconfig):
+    """The file is named for the tier the design asked for, not for its size.
+
+    Common Voice 25 has 24 locales with 50 hours of training audio. Eight more
+    are in the file because the 16-language preset commits to them. Padding to
+    64 would mean adding languages with single-digit training hours, which is
+    the opposite of what the threshold is for, so the tier is 32 languages and
+    `docs/languages.md` shows every locale that was considered.
+    """
+    assert len(_codes(pytestconfig, "64")) == 32
+
+
+def test_the_large_preset_is_exactly_what_the_evidence_table_marks_included(pytestconfig):
+    """The table is the published reason each language is in the preset.
+
+    Editing one without the other would leave a preset whose membership no
+    longer matches the evidence given for it, which is the failure this catches.
+    """
     root = Path(pytestconfig.rootpath)
-    for scale in ("16", "32"):
-        for spec in get_preset(scale, configs_dir=root / "configs"):
-            if spec.source != "commonvoice":
-                continue
-            assert spec.hf_config in get_dataset_config_names(
-                "mozilla-foundation/common_voice_17_0", trust_remote_code=True
-            )
+    table = (root / "docs" / "languages.md").read_text(encoding="utf-8")
+    included = {
+        line.split("|")[1].strip()
+        for line in table.splitlines()
+        if line.startswith("| ") and "| yes |" in line
+    }
+
+    assert included == set(_codes(pytestconfig, "64"))
 
 
-def test_every_yaml_pointer_is_a_file_that_exists(pytestconfig):
-    """A preset that includes a typo cannot be run."""
+def test_an_empty_heldout_file_is_also_refused(tmp_path):
+    (tmp_path / "scales").mkdir()
+    (tmp_path / "scales" / "heldout.yaml").write_text("languages: []\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="not populated"):
+        get_heldout(configs_dir=tmp_path)
+
+
+def test_scale_configs_do_not_cross_reference_documents_that_are_not_here(pytestconfig):
+    """A preset comment is public documentation, so its pointers must resolve.
+
+    64.yaml referred a reader to a protocol document that does not exist in this
+    repository. Whether a corpus a config names is one this repo can ship is a
+    review question, not a testable one; whether a file it points at is present
+    is testable, so it is tested.
+    """
     root = Path(pytestconfig.rootpath)
-    pointer = re.compile(r"^\s*-\s+([\w/]+\.yaml)\s*$", re.MULTILINE)
+    # Only repo-relative pointers: a path with a directory component and a
+    # source or documentation suffix. Bare filenames in these configs are
+    # corpus members (archives, index files), which live in $OPENSLR_ROOT and
+    # are not supposed to be in the tree.
+    pointer = re.compile(r"\b(?:[\w.-]+/)+[\w.-]+\.(?:md|py|sh|yaml)\b")
 
     for path in sorted((root / "configs" / "scales").glob("*.yaml")):
         referenced = pointer.findall(path.read_text(encoding="utf-8"))

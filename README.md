@@ -6,7 +6,7 @@
 carries low-resource multilingual ASR?**
 
 A multi-seed ablation on the [XEUS](https://arxiv.org/abs/2407.00837) encoder.
-Three training conditions, compared across 3 / 16 / 64 languages and on four
+Three training conditions, compared across 3 / 16 / 32 languages and on four
 held-out Indic languages absent from every supervised training mix and from the
 output vocabulary, though present in XEUS's self-supervised pretraining data:
 
@@ -23,18 +23,28 @@ permutation tests available from the per-utterance predictions every run writes.
 ## Status
 
 **No GPU run has been executed against this code.** Everything below is
-implemented and covered by 422 CPU tests; none of it has yet produced a number
+implemented and covered by 519 CPU tests; none of it has yet produced a number
 from real audio. Three other gaps are open by design rather than by oversight:
 
-- `configs/scales/64.yaml` is a placeholder and lists no languages. Loading it
-  raises rather than training on nothing, so the 64-language tier cannot be run
-  until the list is finalized.
+- **The largest scale tier is 32 languages, not 64.** `configs/scales/64.yaml`
+  is populated and runnable, but Common Voice 25 has only 24 locales with the 50
+  hours of training audio plus a real dev and test split the selection rule
+  asks for; the preset is those 24 plus the 8 members of the 16-language preset
+  that fall below the line and are carried because the design commits to them.
+  Reaching 64 would mean a training threshold of about 5 hours. Every locale
+  considered, with its hours and the reason it is in or out, is in
+  [`docs/languages.md`](docs/languages.md).
 - Odia is not in the held-out set. See [Held-out data](#held-out-data) below —
   the set is **four** languages, and any write-up should say four.
 - The encoder has not been checked against the reference implementation. The
   check exists and is described in
   [Encoder cross-check](#encoder-cross-check-separate-environment); it needs the
   checkpoint, which is not available here.
+
+Eight of the sixteen languages in the 16-language preset are below 50 training
+hours at this release, Hindi at 6.9 and Finnish at 2.7. They were kept, and the
+numbers are in `docs/languages.md`, but they belong beside any per-language
+result for those languages.
 
 ## Quickstart
 
@@ -74,6 +84,11 @@ time and nothing goes through the Hugging Face Hub. Full details in
 [Mozilla Data Collective](https://commonvoice.mozilla.org/en/datasets), behind
 an account and a terms acceptance no script can give, so you download and
 extract it yourself and point `CV_ROOT` at the result.
+
+Which languages each scale tier trains on, how many hours each one actually
+has, and why the rest of Common Voice is left out are in
+[`docs/languages.md`](docs/languages.md), which `scripts/select_languages.py`
+regenerates from Mozilla's published release statistics.
 
 ### Held-out data
 

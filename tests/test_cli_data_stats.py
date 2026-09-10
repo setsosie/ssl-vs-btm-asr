@@ -22,9 +22,15 @@ def test_heldout_scope_is_the_four_openslr_languages() -> None:
     assert {s.source for s in specs} == {"openslr"}
 
 
-def test_all_scope_skips_an_unpopulated_preset_without_failing(capsys) -> None:
-    # configs/scales/64.yaml is a placeholder, and get_preset raises on it. A
-    # report of what is on disk has to name that gap and keep going.
+def test_all_scope_skips_an_unpopulated_preset_without_failing(capsys, monkeypatch) -> None:
+    # An unpopulated preset raises, which is right for a run and wrong for a
+    # report of what is on disk: that has to name the gap and keep going. Every
+    # preset in the tree is populated now, so the gap is simulated.
+    def unpopulated(scale, configs_dir=None):
+        raise ValueError(f"preset {scale} is not populated")
+
+    monkeypatch.setattr("svb.data.registry.get_preset", unpopulated)
+
     specs = specs_for_scope("all")
     out = capsys.readouterr().out
 
