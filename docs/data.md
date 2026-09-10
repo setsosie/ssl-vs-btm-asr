@@ -11,6 +11,15 @@ downloads at load time and nothing goes through the Hugging Face Hub.
 Check what is reachable and how big each split is with `python scripts/check_data.py`.
 It reads transcripts and manifests only and never decodes audio.
 
+For how much *audio* each language contributes rather than how many utterances,
+run `svb data-stats`. It reports train, dev and test hours per language, flags
+anything under a `--min-train-hours` threshold, and writes
+`tables/data_durations.{md,json}` for the data appendix. It decodes no audio
+either: Common Voice durations come from the release's own `clip_durations.tsv`
+where one is shipped, and OpenSLR durations from WAV headers. Utterance counts
+are not a proxy for hours — sentence length varies by an order of magnitude
+across Common Voice languages.
+
 ## Common Voice 25 (`CV_ROOT`)
 
 Since October 2025 Common Voice is distributed only through

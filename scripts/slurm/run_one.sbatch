@@ -14,6 +14,10 @@
 # Single (arm, scale, seed) run on one GPU. Args are forwarded to `svb run`:
 #   sbatch scripts/slurm/run_one.sbatch --arm A_ssl --scale 3 --seed 0
 # Independent jobs run in parallel across GPUs (no DDP within a job).
+#
+# NOTE: --cpus-per-task above must exceed train.num_workers in the config.
+# They are currently both 8, which leaves the main process sharing a core with
+# a loader worker. Either raise --cpus-per-task to 9 or lower num_workers to 7.
 set -euo pipefail
 
 : "${XEUS_CHECKPOINT:?set XEUS_CHECKPOINT to the espnet/xeus checkpoint path}"
