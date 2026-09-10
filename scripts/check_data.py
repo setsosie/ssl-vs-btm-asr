@@ -46,8 +46,22 @@ def openslr_detail(spec) -> str:
     return line
 
 
+def preset(scale: str):
+    """Languages of one scale, or none when that scale is still a placeholder.
+
+    An unpopulated preset raises, which is right for a run and wrong for a
+    report: this command exists to say what data is on disk, so it names the
+    gap and keeps sweeping.
+    """
+    try:
+        return get_preset(scale)
+    except ValueError as exc:
+        print(f"--  scale {scale:3s} {exc}")
+        return []
+
+
 def main() -> None:
-    specs = [s for scale in ("3", "16", "64") for s in get_preset(scale)] + get_heldout()
+    specs = [s for scale in ("3", "16", "64") for s in preset(scale)] + get_heldout()
 
     seen = set()
     for spec in specs:
@@ -57,7 +71,9 @@ def main() -> None:
 
         try:
             sizes = {split: len(load_texts(spec, split)) for split in SPLITS}
-        except Exception as exc:  # report and keep sweeping
+        # Broad on purpose: one unreachable corpus must not end the sweep, since
+        # the point of this command is to report which ones are reachable.
+        except Exception as exc:
             print(f"ERR {spec.code:12s} {spec.source:11s} {type(exc).__name__}: {exc}")
             continue
 

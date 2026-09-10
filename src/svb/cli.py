@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from .config import TextConfig, dump_config, load_config
+from .config import ExperimentConfig, TextConfig, dump_config, load_config
 from .provenance import dump_run_meta
 from .seeding import set_all_seeds
 from .text.stats import collect_text_stats
@@ -60,6 +60,28 @@ def _predictions_path(out: Path, code: str) -> Path:
 
 
 SPLITS = ("train", "validation", "test")
+
+
+def run_manifest(
+    cfg: ExperimentConfig, specs: list[LangSpec], heldout: list[LangSpec]
+) -> dict[str, Any]:
+    """The identifying header of a run's ``results.json``.
+
+    The two language lists belong here rather than in ``resolved_config.yaml``.
+    They are *resolved* from ``configs/scales/*.yaml`` at run time, not set by
+    the run, and the dumped config is the configuration as it was rather than
+    what it went on to select. Recording them makes the held-out set a fact of
+    the results file, so a reader never has to infer it from which keys happen
+    to appear under ``transfer``.
+    """
+    return {
+        "arm": cfg.arm,
+        "scale": cfg.scale,
+        "seed": cfg.seed,
+        "languages": [spec.code for spec in specs],
+        "heldout_langs": [spec.code for spec in heldout],
+        "in_distribution": {},
+    }
 
 
 def write_text_stats(
@@ -136,12 +158,18 @@ def cmd_run(args: argparse.Namespace) -> None:
     from .model.xeus_ctc import make_model
     from .train.trainer import train
 
+    # Only flags the caller actually passed become overrides, so an unset flag
+    # cannot outrank the YAML with the parser's default.
+    overrides = {
+        key: value
+        for key, value in (
+            ("merge_strategy", args.merge_strategy),
+            ("merge_head", args.merge_head),
+        )
+        if value is not None
+    }
     cfg = load_config(
-        args.arm,
-        args.scale,
-        args.seed,
-        yaml_path=args.config,
-        overrides={"merge_strategy": args.merge_strategy} if args.merge_strategy else None,
+        args.arm, args.scale, args.seed, yaml_path=args.config, overrides=overrides or None
     )
     device = args.device
     out = _run_dir(results_root(args.results_root), cfg.arm, cfg.scale, cfg.seed)
@@ -155,6 +183,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     vocab.save(out / "vocab.json")
     heldout = get_heldout()
     write_text_stats(out / "text_stats.json", specs, heldout, cfg.text, vocab, evicted)
+    results = run_manifest(cfg, specs, heldout)
     # Two collates: training truncates long audio and drops the transcripts that
     # no longer fit, evaluation does neither — a truncated test utterance scored
     # against its full reference is a fabricated error rate.
@@ -162,13 +191,17 @@ def cmd_run(args: argparse.Namespace) -> None:
         vocab, max_audio_samples=cfg.train.max_audio_samples, drop_overlong=True, drop_empty=True
     )
     eval_collate = make_ctc_collate(vocab)
-    results: dict = {"arm": cfg.arm, "scale": cfg.scale, "seed": cfg.seed, "in_distribution": {}}
 
     if cfg.uses_btm:
         phase0 = run_phase0(cfg, specs, vocab, out / "phase0", device)
         experts = train_experts(cfg, phase0, specs, vocab, out / "experts", device)
         merged_path = merge_experts(
-            experts, cfg.merge_strategy, out / "merged", base_ckpt=phase0, seed=cfg.seed
+            experts,
+            cfg.merge_strategy,
+            out / "merged",
+            base_ckpt=phase0,
+            seed=cfg.seed,
+            merge_head=cfg.merge_head,
         )
         # Evaluate the merged model in-distribution on every language's test split.
         merged_model = make_model(cfg, vocab.size)
@@ -225,13 +258,13 @@ def cmd_run(args: argparse.Namespace) -> None:
     # Held-out transfer (all arms).
     results["transfer"] = {}
     for held in heldout:
-        r = transfer_one(cfg, transfer_init, vocab, held, out / "transfer" / held.code, device)
-        results["transfer"][held.code] = {
-            "wer": r.wer,
-            "cer": r.cer,
-            "n": r.n,
-            "n_empty_refs": r.n_empty_refs,
-        }
+        transferred = transfer_one(
+            cfg, transfer_init, vocab, held, out / "transfer" / held.code, device
+        )
+        # to_record carries the derived split's policy and test-set digest
+        # alongside the metrics: the held-out corpora ship no partition, so
+        # which utterances were scored is part of the number.
+        results["transfer"][held.code] = transferred.to_record()
 
     (out / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=2))
     print(f"[svb] wrote {out / 'results.json'}")
@@ -278,6 +311,18 @@ def build_parser() -> argparse.ArgumentParser:
         dest="merge_strategy",
         default=None,
         choices=["average", "ties", "dare_ties"],
+    )
+    # Encoder-only merging is the ablation for how much of the merging penalty
+    # lives in the CTC head, so it needs to be reachable without editing a YAML.
+    # Default None, not True: the flag must be distinguishable from its own
+    # default, or passing nothing would override a `merge_head: false` set in
+    # the YAML with the parser's idea of the default.
+    r.add_argument(
+        "--merge-head",
+        dest="merge_head",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="merge the CTC head along with the encoder (default: yes)",
     )
     r.add_argument("--device", default="cuda")
     _add_results_root(r)

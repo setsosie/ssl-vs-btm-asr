@@ -87,19 +87,23 @@ class ExperimentConfig:
     scale: Scale
     seed: int
     merge_strategy: MergeStrategy = "average"
-    sample_rate: int = 16000
+    # Whether the CTC head is merged with the encoder, or taken from the phase-0
+    # base. A protocol choice rather than a tuning knob: the experts share one
+    # vocabulary so their heads are commensurable, but merging them is also the
+    # part of the merge most likely to carry the penalty, and encoder-only
+    # merging is the ablation that separates the two. Dumped with the config
+    # because it changes every merged number.
+    merge_head: bool = True
     model: ModelConfig = field(default_factory=ModelConfig)
     optim: OptimConfig = field(default_factory=OptimConfig)
     train: TrainConfig = field(default_factory=TrainConfig)
     text: TextConfig = field(default_factory=TextConfig)
-    # Held-out transfer languages (OpenSLR Indic), never in any training mix.
-    heldout_langs: tuple[str, ...] = (
-        "odia",
-        "marathi",
-        "telugu",
-        "gujarati",
-        "malayalam",
-    )
+    # The held-out transfer languages are NOT listed here. They live in
+    # configs/scales/heldout.yaml and are read by `registry.get_heldout()`,
+    # which is the single source of truth; each run records the codes it
+    # actually evaluated in its results.json. A second copy on this dataclass
+    # was never read, but `to_dict` still wrote it into resolved_config.yaml,
+    # so it kept claiming five languages after the YAML was cut to four.
 
     @property
     def init(self) -> Literal["ssl", "scratch"]:
@@ -153,8 +157,6 @@ def load_config(
     optim = OptimConfig(**cfg.pop("optim", {}))
     train = TrainConfig(**cfg.pop("train", {}))
     text = _text_config(cfg.pop("text", {}))
-    if "heldout_langs" in cfg:
-        cfg["heldout_langs"] = tuple(cfg["heldout_langs"])
     return ExperimentConfig(model=model, optim=optim, train=train, text=text, **cfg)
 
 

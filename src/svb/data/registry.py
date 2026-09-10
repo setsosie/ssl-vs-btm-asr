@@ -112,7 +112,16 @@ def _load_specs(path: Path) -> list[LangSpec]:
     if not path.exists():
         raise FileNotFoundError(f"missing preset file: {path}")
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    return [_spec_from_entry(entry, path) for entry in raw.get("languages", [])]
+    specs = [_spec_from_entry(entry, path) for entry in raw.get("languages", [])]
+    if not specs:
+        # An empty list is a placeholder, not a preset. Left to run, it trains
+        # on no languages, evaluates nothing, and still writes a results.json
+        # that a reader cannot tell from a completed run.
+        raise ValueError(
+            f"preset {path.stem} is not populated: {path} lists no languages, "
+            "so a run using it would train and evaluate on nothing"
+        )
+    return specs
 
 
 def get_preset(scale: str, configs_dir: Path | None = None) -> list[LangSpec]:
