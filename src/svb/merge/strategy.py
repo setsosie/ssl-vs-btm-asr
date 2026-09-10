@@ -74,7 +74,12 @@ def _scaffold(experts: list[StateDict], base: StateDict | None, merge_head: bool
         if base is None:
             raise ValueError("merge_head=False needs a base (phase-0) state_dict for the head")
         for key in out:
-            if _is_head_key(key) and key in base:
+            if _is_head_key(key):
+                if key not in base:
+                    raise ValueError(
+                        f"merge_head=False needs the base to supply the head, "
+                        f"but the base lacks {key!r}"
+                    )
                 out[key] = base[key].clone()
     return out
 
@@ -109,6 +114,10 @@ def _trim(tv: torch.Tensor, density: float) -> torch.Tensor:
     of uniform magnitude — or one padded with the exact zeros of a parameter
     the expert never moved — would be kept in full while reporting that it had
     been trimmed to ``density``.
+    ``topk``'s tie-break among equal magnitudes is unspecified and may differ
+    between the CPU and CUDA kernels. That is not a live risk only because
+    merging is CPU-only by construction (``merge_experts`` refuses any other
+    device); moving it to a GPU would quietly change which entries survive.
     """
     if density >= 1.0:
         return tv

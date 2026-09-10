@@ -156,16 +156,16 @@ def test_max_samples_truncates_the_waveform(slr_root):
 
 
 def test_stereo_and_odd_sample_rate_are_normalised(slr_root, write_silent_wav):
-    dest = slr_root / "SLR63"
-    rows = read_index(dest / "line_index_female.tsv")
-    write_silent_wav(dest / f"{rows[0][0]}.wav", frames=80, sr=8000, channels=2)
-
+    """Take the utterance from the split itself rather than hoping a fixture row
+    lands in it. Skipping when it does not turns the only stereo and resampling
+    coverage in the suite into a silent no-op the next time the fixture moves."""
     ds = OpenSLRLocal(SPEC, "train", root=str(slr_root))
-    fid_to_idx = {fid: i for i, (fid, _) in enumerate(ds.rows)}
-    if rows[0][0] not in fid_to_idx:
-        pytest.skip("fixture utterance did not land in train")
-    wav, _ = ds[fid_to_idx[rows[0][0]]]
-    assert wav.ndim == 1
+    file_id = ds.rows[0][0]
+    write_silent_wav(slr_root / "SLR63" / f"{file_id}.wav", frames=80, sr=8000, channels=2)
+
+    wav, _ = ds[0]
+
+    assert wav.ndim == 1  # downmixed from stereo
     assert 150 <= wav.shape[0] <= 170  # 80 frames @8k -> ~160 @16k
 
 
@@ -196,3 +196,32 @@ def test_load_texts_does_not_touch_audio(slr_root):
         wav.unlink()
     texts = load_openslr_texts(SPEC, "train", root=str(slr_root))
     assert texts and all(isinstance(t, str) and t for t in texts)
+
+
+def test_few_and_uneven_speakers_drift_far_from_the_nominal_fractions():
+    """Whole speakers are indivisible, so 80/10/10 is nominal, not realised.
+
+    Marathi has nine speakers. Evenly sized they land close to the target;
+    unevenly sized one speaker can take most of the corpus and leave the test
+    split tiny. Pinned because the docstring makes this claim, and because a
+    reader comparing transfer numbers needs to know the test split can be a few
+    dozen utterances rather than a tenth of the corpus.
+    """
+    even = [(f"mrf_{s:05d}_{u:08d}", "t") for s in range(9) for u in range(174)]
+    parts, policy, _ = derive_splits(even)
+    assert policy == "speaker"
+    fractions = [len(parts[s]) / len(even) for s in SPLITS]
+    assert fractions[0] == pytest.approx(0.78, abs=0.02)
+    assert fractions[1] == pytest.approx(0.11, abs=0.02)
+    assert fractions[2] == pytest.approx(0.11, abs=0.02)
+
+    # One dominant speaker plus eight small ones: same nine speakers, far worse split.
+    sizes = [1000, 40, 40, 40, 40, 40, 40, 40, 40]
+    uneven = [(f"mrf_{s:05d}_{u:08d}", "t") for s, n in enumerate(sizes) for u in range(n)]
+    parts, policy, _ = derive_splits(uneven)
+    assert policy == "speaker"
+    # Pinned to the number the module docstring quotes, so the two cannot drift:
+    # a loose bound let the prose say "under 3%" while the split gave 3.03%.
+    assert len(parts["test"]) / len(uneven) == pytest.approx(0.0303, abs=0.0005)
+    assert len(parts["train"]) / len(uneven) == pytest.approx(0.9394, abs=0.0005)
+    assert all(parts[s] for s in SPLITS)  # but never empty

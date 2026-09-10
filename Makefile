@@ -38,7 +38,6 @@ aggregate:
 #   make tables SCALE=3 ARM=A_ssl COMPARE_TO=B_btm_ssl
 tables:
 	uv run svb analyze --arm $(ARM) --scale $(SCALE) $(if $(COMPARE_TO),--compare-to $(COMPARE_TO),)
-
 test:
 	uv run pytest
 
@@ -48,7 +47,6 @@ lint:
 	uv run ruff check .
 	uv run ruff format --check .
 	uv run mypy src tests
-
 # Everything CI runs.
 check: lint test
 

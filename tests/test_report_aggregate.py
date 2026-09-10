@@ -202,3 +202,90 @@ def test_seeds_are_ordered_numerically_not_lexically(tmp_path: Path):
             word_boundary={"en": True},
         )
     assert [r.seed for r in load_runs(tmp_path, "A_ssl", "3")] == [2, 10]
+
+
+def test_the_macro_error_bar_is_across_seeds_not_across_languages(tmp_path: Path):
+    """The headline number's ``±`` must be the quantity the caption promises.
+
+    Two languages 30 points apart, each moving 2 points between two seeds. The
+    macro-average moves 2 points between seeds, so its spread across seeds is
+    sqrt(2) — the same as every per-language row. Aggregating across languages
+    instead would report the 30-point gap between the languages as if it were
+    run-to-run noise.
+    """
+    for seed, bump in ((0, 0.0), (1, 2.0)):
+        write_run(
+            tmp_path,
+            "A_ssl",
+            "3",
+            seed,
+            in_dist={"en": metrics(10.0 + bump, 4.0), "de": metrics(40.0 + bump, 9.0)},
+            word_boundary={"en": True, "de": True},
+        )
+
+    agg = aggregate_runs(load_runs(tmp_path, "A_ssl", "3"))
+    macro = agg.macro["in_distribution"]
+
+    assert macro.mean == pytest.approx(26.0)
+    assert macro.std == pytest.approx(math.sqrt(2.0))
+    assert macro.per_seed == pytest.approx([25.0, 27.0])
+    assert macro.n_seeds == 2
+    assert macro.n_languages == 2
+    # Between-language dispersion is a different quantity. It is kept, but
+    # under its own name and never after a "±".
+    assert macro.spread_across_languages == pytest.approx(21.213203435596427)
+
+
+def test_the_macro_says_how_many_seeds_and_languages_it_covers(tmp_path: Path):
+    write_run(
+        tmp_path,
+        "A_ssl",
+        "3",
+        0,
+        in_dist={"en": metrics(10.0, 4.0), "de": metrics(40.0, 9.0)},
+        word_boundary={"en": True, "de": True},
+    )
+    agg = aggregate_runs(load_runs(tmp_path, "A_ssl", "3"))
+    text = to_markdown(agg)
+
+    assert "2 language(s)" in text
+    assert "1 seed(s)" in text
+    # A lone seed has a mean but no spread, and "± nan" would read like a
+    # computation that broke rather than one that was never possible.
+    assert "± —" in text
+
+
+def test_a_language_missing_from_one_seed_is_excluded_from_the_macro(tmp_path: Path):
+    """A macro whose membership changes between seeds is not comparable seed to
+    seed, so the incomplete language is dropped and named rather than quietly
+    shifting the mean."""
+    write_run(
+        tmp_path,
+        "A_ssl",
+        "3",
+        0,
+        in_dist={"en": metrics(10.0, 4.0), "de": metrics(40.0, 9.0)},
+        word_boundary={"en": True, "de": True},
+    )
+    write_run(
+        tmp_path, "A_ssl", "3", 1, in_dist={"en": metrics(12.0, 5.0)}, word_boundary={"en": True}
+    )
+
+    agg = aggregate_runs(load_runs(tmp_path, "A_ssl", "3"))
+    macro = agg.macro["in_distribution"]
+
+    assert macro.n_languages == 1
+    assert macro.excluded_languages == ["de"]
+    assert macro.mean == pytest.approx(11.0)
+    assert "de" in to_markdown(agg)
+
+
+def test_the_json_says_which_quantity_the_macro_std_is(tmp_path: Path):
+    write_run(
+        tmp_path, "A_ssl", "3", 0, in_dist={"en": metrics(10.0, 4.0)}, word_boundary={"en": True}
+    )
+    macro = to_json(aggregate_runs(load_runs(tmp_path, "A_ssl", "3")))["macro"]["in_distribution"]
+
+    assert macro["std_is"] == "across_seeds"
+    assert "spread_across_languages" in macro
+    assert macro["per_seed"] == [10.0]

@@ -21,17 +21,19 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .config import ExperimentConfig, TextConfig, dump_config, load_config
 from .provenance import dump_run_meta
 from .seeding import set_all_seeds
-from .text.stats import collect_text_stats
+from .text.stats import TextStats, collect_text_stats
 
 if TYPE_CHECKING:
     from .data.registry import LangSpec
     from .model.ctc_vocab import CtcVocab
+    from .train.trainer import TrainResult
 
 DEFAULT_RESULTS_ROOT = Path("results")
 ARMS = ("A_ssl", "B_btm_ssl", "C_btm_scratch")
@@ -94,6 +96,48 @@ def run_manifest(
     }
 
 
+# Above this share of unknown characters, the vocabulary's coverage is a fact
+# about the result rather than a footnote: it is a floor under the error rate
+# that no amount of training removes.
+UNK_RATE_WARNING = 0.001
+
+
+def training_record(result: TrainResult) -> dict[str, Any]:
+    """What one training stage did, for ``results.json``.
+
+    The dropped-pair and audio-guard counts were only ever printed. They are the
+    difference between the split a reader can count and the data the model
+    actually saw, so they belong in an artifact rather than in scrollback.
+    """
+    return {
+        "best_val_loss": result.best_val_loss,
+        "best_epoch": result.best_epoch,
+        "epochs_run": result.epochs_run,
+        "n_dropped_unalignable": result.n_dropped_unalignable,
+        "n_at_audio_guard": result.n_at_audio_guard,
+    }
+
+
+def _warn_on_unknown_characters(code: str, split: str, stats: TextStats) -> None:
+    """Say so when a split carries characters the vocabulary cannot represent.
+
+    The number always reaches ``text_stats.json``, but a file nobody opens is
+    not a warning. A language whose references contain characters the model has
+    no id for has an irreducible error floor, and a reader comparing its number
+    to another language's needs to know that before quoting it.
+    """
+    if stats.unk_rate <= UNK_RATE_WARNING:
+        return
+    warnings.warn(
+        f"{code}/{split}: {stats.unk_rate:.3%} of normalized reference characters "
+        f"({stats.unk_chars} of {stats.n_chars_normalized}) are absent from the vocabulary "
+        "and cannot be produced at any quality, so this language's error rate has a floor "
+        "under it; see unk_rate in text_stats.json",
+        UserWarning,
+        stacklevel=3,
+    )
+
+
 def write_text_stats(
     path: Path,
     specs: list[LangSpec],
@@ -132,6 +176,7 @@ def write_text_stats(
             stats = collect_text_stats(load_texts(spec, split), text_cfg.policy, lang_vocab)
             if split == "train":
                 stats.evicted_by_floor = lang_evicted
+            _warn_on_unknown_characters(spec.code, split, stats)
             splits[split] = stats.to_dict()
         languages[spec.code] = {
             "heldout": is_heldout,
@@ -182,16 +227,26 @@ def cmd_run(args: argparse.Namespace) -> None:
         args.arm, args.scale, args.seed, yaml_path=args.config, overrides=overrides or None
     )
     device = args.device
+
+    # Resolve the languages before anything is written. An unpopulated preset
+    # raises, and raising after the run directory exists leaves behind the two
+    # files a started run writes first — a directory indistinguishable from a
+    # job that died in training, one per seed, on every scheduler slot the
+    # matrix submitted.
+    try:
+        specs = get_preset(cfg.scale)
+        heldout = get_heldout()
+    except (ValueError, FileNotFoundError) as exc:
+        raise SystemExit(f"[svb] {exc}") from exc
+
     out = _run_dir(results_root(args.results_root), cfg.arm, cfg.scale, cfg.seed)
     out.mkdir(parents=True, exist_ok=True)
     dump_config(cfg, out)
     dump_run_meta(out, policy=cfg.text.policy)
     set_all_seeds(cfg.seed)
 
-    specs = get_preset(cfg.scale)
     vocab, evicted = build_training_vocab(specs, cfg.text)
     vocab.save(out / "vocab.json")
-    heldout = get_heldout()
     write_text_stats(out / "text_stats.json", specs, heldout, cfg.text, vocab, evicted)
     results = run_manifest(cfg, specs, heldout)
     # Two collates: training truncates long audio and drops the transcripts that
@@ -202,9 +257,15 @@ def cmd_run(args: argparse.Namespace) -> None:
     )
     eval_collate = make_ctc_collate(vocab)
 
+    results["training"] = {}
     if cfg.uses_btm:
-        phase0 = run_phase0(cfg, specs, vocab, out / "phase0", device)
-        experts = train_experts(cfg, phase0, specs, vocab, out / "experts", device)
+        phase0_result = run_phase0(cfg, specs, vocab, out / "phase0", device)
+        phase0 = phase0_result.checkpoint
+        results["training"]["phase0"] = training_record(phase0_result)
+        expert_results = train_experts(cfg, phase0, specs, vocab, out / "experts", device)
+        for code, expert in expert_results.items():
+            results["training"][f"expert_{code}"] = training_record(expert)
+        experts = {code: expert.checkpoint for code, expert in expert_results.items()}
         merged_path = merge_experts(
             experts,
             cfg.merge_strategy,
@@ -245,6 +306,7 @@ def cmd_run(args: argparse.Namespace) -> None:
             res = train(
                 model, cfg, tr, va, train_collate, cfg.train.finetune_epochs, lang_dir, device
             )
+            results["training"][f"finetune_{spec.code}"] = training_record(res)
             model.load(res.checkpoint)
             test_ds = load_language(spec, "test", None)
             r = evaluate(
@@ -345,7 +407,7 @@ def specs_for_scope(scope: str) -> list[LangSpec]:
     for scale in scales:
         try:
             collected += get_preset(scale)
-        except ValueError as exc:
+        except (ValueError, FileNotFoundError) as exc:
             print(f"[svb] scale {scale}: {exc}")
     if scope in ("all", "heldout"):
         collected += get_heldout()

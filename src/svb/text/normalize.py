@@ -122,7 +122,17 @@ class NormalizerPolicy:
     # Set True for an orthography that writes a glottal stop as an apostrophe,
     # where a word-initial or word-final one is a letter rather than a quote.
     apostrophe_is_letter: bool = False
-    digits: Literal["keep", "drop_utterance"] = "keep"
+    # Digits are kept as characters: they are not spelled out, and utterances
+    # containing them are not dropped. The field exists to make that choice
+    # explicit in the dumped config and the policy hash rather than leave it
+    # implicit in the absence of a rule.
+    #
+    # Deliberately a single value. Dropping digit-bearing utterances is the
+    # obvious ablation, but it changes the test set rather than the text, so it
+    # belongs to whatever assembles a split — not here. An accepted second value
+    # that `normalize_text` never read would have changed the policy hash, and
+    # so marked results incomparable, while changing not one character.
+    digits: Literal["keep"] = "keep"
 
     def policy_hash(self) -> str:
         """Short digest over every field, for the resolved config and env.json."""
@@ -161,27 +171,111 @@ def _is_word_char(ch: str) -> bool:
     return ch.isalnum() or ch == "_"
 
 
-def _replace_punctuation_and_symbols(text: str, policy: NormalizerPolicy) -> str:
+def _replace_punctuation_and_symbols(
+    text: str, policy: NormalizerPolicy, counts: dict[str, int]
+) -> str:
     """Replace category P* and S* with a space, keeping the intra-word apostrophe.
 
     A space rather than a deletion: sources that omit the space after a comma
     would otherwise have two words fused into one.
+    Tallies what it actually replaced into ``counts``. A character it decided to
+    keep — a protected apostrophe, or anything at all under a policy with the
+    rule switched off — is not a removal and is not counted.
     """
     out: list[str] = []
     last = len(text) - 1
     for i, ch in enumerate(text):
         if ch == APOSTROPHE:
+            # U+0027 is category Po, so it is the punctuation rule's business
+            # and follows that rule's setting.
             neighboured = (
                 i > 0 and i < last and _is_word_char(text[i - 1]) and _is_word_char(text[i + 1])
             )
-            out.append(APOSTROPHE if policy.apostrophe_is_letter or neighboured else " ")
+            keep = policy.apostrophe_is_letter or neighboured or not policy.strip_punctuation
+            if keep:
+                out.append(APOSTROPHE)
+            else:
+                counts["P"] += 1
+                out.append(" ")
             continue
         group = unicodedata.category(ch)[0]
         drop = (group == "P" and policy.strip_punctuation) or (
             group == "S" and policy.strip_symbols
         )
-        out.append(" " if drop else ch)
+        if drop:
+            counts[group] += 1
+            out.append(" ")
+        else:
+            out.append(ch)
     return "".join(out)
+
+
+def empty_removal_counts() -> dict[str, int]:
+    """The removal tally's fixed shape: every category any rule can delete.
+
+    Fixed rather than grown on demand, so a zero is reported as a zero instead
+    of as an absent key, and every deletable category has somewhere to be
+    counted — a removal with nowhere to go is a removal nobody sees.
+    """
+    return {"P": 0, "S": 0, "arabic_marks": 0} | dict.fromkeys(sorted(_INVISIBLE_CATEGORIES), 0)
+
+
+def normalize_with_counts(
+    text: str, policy: NormalizerPolicy = DEFAULT_POLICY
+) -> tuple[str, dict[str, int]]:
+    """Normalize, and report what each rule actually did.
+
+    The single implementation of the policy; :func:`normalize_text` is this
+    function with the tally discarded. Counting from a separate scan of the
+    input would let the two drift, and the drift is invisible: a scan that
+    counts every punctuation character reports the intra-word apostrophes this
+    policy goes out of its way to *keep* as though it had removed them.
+
+    Returns:
+        The normalized text, and a ``{category: characters removed}`` tally.
+        The extra ``case_changed`` entry counts characters the case rule
+        altered rather than removed, and is zero when that rule is off.
+    """
+    counts = empty_removal_counts() | {"case_changed": 0}
+    if not text:
+        return "", counts
+
+    text = unicodedata.normalize(policy.form, text)
+
+    if policy.malayalam_chillu == "atomic":
+        for sequence, atomic in _MALAYALAM_CHILLU.items():
+            text = text.replace(sequence, atomic)
+
+    if policy.strip_invisibles:
+        kept: list[str] = []
+        for ch in text:
+            category = unicodedata.category(ch)
+            if category in _INVISIBLE_CATEGORIES:
+                counts[category] += 1
+            else:
+                kept.append(ch)
+        text = "".join(kept)
+
+    if policy.strip_arabic_marks:
+        counts["arabic_marks"] += count_arabic_marks(text)
+        text = _ARABIC_MARKS.sub("", text).replace(_TATWEEL, "")
+
+    if policy.case in ("casefold", "lower"):
+        folded = text.casefold() if policy.case == "casefold" else text.lower()
+        counts["case_changed"] += sum(1 for ch in text if ch.casefold() != ch)
+        text = unicodedata.normalize(policy.form, folded)
+
+    if policy.turkish_dotted_i:
+        text = text.replace(_DOTTED_I, "i")
+
+    if policy.unify_apostrophes:
+        for form in _APOSTROPHE_FORMS:
+            text = text.replace(form, APOSTROPHE)
+
+    if policy.strip_punctuation or policy.strip_symbols:
+        text = _replace_punctuation_and_symbols(text, policy, counts)
+
+    return _WHITESPACE.sub(" ", text).strip(), counts
 
 
 def normalize_text(text: str, policy: NormalizerPolicy = DEFAULT_POLICY) -> str:
@@ -196,37 +290,7 @@ def normalize_text(text: str, policy: NormalizerPolicy = DEFAULT_POLICY) -> str:
         punctuation. Callers decide what an empty result means — training drops
         the utterance, scoring excludes and counts it.
     """
-    if not text:
-        return ""
-
-    text = unicodedata.normalize(policy.form, text)
-
-    if policy.malayalam_chillu == "atomic":
-        for sequence, atomic in _MALAYALAM_CHILLU.items():
-            text = text.replace(sequence, atomic)
-
-    if policy.strip_invisibles:
-        text = "".join(c for c in text if unicodedata.category(c) not in _INVISIBLE_CATEGORIES)
-
-    if policy.strip_arabic_marks:
-        text = _ARABIC_MARKS.sub("", text).replace(_TATWEEL, "")
-
-    if policy.case == "casefold":
-        text = unicodedata.normalize(policy.form, text.casefold())
-    elif policy.case == "lower":
-        text = unicodedata.normalize(policy.form, text.lower())
-
-    if policy.turkish_dotted_i:
-        text = text.replace(_DOTTED_I, "i")
-
-    if policy.unify_apostrophes:
-        for form in _APOSTROPHE_FORMS:
-            text = text.replace(form, APOSTROPHE)
-
-    if policy.strip_punctuation or policy.strip_symbols:
-        text = _replace_punctuation_and_symbols(text, policy)
-
-    return _WHITESPACE.sub(" ", text).strip()
+    return normalize_with_counts(text, policy)[0]
 
 
 def normalize_batch(texts: Iterable[str], policy: NormalizerPolicy = DEFAULT_POLICY) -> list[str]:

@@ -215,6 +215,12 @@ def test_georgian_mtavruli_folds_without_an_exception() -> None:
     assert normalize_text("ᲒᲐᲛᲐᲠᲯᲝᲑᲐ") == "გამარჯობა"
 
 
+def test_an_utterance_that_normalizes_to_nothing_stays_empty_rather_than_vanishing() -> None:
+    """The caller decides what empty means — training drops the utterance,
+    scoring excludes and counts it — so the normalizer must not decide for it."""
+    assert [normalize_text(t) for t in ("Hello!", "…", "  ")] == ["hello", "", ""]
+
+
 def test_normalize_batch_preserves_length_and_empties() -> None:
     out = normalize_batch(["Hello!", "…", "  "])
     assert out == ["hello", "", ""]
@@ -228,15 +234,33 @@ def test_policy_hash_is_stable_and_tracks_every_field() -> None:
     for changed in (
         NormalizerPolicy(form="NFC"),
         NormalizerPolicy(case="lower"),
-        NormalizerPolicy(digits="drop_utterance"),
+        NormalizerPolicy(strip_symbols=False),
         NormalizerPolicy(apostrophe_is_letter=True),
         NormalizerPolicy(turkish_dotted_i=False),
     ):
         assert changed.policy_hash() != baseline.policy_hash()
 
 
+def test_the_default_policy_hash_is_pinned() -> None:
+    """Results under different policy hashes must not be pooled, so the default
+    policy's hash is part of this repository's published interface. Changing it
+    silently splits every result produced before the change from every result
+    produced after; this test makes that a decision rather than an accident."""
+    assert NormalizerPolicy().policy_hash() == "205fefc26d0e"
+
+
+def test_the_only_digit_policy_is_the_one_that_is_implemented() -> None:
+    """A policy field is hashed into every run's provenance, so a value that
+    changes the hash without changing the text would mark results incomparable
+    for no reason. Dropping digit-bearing utterances changes the test set, not
+    the transcript, so it is not a normalizer setting."""
+    from typing import get_args, get_type_hints
+
+    assert get_args(get_type_hints(NormalizerPolicy)["digits"]) == ("keep",)
+
+
 def test_policy_round_trips_through_a_dict() -> None:
-    policy = NormalizerPolicy(case="lower", digits="drop_utterance")
+    policy = NormalizerPolicy(case="lower", malayalam_chillu="keep")
 
     assert NormalizerPolicy.from_dict(policy.to_dict()) == policy
     assert policy.to_dict()["version"] == NORMALIZER_VERSION
@@ -257,3 +281,57 @@ def test_legacy_policy_reproduces_the_pre_normalization_behaviour() -> None:
     assert LEGACY_POLICY.version == "svb-norm-0"
     assert normalize_text("Hello, World!", LEGACY_POLICY) == "Hello, World!"
     assert normalize_text("café", LEGACY_POLICY) == "café"
+
+
+def test_the_apostrophe_rule_follows_the_punctuation_setting() -> None:
+    """U+0027 is category Po, so it is the punctuation rule's business.
+
+    The apostrophe branch used to run whenever *either* strip flag was on, which
+    deleted a word-final apostrophe under a policy that had punctuation removal
+    switched off.
+    """
+    keep_punctuation = NormalizerPolicy(strip_punctuation=False, strip_symbols=True)
+
+    # The "+" is a symbol and still goes; the apostrophe is punctuation and stays.
+    assert normalize_text("the students' books + more", keep_punctuation) == (
+        "the students' books more"
+    )
+
+
+def test_counts_describe_the_transformation_that_actually_happened() -> None:
+    """The protected intra-word apostrophes survive, so they are not removals."""
+    from svb.text.normalize import normalize_with_counts
+
+    out, counts = normalize_with_counts("ng'ombe, l'été!")
+
+    assert out == "ng'ombe l'été"
+    # The comma and the exclamation mark; not the two apostrophes that survived.
+    assert counts["P"] == 2
+
+
+def test_counts_are_zero_for_a_rule_the_policy_switched_off() -> None:
+    from svb.text.normalize import normalize_with_counts
+
+    out, counts = normalize_with_counts(
+        "Hello, world!", NormalizerPolicy(strip_punctuation=False, strip_symbols=False)
+    )
+
+    assert out == "hello, world!"
+    assert counts["P"] == 0 and counts["S"] == 0
+
+
+def test_arabic_marks_are_counted_where_they_are_removed() -> None:
+    from svb.text.normalize import normalize_with_counts
+
+    _, counts = normalize_with_counts("مَرْحَبًا")
+
+    assert counts["arabic_marks"] == 4
+    _, off = normalize_with_counts("مَرْحَبًا", NormalizerPolicy(strip_arabic_marks=False))
+    assert off["arabic_marks"] == 0
+
+
+def test_normalize_text_and_normalize_with_counts_agree() -> None:
+    from svb.text.normalize import normalize_with_counts
+
+    for case in ("Hello, World!", "مَرْحَبًا", "コーヒーを飲む。", "soft\xadhyphen", "…!?"):
+        assert normalize_with_counts(case)[0] == normalize_text(case)

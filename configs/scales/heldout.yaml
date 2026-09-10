@@ -1,5 +1,9 @@
-# Held-out Indic transfer set — never in any training mix (finding #3).
+# Held-out Indic transfer set: in none of this repo's training mixes, and absent
+# from the training vocabulary until the CTC head is expanded for transfer.
 #
+# Not unseen by the encoder. XEUS was pretrained on unlabelled audio from over
+# four thousand languages, these among them, so "held out" means held out of the
+# supervised pipeline rather than a language the model has never heard.#
 # Fetched straight from openslr.org as zip archives; no Hugging Face `datasets`,
 # no `trust_remote_code`, no account. Run `python scripts/fetch_openslr.py
 # --root $OPENSLR_ROOT` once, then set $OPENSLR_ROOT so $OPENSLR_ROOT/SLR<slr>/
@@ -48,8 +52,10 @@ languages:
 # Open Data licence that has not been read yet:
 #   https://msropendata-web-api.azurewebsites.net/licenses/f1f352a6-243f-4905-8e00-389edbca9e83/view
 # It also ships its own train/test split, so the 80/10/10 derivation above must
-# not be applied to it. Enable only after the licence permits this use.
-#
+# not be applied to it. And the fetch script only handles zip archives with a
+# `line_index*.tsv` member, so the entry below would download both tarballs and
+# then fail on the first as an unreadable zip: enabling Odia needs a tar path and
+# a different index parser too. Enable only after the licence permits this use.#
 #  - code: odia
 #    source: openslr
 #    slr: 103

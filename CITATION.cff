@@ -8,6 +8,7 @@ abstract: >-
   five held-out Indic transfer languages.
 type: software
 version: "0.1.0"
+date-released: "2026-09-04"
 license: MIT
 repository-code: "https://github.com/setsosie/ssl-vs-btm-asr"
 keywords:
@@ -24,6 +25,7 @@ authors:
   # repository, and guessing a legal name would be worse than leaving this
   # visible.
   - name: "setsosie"
+    email: "shawn@firstlanguages.ai"
 references:
   # The encoder this work fine-tunes. All credit for the model and weights
   # belongs to its authors; this repository only loads and adapts them.

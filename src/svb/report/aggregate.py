@@ -14,17 +14,30 @@ existing result means.
 The macro-average across languages carries an explicit kind label. Averaging one
 language's WER with another's CER produces a number that is neither, and the
 only safe version of that number is one that says so wherever it appears.
+
+The macro is aggregated the same way a single language is: computed per seed
+first, then averaged across seeds. Its ``±`` is therefore the same quantity as
+every per-language row's — run-to-run spread. Taking the standard deviation of
+the per-language means instead would put the gap *between* languages after a
+``±`` and invite a reader to take it for training noise; two languages thirty
+points apart, each moving two points between seeds, would report a spread of
+twenty-one where the truth is one and a half. That dispersion is still worth
+having, so it is kept under its own name and never after a ``±``.
+
+A language missing from some seed is left out of the macro and named. A mean
+whose membership changes between seeds is not comparable seed to seed, and the
+change would otherwise be invisible.
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from ..stats.analysis import SeedAgg, aggregate_seeds
-from .tables import fmt_mean_std, render_table
+from .tables import fmt_mean_std, fmt_value, render_table
 
 SECTIONS = ("in_distribution", "transfer")
 _METRIC_LABEL = {"wer": "WER", "cer": "CER"}
@@ -47,6 +60,10 @@ class LanguageAgg:
     primary_kind: str  # "wer" or "cer"
     wer: SeedAgg
     cer: SeedAgg
+    #: This language's primary metric per seed, keyed by seed. The macro needs
+    #: the values seed by seed, which a mean and a standard deviation cannot
+    #: give back.
+    primary_by_seed: dict[int, float] = field(default_factory=dict)
 
     @property
     def primary(self) -> SeedAgg:
@@ -55,13 +72,31 @@ class LanguageAgg:
 
 @dataclass(frozen=True)
 class MacroAgg:
-    """Macro-average of per-language primaries, with what it is made of."""
+    """Macro-average of per-language primaries, with what it is made of.
+
+    ``mean`` and ``std`` are computed over the *per-seed* macro values held in
+    ``per_seed``, so ``std`` is run-to-run spread — the same quantity as every
+    per-language row's. ``spread_across_languages`` is the dispersion between
+    the languages themselves; it is a different thing and is never printed as
+    an error bar.
+    """
 
     mean: float
     std: float
     n_languages: int
     kind: str  # "wer", "cer", "mixed", or "empty"
     composition: dict[str, int]
+    #: The macro value for each seed, in seed order.
+    per_seed: list[float] = field(default_factory=list)
+    #: Sample standard deviation of the per-language means. Between-language
+    #: dispersion, not uncertainty about the macro.
+    spread_across_languages: float = float("nan")
+    #: Languages left out because they are absent from at least one seed.
+    excluded_languages: list[str] = field(default_factory=list)
+
+    @property
+    def n_seeds(self) -> int:
+        return len(self.per_seed)
 
     @property
     def is_mixed(self) -> bool:
@@ -146,29 +181,31 @@ def _word_boundary(run_dir: Path) -> dict[str, bool]:
 
 def aggregate_runs(runs: list[RunRecord]) -> ScaleAggregate:
     """Mean ± std of WER, CER and the primary metric, per language and section."""
-    collected: dict[tuple[str, str], dict[str, list[float]]] = {}
+    collected: dict[tuple[str, str], dict[str, dict[int, float]]] = {}
     kinds: dict[tuple[str, str], str] = {}
 
     for run in runs:
         for section in SECTIONS:
             for code, entry in run.results.get(section, {}).items():
                 key = (section, code)
-                bucket = collected.setdefault(key, {"wer": [], "cer": []})
+                bucket = collected.setdefault(key, {"wer": {}, "cer": {}})
                 for metric in ("wer", "cer"):
                     value = entry.get(metric)
                     if value is not None:
-                        bucket[metric].append(float(value))
+                        bucket[metric][run.seed] = float(value)
                 # First run to mention the language fixes its metric; later
                 # seeds of the same experiment agree by construction.
                 kinds.setdefault(key, "wer" if run.word_boundary.get(code, True) else "cer")
 
+    seeds = [run.seed for run in runs]
     languages = [
         LanguageAgg(
             code=code,
             section=section,
             primary_kind=kinds[(section, code)],
-            wer=aggregate_seeds(values["wer"]),
-            cer=aggregate_seeds(values["cer"]),
+            wer=aggregate_seeds(_in_seed_order(values["wer"], seeds)),
+            cer=aggregate_seeds(_in_seed_order(values["cer"], seeds)),
+            primary_by_seed=dict(values[kinds[(section, code)]]),
         )
         for (section, code), values in sorted(
             collected.items(), key=lambda kv: (kv[0][0], kv[0][1])
@@ -176,36 +213,66 @@ def aggregate_runs(runs: list[RunRecord]) -> ScaleAggregate:
     ]
 
     macro = {
-        section: _macro([row for row in languages if row.section == section])
+        section: _macro([row for row in languages if row.section == section], seeds)
         for section in SECTIONS
     }
     return ScaleAggregate(
         arm=runs[0].results.get("arm", ""),
         scale=runs[0].results.get("scale", ""),
-        seeds=[run.seed for run in runs],
+        seeds=seeds,
         languages=languages,
         macro=macro,
     )
 
 
-def _macro(rows: list[LanguageAgg]) -> MacroAgg:
-    """Macro-average of per-language primary means, labelled by what it mixes.
+def _in_seed_order(by_seed: dict[int, float], seeds: list[int]) -> list[float]:
+    """The values a language has, ordered by seed rather than by read order."""
+    return [by_seed[seed] for seed in seeds if seed in by_seed]
+
+
+def _macro(rows: list[LanguageAgg], seeds: list[int]) -> MacroAgg:
+    """Macro-average of the per-language primaries, computed seed by seed.
 
     Unweighted by utterance count on purpose: the question is how a system does
     across languages, and a corpus-weighted mean is dominated by whichever
     language happened to ship the most audio.
+
+    Averaging within a seed and only then across seeds is what makes the
+    reported ``±`` run-to-run spread rather than the gap between the languages.
+    Languages absent from any seed are excluded and named: a macro whose
+    membership changes between seeds is not comparable seed to seed.
     """
-    if not rows:
+    complete = [row for row in rows if all(seed in row.primary_by_seed for seed in seeds)]
+    excluded = sorted(row.code for row in rows if row not in complete)
+    if not complete:
         return MacroAgg(
-            mean=float("nan"), std=float("nan"), n_languages=0, kind="empty", composition={}
+            mean=float("nan"),
+            std=float("nan"),
+            n_languages=0,
+            kind="empty",
+            composition={},
+            excluded_languages=excluded,
         )
+
     composition: dict[str, int] = {}
-    for row in rows:
+    for row in complete:
         composition[row.primary_kind] = composition.get(row.primary_kind, 0) + 1
     kind = next(iter(composition)) if len(composition) == 1 else "mixed"
-    agg = aggregate_seeds([row.primary.mean for row in rows])
+
+    per_seed = [
+        sum(row.primary_by_seed[seed] for row in complete) / len(complete) for seed in seeds
+    ]
+    across_seeds = aggregate_seeds(per_seed)
+    across_languages = aggregate_seeds([row.primary.mean for row in complete])
     return MacroAgg(
-        mean=agg.mean, std=agg.std, n_languages=len(rows), kind=kind, composition=composition
+        mean=across_seeds.mean,
+        std=across_seeds.std,
+        n_languages=len(complete),
+        kind=kind,
+        composition=composition,
+        per_seed=per_seed,
+        spread_across_languages=across_languages.std,
+        excluded_languages=excluded,
     )
 
 
@@ -230,6 +297,13 @@ def to_json(agg: ScaleAggregate) -> dict[str, Any]:
             section: {
                 "mean": macro.mean,
                 "std": macro.std,
+                # Named, so a consumer can never mistake this for the spread
+                # between the languages — which is the next field along.
+                "std_is": "across_seeds",
+                "per_seed": macro.per_seed,
+                "n_seeds": macro.n_seeds,
+                "spread_across_languages": macro.spread_across_languages,
+                "excluded_languages": macro.excluded_languages,
                 "n_languages": macro.n_languages,
                 "kind": macro.kind,
                 "is_mixed": macro.is_mixed,
@@ -276,8 +350,23 @@ def to_markdown(agg: ScaleAggregate) -> str:
         lines += [
             "",
             f"**Macro-average of primaries ({macro.label}):** "
-            f"{fmt_mean_std(macro.mean, macro.std)} over {macro.n_languages} language(s).",
+            f"{fmt_mean_std(macro.mean, macro.std)} over {macro.n_languages} language(s), "
+            f"unweighted by utterance count, across {macro.n_seeds} seed(s). The spread is "
+            "across seeds, computed by averaging the languages within each seed first.",
         ]
+        if macro.n_languages > 1:
+            lines += [
+                "",
+                "Spread *across languages* (how far apart the languages are, not an error "
+                f"bar on the number above): {fmt_value(macro.spread_across_languages)}.",
+            ]
+        if macro.excluded_languages:
+            lines += [
+                "",
+                "Left out of the macro because they are absent from at least one seed, so "
+                "including them would change what the average is an average of: "
+                f"{', '.join(macro.excluded_languages)}.",
+            ]
         if macro.is_mixed:
             lines += [
                 "",

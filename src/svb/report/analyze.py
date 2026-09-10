@@ -186,10 +186,9 @@ def compare_runs(
             continue
         if a.refs != b.refs:
             raise ValueError(
-                f"{a.code}: the two runs were scored on different references "
-                f"({len(a.refs)} vs {len(b.refs)} utterances); a paired test needs one "
-                f"test set. Compare runs that share a normalization policy.\n"
-                f"  {a.path}\n  {b.path}"
+                f"{a.code}: the two runs were scored on different references, so this is "
+                f"not a paired comparison. {_first_difference(a.refs, b.refs)}. Compare "
+                f"runs that share a normalization policy.\n  {a.path}\n  {b.path}"
             )
         point_a = corpus_error_rate(a.refs, a.hyps, tokenize)
         point_b = corpus_error_rate(b.refs, b.hyps, tokenize)
@@ -209,6 +208,22 @@ def compare_runs(
             )
         )
     return rows
+
+
+def _first_difference(a: list[str], b: list[str]) -> str:
+    """Where two reference lists diverge, in a form a reader can act on.
+
+    Reporting only the counts describes the rarer case. Two runs under different
+    normalization policies produce the *same number* of references from one
+    corpus and different strings, so the counts match and the message says
+    nothing about what is wrong.
+    """
+    if len(a) != len(b):
+        return f"{len(a)} vs {len(b)} utterances"
+    for index, (left, right) in enumerate(zip(a, b, strict=True)):
+        if left != right:
+            return f"same {len(a)} utterances, but reference {index} is {left!r} vs {right!r}"
+    return "the lists differ but no element does"  # pragma: no cover - unreachable
 
 
 def _label(run_dir: Path) -> str:

@@ -1,16 +1,22 @@
 """Held-out-language transfer (finding #3).
 
 Given a starting point — the SSL encoder (arm A), or a merged BTM checkpoint
-(arms B/C) — adapt to an unseen language:
+(arms B/C) — adapt to a language the supervised pipeline never trained on:
 
   1. expand the char vocab with the new language's characters,
   2. grow the CTC head (trained rows preserved, new rows seeded-random),
   3. fine-tune on the new language,
   4. evaluate on its disjoint test split.
 
-This is the experiment behind "does the encoder transfer to scripts it never
-saw?" — zero-shot is ~100% WER (vocabulary mismatch), and the question is how
-low fine-tuning drives it, and whether SSL alone matches the full BTM pipeline.
+"Held out" means held out of *this* pipeline, not unheard by the encoder: XEUS
+was pretrained on unlabelled audio from thousands of languages, the held-out
+four among them. What is genuinely new to the model is the supervision and the
+output vocabulary, which is why zero-shot is ~100% WER before the head is
+expanded. The question is how far fine-tuning drives it down from each starting
+point, and whether SSL alone matches the full BTM pipeline.
+
+Every arm fine-tunes here for the same ``finetune_epochs``, so unlike the
+in-distribution comparison this one is matched on training budget.
 """
 
 from __future__ import annotations

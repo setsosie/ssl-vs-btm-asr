@@ -55,7 +55,7 @@ def preset(scale: str):
     """
     try:
         return get_preset(scale)
-    except ValueError as exc:
+    except (ValueError, FileNotFoundError) as exc:
         print(f"--  scale {scale:3s} {exc}")
         return []
 
