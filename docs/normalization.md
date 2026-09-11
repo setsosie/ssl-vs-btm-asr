@@ -172,16 +172,30 @@ family, rather than one global guess applied to every script alike.
 
 | Policy | Languages here | Follows | Source |
 |---|---|---|---|
-| `whisper-basic` | en de fr es it nl pl fi ca eo eu hu gl pt cs lv cy fy-NL ru uk be ab ba mhr kbd ady ka | OpenAI Whisper, exactly | Radford et al. 2023, appendix C |
+| `whisper-basic` | ab ady ba be ca cs cy de en eo es et eu fi fr fy-NL gl hr hu is it ka kbd kk lv mhr nl pl pt ru uk | OpenAI Whisper, exactly | Radford et al. 2023, appendix C |
 | `turkic-tr` | tr | Whisper plus a Turkish locale case pre-map | our fix; see below |
-| `latin-marks` | sw rw lg kab uz kmr | HuggingFace Open ASR Leaderboard `remove_symbols_keep_marks` | `huggingface/open_asr_leaderboard` |
-| `indic-vistaar` | hi ta, and held-out ml mr te gu | AI4Bharat Vistaar / IndicWhisper | `AI4Bharat/vistaar` `evaluation.py` |
+| `latin-marks` | jv kab kmr lg nso rw su sw ts uz ve xh zu | HuggingFace Open ASR Leaderboard `remove_symbols_keep_marks` | `huggingface/open_asr_leaderboard` |
+| `indic-vistaar` | bn hi kn ne si ta, and held-out gu ml mr te | AI4Bharat Vistaar / IndicWhisper | `AI4Bharat/vistaar` `evaluation.py` |
 | `arabic-ouaal` | ar | Open Universal Arabic ASR Leaderboard | arXiv:2412.13788 |
-| `perso-arabic` | fa ur ckb ps | `hazm` and `urduhack` Perso-Arabic conventions | see the Pashto caveat |
-| `uyghur-ug` | ug | Perso-Arabic without the alef-maksura fold | see the Uyghur caveat |
+| `perso-arabic` | ckb fa ps ur | `hazm` and `urduhack` Perso-Arabic conventions | see the caveats |
+| `uyghur-ug` | ug | Perso-Arabic without the alef-maksura fold | see the caveats |
+| `armenian-hy` | hy | Whisper plus deletion of the in-word marks | our fix; see below |
 | `ja-cer` | ja | ReazonSpeech evaluation, character error rate | `reazon-research/ReazonSpeech` |
 | `thai-cer` | th | PyThaiNLP and Thonburian Whisper, character error rate | `biodatlab/thonburian-whisper` |
-| `han-mer` | zh-CN yue | WeNet `compute-wer.py`, character-level scoring | `wenet-e2e/wenet`; WenetSpeech, arXiv:2110.03370 |
+| `han-mer` | yue zh-CN | WeNet `compute-wer.py`, character-level scoring | `wenet-e2e/wenet`; WenetSpeech, arXiv:2110.03370 |
+| `ko-kspon` | ko | KsponSpeech, word and character error rate | Bang et al. 2020 |
+| `tibetan-syllable` | bo | nothing — reasoned from the orthography | see the caveats |
+
+Kazakh takes Whisper's normalizer rather than the ё-fold. That fold is a
+Russian convention drawn from Russian corpora, and importing it into Kazakh
+would be applying another language's rule. No Kazakh normalization convention
+could be sourced — the corpus paper reports both error rates and describes no
+text preprocessing — but the script is verified safe: Kazakh Cyrillic carries no
+combining marks, so Whisper's mark rule finds nothing to remove.
+
+Sinhala is assigned by family rather than by its reference system: the Indic
+normalizer Vistaar calls has no Sinhala class and falls back to a
+whitespace-only base. Bengali, Kannada and Nepali are within its language set.
 
 Also shipped and not assigned to anything: `whisper-marks`, which is Whisper's
 own pipeline with the three fixes the community has already made to it and the
@@ -259,7 +273,36 @@ converts, and MDCC keeps Traditional for Cantonese. WenetSpeech-Yue does fold
 with OpenCC, so Cantonese is genuinely contested; if `yue` and `zh-CN` ever
 share a vocabulary, not folding means two character sets for one spoken family.
 
-### Two policies whose base could not be verified
+### Armenian, Korean and Tibetan
+
+**Armenian writes punctuation inside the word.** Its question and emphasis
+marks sit on the stressed syllable rather than at the end of the clause, so the
+rule that turns punctuation into a space splits every question in two:
+`Ի՞նչ կա։` becomes `ի նչ կա`. `armenian-hy` deletes U+055B–U+055F before that
+rule runs, giving `ինչ կա`. This is our fix; no Armenian ASR evaluation
+convention was found. NFKC's rewrite of the ligature `և` U+0587 into two letters
+is left in place, applied identically to both sides of every score, which is why
+`Բարև ձեզ` is expected to read `բարեւ ձեզ`.
+
+**Korean uses NFC and is scored on words.** Two compatibility jamo compose into
+one syllable under the compatibility form — `ㄱㅡ 그` is four code points under
+NFC and three under NFKC — which would move the character count for a language
+whose corpus reports character error rate. Word error rate is primary here,
+unlike the other character-scored languages, because Korean is written with
+spaces. Its spacing is flexible enough that the word error rate is inflated by
+choices that are not recognition errors; KsponSpeech answers that with a
+space-normalized variant that rewrites the hypothesis toward the reference,
+which is a scoring convention this repository would have to defend separately
+and does not adopt. Read Korean word error rate as an upper bound.
+
+**Tibetan is an abugida written without spaces.** Its vowel signs and subjoined
+consonants are combining marks, so Whisper's rule reduces a word to its root
+letters: `བོད་སྐད་ཡིན།` becomes `བ ད ས ད ཡ ན`. The tsheg U+0F0B, which separates
+syllables, is punctuation and so becomes a space — that costs no characters,
+since it is one code point either way, and it leaves the syllable boundary
+visible to anything that later wants to count syllables rather than characters.
+
+### Three policies whose base could not be verified
 
 **Uyghur.** No Uyghur ASR evaluation convention was found at all. `uyghur-ug` is
 constructed by reasoning from the orthography — Uyghur writes /i/ with alef
@@ -267,6 +310,11 @@ maksura and /j/ with yeh, so the Perso-Arabic fold of the first onto the second
 would merge two distinct letters — and not adopted from anything published. It
 is the weakest policy in the set. Treat any Uyghur number as provisional until
 a native speaker or a published evaluation confirms the rules.
+
+**Tibetan.** The corpus this policy exists for states no evaluation metric and
+no transcription convention, and no Tibetan ASR normalizer was found at all.
+`tibetan-syllable` is reasoned from the orthography, exactly as `uyghur-ug` is.
+Treat any Tibetan number as provisional.
 
 **Central Kurdish.** `ckb` is assigned by script family, exactly as Pashto is:
 it is written in the Arabic script and the Perso-Arabic conventions are the

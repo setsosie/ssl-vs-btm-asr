@@ -48,6 +48,8 @@ LANGUAGE_SCRIPTS: dict[str, str] = {
     "sv-SE": "Latn",
     "da": "Latn",
     "et": "Latn",
+    "is": "Latn",
+    "hr": "Latn",
     "lt": "Latn",
     "lv": "Latn",
     "cy": "Latn",
@@ -67,6 +69,13 @@ LANGUAGE_SCRIPTS: dict[str, str] = {
     "ha": "Latn",
     "id": "Latn",
     "ms": "Latn",
+    "jv": "Latn",
+    "su": "Latn",
+    "zu": "Latn",
+    "xh": "Latn",
+    "nso": "Latn",
+    "ts": "Latn",
+    "ve": "Latn",
     # Cyrillic
     "ru": "Cyrl",
     "uk": "Cyrl",
@@ -86,10 +95,12 @@ LANGUAGE_SCRIPTS: dict[str, str] = {
     "ka": "Geor",
     "el": "Grek",
     "hy-AM": "Armn",
+    "hy": "Armn",
     # Indic abugidas
     "hi": "Deva",
     "mr": "Deva",
     "ne-NP": "Deva",
+    "ne": "Deva",
     "bn": "Beng",
     "pa-IN": "Guru",
     "gu": "Gujr",
@@ -112,6 +123,8 @@ LANGUAGE_SCRIPTS: dict[str, str] = {
     "zh-TW": "Hant",
     "yue": "Hant",
     "th": "Thai",
+    "bo": "Tibt",
+    "ko": "Kore",
     # The held-out corpora name their languages in full rather than by code.
     "malayalam": "Mlym",
     "marathi": "Deva",
@@ -140,7 +153,7 @@ SCRIPT_POLICIES: dict[str, str] = {
     "Cyrl": "whisper-basic",
     "Geor": "whisper-basic",
     "Grek": "whisper-basic",
-    "Armn": "whisper-basic",
+    "Armn": "armenian-hy",
     "Deva": "indic-vistaar",
     "Beng": "indic-vistaar",
     "Guru": "indic-vistaar",
@@ -152,6 +165,8 @@ SCRIPT_POLICIES: dict[str, str] = {
     "Mlym": "indic-vistaar",
     "Sinh": "indic-vistaar",
     "Jpan": "ja-cer",
+    "Kore": "ko-kspon",
+    "Tibt": "tibetan-syllable",
 }
 
 
@@ -194,6 +209,9 @@ LANGUAGE_POLICIES: dict[str, str] = {
             "et",
             "lt",
             "lv",
+            "et",
+            "is",
+            "hr",
             "cy",
             "fy-NL",
             "ru",
@@ -212,7 +230,6 @@ LANGUAGE_POLICIES: dict[str, str] = {
             "ady",
             "ka",
             "el",
-            "hy-AM",
         ],
         "whisper-basic",
     ),
@@ -231,7 +248,7 @@ LANGUAGE_POLICIES: dict[str, str] = {
 # error rate is primary and a preset carrying one must set ``word_boundary``
 # false. Checked by the test suite, so a regenerated preset cannot quietly
 # disagree.
-NO_SPACE_POLICIES = frozenset({"ja-cer", "thai-cer", "han-mer"})
+NO_SPACE_POLICIES = frozenset({"ja-cer", "thai-cer", "han-mer", "tibetan-syllable"})
 
 
 def script_for_language(code: str) -> str:
