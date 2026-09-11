@@ -513,18 +513,36 @@ def normalizers_of(path: Path) -> dict[str, str]:
 
 
 _COLUMNS = (
-    "locale", "language", "family", "script", "corpus", "trainable h",
+    "locale", "language", "family", "script", "policy", "corpus", "trainable h",
     "train h", "dev h", "test h", "validated h", "included", "reason",
 )  # fmt: skip
+
+
+def _policy_of(resolve: Any, locale: str) -> str:
+    """The policy name, or a marker when the language has no assignment yet.
+
+    A selected locale that cannot resolve is a real gap, so it shows as `?`
+    rather than silently reading like a language with no policy needed.
+    """
+    try:
+        return str(resolve(locale).version)
+    except (KeyError, ValueError):
+        return "?"
 
 
 def render_table(decisions: Iterable[Decision]) -> str:
     """One markdown row per locale: the numbers, the verdict, and the reason.
 
-    Family and script are shown only for locales that were selected. Filling
-    them in for all 290 would be 290 claims nothing in this repository checks,
-    so an excluded row says nothing rather than something unsourced.
+    Family, script and normalization policy are shown only for locales that
+    were selected. Filling them in for all 290 would be 290 claims nothing in
+    this repository checks, so an excluded row says nothing rather than
+    something unsourced.
+
+    The policy column is generated rather than written by hand because a
+    regeneration that dropped it is how the assignments were lost once already.
     """
+    from svb.text.registry import policy_for_language
+
     rows = ["| " + " | ".join(_COLUMNS) + " |", "|" + "---|" * len(_COLUMNS)]
     for decision in decisions:
         stats = decision.stats
@@ -537,6 +555,7 @@ def render_table(decisions: Iterable[Decision]) -> str:
                     info.name if info else "—",
                     info.family if info else "—",
                     info.script if info else "—",
+                    _policy_of(policy_for_language, stats.locale) if info else "—",
                     stats.corpus or "common_voice_25",
                     f"{stats.trainable_hours:.1f}",
                     f"{stats.train_hours:.1f}",

@@ -290,6 +290,11 @@ _ALEF_MAKSURA = "ى"
 
 _CYRILLIC_YO = {"ё": "е", "Ё": "Е"}
 
+# Armenian U+055B-U+055F. Deleted rather than spaced, because the question and
+# emphasis marks are written *inside* the word on the stressed syllable, so
+# turning them into a space splits one word into two.
+_ARMENIAN_MARKS = re.compile("[\u055b-\u055f]")
+
 
 @dataclass(frozen=True)
 class NormalizerPolicy:
@@ -362,7 +367,7 @@ class NormalizerPolicy:
     marks: Literal["keep", "space", "arabic", "hebrew"] = "keep"
     # The named letter tables: Malayalam chillu joiners, and the Arabic and
     # Perso-Arabic unifications, which run in opposite directions.
-    script_map: Literal["none", "malayalam", "arabic_msa", "perso"] = "none"
+    script_map: Literal["none", "malayalam", "arabic_msa", "perso", "armenian"] = "none"
     # Turkish "İ to i, I to ı" before folding. Without it a mark rule turns the
     # combining dot lowercasing produces into a space, splitting the word.
     locale_case: Literal["none", "tr"] = "none"
@@ -578,6 +583,40 @@ THAI_CER_POLICY = dataclasses.replace(
 HAN_MER_POLICY = dataclasses.replace(WHISPER_MARKS_POLICY, version="han-mer")
 
 
+# Armenian writes its question and emphasis marks inside the word, on the
+# stressed syllable, so the punctuation pass would split every question in two.
+# Deleting them first is our fix: no Armenian ASR evaluation convention was
+# found. NFKC's rewrite of the ligature U+0587 into two letters is left in
+# place, applied identically to both sides of every score.
+ARMENIAN_HY_POLICY = dataclasses.replace(
+    WHISPER_MARKS_POLICY, version="armenian-hy", script_map="armenian"
+)
+
+# NFC, never NFKC: the compatibility jamo compose into syllables under the
+# compatibility form, so two code points silently become one and the character
+# count moves. KsponSpeech reports character and word error rate, and word error
+# rate is primary here because Korean is written with spaces — unlike the other
+# character-scored languages. Korean spacing is flexible, so that word error rate
+# is inflated by spacing choices that are not recognition errors; KsponSpeech
+# answers this with a space-normalized variant that rewrites the hypothesis
+# toward the reference, which is a convention this repository would have to
+# defend separately and does not adopt.
+KO_KSPON_POLICY = dataclasses.replace(WHISPER_MARKS_POLICY, version="ko-kspon", form="NFC")
+
+# Tibetan stacks vowel signs and subjoined consonants as combining marks, so
+# Whisper's mark rule reduces a word to its root letters. The tsheg U+0F0B, which
+# separates syllables, is punctuation and therefore becomes a space: that costs
+# no characters, since it is one code point either way, and leaves the syllable
+# boundary visible to anything that wants to count syllables later.
+#
+# UNVERIFIED, like `uyghur-ug`. The corpus this policy exists for states no
+# evaluation metric and no transcription convention, and no Tibetan ASR
+# normalizer was found. These rules are reasoned from the orthography.
+TIBETAN_SYLLABLE_POLICY = dataclasses.replace(
+    WHISPER_MARKS_POLICY, version="tibetan-syllable", form="NFC"
+)
+
+
 # The policies a config may name. Each records only the rules its own pipeline
 # runs, so the version string is what distinguishes two records that would
 # otherwise share a shape — hence one version per preset, checked below.
@@ -596,6 +635,9 @@ POLICIES: dict[str, NormalizerPolicy] = {
     "ja-cer": JA_CER_POLICY,
     "thai-cer": THAI_CER_POLICY,
     "han-mer": HAN_MER_POLICY,
+    "armenian-hy": ARMENIAN_HY_POLICY,
+    "ko-kspon": KO_KSPON_POLICY,
+    "tibetan-syllable": TIBETAN_SYLLABLE_POLICY,
 }
 
 assert len({p.version for p in POLICIES.values()}) == len(POLICIES), (
@@ -766,6 +808,8 @@ def _script_letter_map(text: str, policy: NormalizerPolicy) -> str:
         for src, dst in _ARABIC_MSA_MAP.items():
             text = text.replace(src, dst)
         return text
+    if policy.script_map == "armenian":
+        return _ARMENIAN_MARKS.sub("", text)
     if policy.script_map == "perso":
         for src, dst in _PERSO_MAP.items():
             text = text.replace(src, dst)

@@ -151,7 +151,9 @@ def test_han_keeps_traditional_and_folds_only_width() -> None:
 
 
 def test_the_no_space_policies_are_the_ones_scored_on_characters() -> None:
-    assert {"ja-cer", "thai-cer", "han-mer"} == NO_SPACE_POLICIES
+    # Membership, not equality: the set grows as scripts without word
+    # separators arrive, and what has to hold is that these three are in it.
+    assert {"ja-cer", "thai-cer", "han-mer"} <= NO_SPACE_POLICIES
     for name in NO_SPACE_POLICIES:
         get_policy(name)  # each exists
 

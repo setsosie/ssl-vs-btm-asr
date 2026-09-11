@@ -234,15 +234,13 @@ def test_the_preset_is_exactly_what_the_evidence_table_marks_included(pytestconf
     assert _included_in_evidence(pytestconfig) == set(_codes(pytestconfig, "64"))
 
 
-def test_a_language_with_no_policy_yet_is_listed_in_the_preset_as_pending(pytestconfig):
-    """Thirty-two entries carry no `normalizer:` while their policies land
-    elsewhere. The header names them, so a reader of the preset does not have to
-    diff it against anything to find out which."""
+def test_no_language_is_waiting_for_a_policy(pytestconfig):
+    """Every entry names one, so the preset's pending list is gone rather than
+    empty. A language with no policy loads fine and fails a run at resolution,
+    which is a failure mode there is no longer any reason to keep available."""
     configs = Path(pytestconfig.rootpath) / "configs"
     specs = get_preset("64", configs_dir=configs)
     text = (configs / "scales" / "64.yaml").read_text(encoding="utf-8")
 
-    named = {
-        line.removeprefix("#   ").strip() for line in text.splitlines() if line.startswith("#   ")
-    }
-    assert named == {s.hf_config for s in specs if s.normalizer is None}
+    assert [s.code for s in specs if s.normalizer is None] == []
+    assert "Awaiting a normalization policy" not in text
