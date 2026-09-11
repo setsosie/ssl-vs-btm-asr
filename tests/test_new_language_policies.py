@@ -17,8 +17,8 @@ from svb.text.registry import LANGUAGE_SCRIPTS, NO_SPACE_POLICIES, policy_for_la
 
 NEW = {
     "bo": ("Tibt", "tibetan-syllable"),
-    "jv": ("Latn", "latin-marks"),
-    "su": ("Latn", "latin-marks"),
+    "jv": ("Latn", "whisper-basic"),
+    "su": ("Latn", "whisper-basic"),
     "si": ("Sinh", "indic-vistaar"),
     "ne": ("Deva", "indic-vistaar"),
     "bn": ("Beng", "indic-vistaar"),
@@ -29,11 +29,11 @@ NEW = {
     "et": ("Latn", "whisper-basic"),
     "is": ("Latn", "whisper-basic"),
     "hr": ("Latn", "whisper-basic"),
-    "zu": ("Latn", "latin-marks"),
-    "xh": ("Latn", "latin-marks"),
-    "nso": ("Latn", "latin-marks"),
-    "ts": ("Latn", "latin-marks"),
-    "ve": ("Latn", "latin-marks"),
+    "zu": ("Latn", "whisper-basic"),
+    "xh": ("Latn", "whisper-basic"),
+    "nso": ("Latn", "whisper-basic"),
+    "ts": ("Latn", "whisper-basic"),
+    "ve": ("Latn", "whisper-basic"),
 }
 
 
