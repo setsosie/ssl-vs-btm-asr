@@ -85,6 +85,15 @@ Bengali is in Common Voice too, at 31.5 trainable hours — below the rule. SLR5
 is what puts the language in the preset, so it is read from there and the
 Common Voice half is not used.
 
+**Two of the eighteen cannot produce a speaker-independent number.** Armenian
+carries no speaker field and is not meant to — the source page says the
+recordings cannot be matched to individual speakers — so its split is utterance
+level and the same voice appears in train and test. Kazakh has no speaker
+mapping either; its split is the published one and whether that is
+speaker-disjoint is not established. TalTech's ids are scoped to a recording, so
+its shipped split cannot be called speaker-disjoint across recordings. All three
+belong beside any per-language result for those languages.
+
 **Access.** Every one of these serves anonymously. The NCHLT corpora were the
 open question: SADiLaR's resources page mentions accepting terms of use, but its
 DSpace bitstream endpoint answers an unauthenticated client, which was tested

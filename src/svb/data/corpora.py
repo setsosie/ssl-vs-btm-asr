@@ -35,12 +35,16 @@ SPLIT_STATES = ("full", "partial", "none")
 #: Where a speaker id comes from, which decides whether a derived split can be
 #: speaker-disjoint at all.
 #:
-#: ``column``       an explicit speaker column or field in the corpus metadata
-#: ``file_id``      recoverable from the utterance id, as in the OpenSLR four
-#: ``unconfirmed``  the source page does not say; the preparer must check and
-#:                  the split degrades to utterance level if it is not there
-#: ``absent``       known not to be recoverable
-SPEAKER_ID_STATES = ("column", "file_id", "unconfirmed", "absent")
+#: ``column``         an explicit speaker column or field in the corpus metadata
+#: ``file_id``        recoverable from the utterance id, as in the OpenSLR four
+#: ``path``           recoverable from the directory the audio sits in
+#: ``per-recording``  present, but scoped to one recording rather than to a
+#:                    person: the same speaker in two recordings gets two ids, so
+#:                    a split cannot be claimed speaker-disjoint across them
+#: ``unconfirmed``    the source page does not say; the preparer must check and
+#:                    the split degrades to utterance level if it is not there
+#: ``absent``         known not to be recoverable
+SPEAKER_ID_STATES = ("column", "file_id", "path", "per-recording", "unconfirmed", "absent")
 
 
 @dataclass(frozen=True)
@@ -76,6 +80,12 @@ class CorpusSpec:
     test_hours: float | None = None
     speakers: str = ""
     notes: str = ""
+    #: ``file name -> {algorithm, value}`` for the corpora that publish one.
+    #: Three do — NCHLT per bitstream from the DSpace API, ParlaSpeech per file
+    #: from its METS record, and Zeroth at ``resources/40/checksum.md5``. The
+    #: fetcher compares against these rather than digesting for later comparison,
+    #: which is all it can do for the rest.
+    checksums: dict[str, dict[str, str]] = field(default_factory=dict)
     #: Fields whose value the source page does not publish, so a reader can tell
     #: "not stated" from "not yet filled in".
     unverified: list[str] = field(default_factory=list)

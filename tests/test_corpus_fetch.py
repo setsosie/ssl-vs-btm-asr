@@ -454,3 +454,101 @@ def test_an_http_error_that_is_not_a_bad_range_still_propagates(
 
     with pytest.raises(HTTPError):
         corpus_fetch.download("http://x/a.zip", tmp_path / "a.zip")
+
+
+# --------------------------------------------------------------------------- #
+# Published checksums
+# --------------------------------------------------------------------------- #
+
+
+def test_a_file_matching_its_published_checksum_reports_what_it_matched(
+    corpus_fetch: ModuleType, tmp_path: Path
+) -> None:
+    """Three of the corpora publish one. For those the archive is compared
+    against a value the publisher stands behind, which is a different claim from
+    the digest recorded for all the others."""
+    import hashlib
+
+    path = _zip(tmp_path / "a.zip", CORPUS)
+    published = hashlib.md5(path.read_bytes(), usedforsecurity=False).hexdigest()
+
+    verified = corpus_fetch.verify_checksum(path, {"algorithm": "MD5", "value": published})
+
+    assert verified == f"md5:{published}"
+
+
+def test_a_checksum_mismatch_stops_rather_than_warns(
+    corpus_fetch: ModuleType, tmp_path: Path
+) -> None:
+    """A mismatch is a corrupt or substituted archive. There is nothing useful
+    to do with one, and extracting it would put the corruption in the manifest."""
+    path = _zip(tmp_path / "a.zip", CORPUS)
+
+    with pytest.raises(OSError, match="does not match the published"):
+        corpus_fetch.verify_checksum(path, {"algorithm": "MD5", "value": "0" * 32})
+
+
+def test_a_corpus_that_publishes_nothing_is_not_reported_as_verified(
+    corpus_fetch: ModuleType, tmp_path: Path
+) -> None:
+    """Most publish nothing. Reporting those as verified would make the field
+    meaningless for the three where it means something."""
+    path = _zip(tmp_path / "a.zip", CORPUS)
+
+    assert corpus_fetch.verify_checksum(path, None) is None
+    assert corpus_fetch.verify_checksum(path, {}) is None
+    assert corpus_fetch.verify_checksum(path, {"algorithm": "MD5", "value": ""}) is None
+
+
+def test_an_uppercase_or_padded_published_value_still_matches(
+    corpus_fetch: ModuleType, tmp_path: Path
+) -> None:
+    """The published values come out of three different APIs, and hex case is
+    not consistent between them."""
+    import hashlib
+
+    path = _zip(tmp_path / "a.zip", CORPUS)
+    published = hashlib.md5(path.read_bytes(), usedforsecurity=False).hexdigest()
+
+    assert corpus_fetch.verify_checksum(
+        path, {"algorithm": "MD5", "value": f" {published.upper()} "}
+    )
+
+
+def test_an_algorithm_nobody_publishes_is_named_rather_than_ignored(
+    corpus_fetch: ModuleType, tmp_path: Path
+) -> None:
+    path = _zip(tmp_path / "a.zip", CORPUS)
+
+    with pytest.raises(ValueError, match="crc32"):
+        corpus_fetch.verify_checksum(path, {"algorithm": "crc32", "value": "abcd"})
+
+
+def test_the_fetch_record_says_which_archives_were_actually_verified(
+    corpus_fetch: ModuleType, tmp_path: Path
+) -> None:
+    import hashlib
+
+    path = _zip(tmp_path / "a.zip", CORPUS)
+    published = hashlib.md5(path.read_bytes(), usedforsecurity=False).hexdigest()
+
+    checked = corpus_fetch.archive_record(
+        path, "https://example/a.zip", {"algorithm": "MD5", "value": published}
+    )
+    plain = corpus_fetch.archive_record(path, "https://example/a.zip")
+
+    assert checked["checksum_verified"] == f"md5:{published}"
+    assert plain["checksum_verified"] is None
+    assert len(plain["sha256"]) == 64
+
+
+def test_the_registry_checksums_are_the_shape_the_fetcher_reads(
+    corpus_fetch: ModuleType, pytestconfig
+) -> None:
+    """The registry and the fetcher are edited by different hands. A value the
+    fetcher cannot parse would fail after a 5 GB download rather than here."""
+    from svb.data.corpora import load_corpora
+
+    for corpus in load_corpora(Path(pytestconfig.rootpath) / "configs"):
+        for name, checksum in corpus.checksums.items():
+            assert checksum["algorithm"].upper() in corpus_fetch._DIGESTS, (corpus.id, name)

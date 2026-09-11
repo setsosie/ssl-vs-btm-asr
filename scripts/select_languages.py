@@ -310,37 +310,46 @@ _DERIVED_EVAL_FRACTION = 0.1
 def corpus_locales(corpora: Iterable[Any]) -> list[LocaleStats]:
     """One candidate per language of every corpus in ``configs/corpora.yaml``.
 
-    A corpus that ships a full split is taken at its published train, dev and
-    test hours. Anything else is re-derived by the loader, so its trainable
-    hours are the total less the tenth each that the derivation gives dev and
-    test — the same arithmetic the loader will do, stated here rather than left
-    for a reader to work out.
+    A corpus whose **dev and test hours are published** is priced at its
+    published train, dev and test: its evaluation side is used as it stands, so
+    those are the hours a run gets. Anything else has its evaluation side
+    derived, and is priced at the total less the tenth each the derivation gives
+    dev and test — the same arithmetic the loader will do, stated here rather
+    than left for a reader to work out.
+
+    The test is the published evaluation hours rather than ``ships_split``,
+    because those are different questions. Zeroth ships a partition and its test
+    side is under the evaluation bar, so the preparer repartitions the whole
+    corpus and the published 51.6 h train figure stops describing anything;
+    Kannada ships one with no dev at all and does the same. What decides the
+    arithmetic is whether the evaluation side survives, and a published dev and
+    test figure is what says it does.
     """
     stats: list[LocaleStats] = []
     for corpus in corpora:
-        for code in corpus.languages:
-            if corpus.ships_split == "full" and corpus.train_hours is not None:
-                trainable = corpus.train_hours
-                dev = corpus.dev_hours or 0.0
-                test = corpus.test_hours or 0.0
-            else:
-                total = corpus.total_hours or (corpus.train_hours or 0.0)
-                dev = test = total * _DERIVED_EVAL_FRACTION
-                trainable = total - dev - test
-            stats.append(
-                LocaleStats(
-                    locale=code,
-                    train_hours=corpus.train_hours or 0.0,
-                    dev_hours=dev,
-                    test_hours=test,
-                    validated_hours=corpus.total_hours or 0.0,
-                    avg_clip_secs=0.0,
-                    train_clips=0,
-                    source="manifest",
-                    corpus=corpus.id,
-                    stated_trainable_hours=trainable,
-                )
+        published_eval = corpus.dev_hours is not None and corpus.test_hours is not None
+        if published_eval and corpus.train_hours is not None:
+            trainable = corpus.train_hours
+            dev, test = corpus.dev_hours, corpus.test_hours
+        else:
+            total = corpus.total_hours or (corpus.train_hours or 0.0)
+            dev = test = total * _DERIVED_EVAL_FRACTION
+            trainable = total - dev - test
+        stats.extend(
+            LocaleStats(
+                locale=code,
+                train_hours=corpus.train_hours or 0.0,
+                dev_hours=dev,
+                test_hours=test,
+                validated_hours=corpus.total_hours or 0.0,
+                avg_clip_secs=0.0,
+                train_clips=0,
+                source="manifest",
+                corpus=corpus.id,
+                stated_trainable_hours=trainable,
             )
+            for code in corpus.languages
+        )
     return stats
 
 

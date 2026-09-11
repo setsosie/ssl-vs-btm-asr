@@ -160,8 +160,8 @@ corpora:
         size: 29G
     audio_format: wav
     sample_rate_hz: 16000
-    transcripts: not documented on the source page — inspect the archive before ingest
-    speaker_ids: unconfirmed
+    transcripts: NOT VERIFIED — the page documents none; the preparer discovers the convention and refuses if it cannot
+    speaker_ids: path
     ships_split: none
     total_hours: 84.33
     speakers: "87 native speakers"
@@ -169,9 +169,17 @@ corpora:
     citation: TIBMD@MUC, Minzu University of China.
     notes: >-
       Three dialects: Ü-Tsang 52.53 h, Kham 5.87 h, Amdo 25.93 h; 10,390 unique
-      sentences. Tibetan is written without word boundaries, so word_boundary is
-      false and character error rate is the primary metric.
-    unverified: [transcripts, speaker_ids]
+      sentences. Speaker ids ARE present, which the record previously had as
+      unconfirmed: every recording sits under a `Speaker <N>` directory beneath a
+      `... Dialect` directory, and the speaker key is prefixed with its dialect
+      because the corpus is not stated to number its 87 speakers globally. The
+      TRANSCRIPT CONVENTION IS STILL NOT VERIFIED: the page documents none and a
+      sampled range of the tarball held no non-audio member, so it is certainly
+      not one .txt beside each .wav. The preparer discovers it at ingest and
+      refuses, reporting the non-audio files it found, rather than guessing.
+      Tibetan is written without word boundaries, so word_boundary is false and
+      character error rate is the primary metric.
+    unverified: [transcripts]
 
   - id: slr126_kannada
     name: IISc-MILE Kannada ASR Corpus
@@ -189,18 +197,22 @@ corpora:
     audio_format: wav
     sample_rate_hz: 16000
     transcripts: one UTF-8 .txt per .wav, under trans_files/ beside audio_files/
-    speaker_ids: unconfirmed
+    speaker_ids: file_id
     ships_split: partial
     total_hours: 350.0
     speakers: "915"
     preparer: scripts/prepare_kannada_mile.py
     citation: IISc-MILE, Indian Institute of Science.
     notes: >-
-      Train and test ship; there is no dev split. The loader takes a split whole
-      or derives one whole, so the preparer clears the column and re-derives all
-      three, and the published train/test division is not the one a run uses.
-      The only CC BY 2.0 corpus here.
-    unverified: [speaker_ids, train_hours, test_hours]
+      Speaker ids ARE present, which the record previously had as unconfirmed:
+      the file stem is MILE_03_SP_<speaker>_UTT_<n>, so everything before _UTT_
+      identifies the speaker — confirmed against the archive members and against
+      ESPnet's own recipe. Train and test ship; there is no dev split, and the
+      loader takes a partition whole or derives one whole, so the preparer clears
+      the column and re-derives all three speaker-disjointly. The published
+      train/test division is therefore not the one a run uses. The only CC BY 2.0
+      corpus here.
+    unverified: [train_hours, test_hours]
 
   - id: slr40_zeroth_korean
     name: Zeroth-Korean
@@ -213,9 +225,11 @@ corpora:
         url: https://www.openslr.org/resources/40/zeroth_korean.tar.gz
         size: 10G
     audio_format: flac
-    transcripts: not documented on the source page — Kaldi-style, inspect before ingest
-    speaker_ids: unconfirmed
+    transcripts: LibriSpeech-shaped <SPEAKERID>_<SCRIPTID>.trans.txt, one line per utterance
+    speaker_ids: column
     ships_split: partial
+    checksums:
+      zeroth_korean.tar.gz: {algorithm: MD5, value: 8e0a4268bb8e80db3773c331025ef1e2}
     train_hours: 51.6
     test_hours: 1.2
     total_hours: 52.8
@@ -223,13 +237,19 @@ corpora:
     preparer: scripts/prepare_zeroth.py
     citation: Zeroth Project, Goodatlas.
     notes: >-
-      The shipped test split is speaker-disjoint but 1.2 h, under the 2 h
-      evaluation bar. The preparer therefore leaves `split` empty for every row
-      and lets the shared speaker-disjoint derivation repartition all 115
-      speakers, so dev and test both clear the bar. The published 51.6/1.2 h
-      figures no longer describe the splits the run uses, and any write-up
-      should say the split was re-derived.
-    unverified: [audio_format, sample_rate_hz, transcripts, speaker_ids]
+      The one corpus in this group that publishes a checksum, at
+      resources/40/checksum.md5, so its archive is compared against a published
+      value rather than merely digested. Audio is FLAC and a speaker id is
+      present both in AUDIO_INFO and in the path, which settles four fields the
+      record previously carried as unconfirmed. The shipped test split is
+      speaker-disjoint but 1.2 h, under the 2 h evaluation bar, so the preparer
+      clears `split` on every row and the shared derivation repartitions all 115
+      speakers; the shipped test speakers enter the same pool rather than being
+      discarded. Roughly a fifth of the training hours therefore moves into
+      evaluation, and the published 51.6/1.2 figures no longer describe the
+      splits a run uses. Realised hours come from each FLAC's STREAMINFO at
+      ingest.
+    unverified: [sample_rate_hz]
 
   - id: slr160_armenian
     name: Armenian Speech Crowdsourcing Data
@@ -242,17 +262,21 @@ corpora:
         url: https://www.openslr.org/resources/160/armenian_speech_crowdsourcing_data.tar.gz
         size: 5.6G
     audio_format: wav
-    transcripts: pitched.jsonl — transcript plus metadata, one JSON object per line
-    speaker_ids: unconfirmed
+    transcripts: pitched.jsonl — exactly text, audio_filepath (an absolute /data/pitched/... path) and duration
+    speaker_ids: absent
     ships_split: none
     total_hours: 70.0
     preparer: scripts/prepare_armenian.py
     citation: Armenian Speech Crowdsourcing Data (Toloka, Yerevan City Magazine text).
     notes: >-
-      Crowdsourced read speech. Whether pitched.jsonl carries a speaker field is
-      not stated; if it does not, the split degrades to utterance level and the
-      run records that rather than claiming speaker-disjointness.
-    unverified: [sample_rate_hz, speaker_ids]
+      Crowdsourced read speech. There is NO speaker field and there is not meant
+      to be one — the page says the recordings cannot be identified or matched to
+      individual speakers — so `speaker` is empty on every row and the split is
+      utterance level. **An Armenian result is therefore not speaker-independent**
+      and is not comparable on that axis to the other corpora here; that belongs
+      in any write-up. This is not the Google crowdsourced layout despite also
+      being an OpenSLR crowdsourcing set: no utt_spk_text.tsv, no speaker column.
+    unverified: [sample_rate_hz]
 
   - id: slr102_ksc_kazakh
     name: Kazakh Speech Corpus (KSC)
@@ -265,17 +289,23 @@ corpora:
         url: https://www.openslr.org/resources/102/ISSAI_KSC_335RS_v1.1_flac.tar.gz
         size: 19G
     audio_format: flac
-    transcripts: shipped with the archive; convention not documented on the source page
-    speaker_ids: unconfirmed
-    ships_split: none
+    transcripts: one .txt per utterance under Transcriptions/; Meta/{train,dev,test}.csv list the split membership
+    speaker_ids: absent
+    ships_split: full
     total_hours: 332.0
     speakers: "over 153,000 utterances; speaker count not stated"
     preparer: scripts/prepare_ksc.py
     citation: ISSAI, Nazarbayev University — Kazakh Speech Corpus v1.1.
     notes: >-
+      The split DOES ship, in Meta/{train,dev,test}.csv, and is passed through;
+      the source page says nothing about it, which is why the record previously
+      said none. There is no speaker mapping: ESPnet's own recipe writes utt2spk
+      as `uttID uttID`, one speaker per utterance, so `speaker` is left empty and
+      the split policy is utterance level. A write-up should say the split is the
+      published one and that whether it is speaker-disjoint is not established.
       KSD (SLR140, 554 h, CC BY-SA 3.0) is the alternative, at 22/44 kHz and so
       needing resampling; KSC is preferred for being 4.0-licensed.
-    unverified: [sample_rate_hz, transcripts, speaker_ids, ships_split]
+    unverified: [sample_rate_hz]
 
   - id: slr112_samromur
     name: Samrómur 21.05
@@ -295,11 +325,17 @@ corpora:
     total_hours: 145.0
     speakers: "8392"
     preparer: scripts/prepare_samromur.py
+    unverified: [ships_split]
     citation: Samrómur 21.05, Language and Voice Lab, Reykjavík University.
     notes: >-
-      The cleanest split in the survey: the page states the corpus is "split into
-      train, dev and test subsets with no speaker overlap", so nothing is
-      derived. 16 bit linear PCM, 1 channel.
+      The page states the corpus is "split into train, dev and test subsets with
+      no speaker overlap", the cleanest partition of any corpus here, so it is
+      passed through and nothing is derived. Split, speaker and utterance id all
+      come out of the path (<split>/<speaker>/<speaker>-<utterance>.flac).
+      TO CONFIRM AT INGEST: train and dev are verified, test is not.
+      resources/112/info.txt calls the tgz "whole corpus (includes dev and train
+      sets)" and does not mention test, so the preparer refuses rather than
+      writing a manifest with a split missing. 16 bit linear PCM, 1 channel.
 
   # --- Non-OpenSLR ----------------------------------------------------------
   - id: taltech_estonian
@@ -309,24 +345,39 @@ corpora:
     licence_name: CC BY-SA 4.0 DEED
     licence_url: https://creativecommons.org/licenses/by-sa/4.0/
     downloads:
-      - name: est-pub-asr-data tar
-        url: https://cs.taltech.ee/staff/tanel.alumae/data/est-pub-asr-data/
-        size: 150G
-    audio_format: not stated on the source page — confirm before ingest
-    transcripts: STM and VTT, converted by the publisher from Transcriber TRS
-    speaker_ids: unconfirmed
+      - name: taltech-asr-speech-dataset-1.0.tar
+        url: https://cs.taltech.ee/staff/tanel.alumae/data/est-pub-asr-data/taltech-asr-speech-dataset-1.0.tar
+        size_bytes: 159267522560
+    audio_format: wav
+    sample_rate_hz: 16000
+    transcripts: STM (read), plus VTT and the original Transcriber TRS (left in the archive)
+    speaker_ids: per-recording
     ships_split: full
     train_hours: 1334.0
     dev_hours: 21.0
     test_hours: 23.0
     preparer: scripts/prepare_taltech.py
-    citation: Tanel Alumäe, Tallinn University of Technology — Estonian public ASR data.
+    citation: >-
+      Alumäe, Kalda, Bode and Kaitsa, "Automatic Closed Captioning for Estonian
+      Live Broadcasts", NoDaLiDa 2023, pages 492-499.
+      https://aclanthology.org/2023.nodalida-1.49
     notes: >-
-      Spontaneous long-form speech, non-professionally transcribed with errors
-      the publisher documents. The page states the audio copyright "belongs to
-      corresponding parties" alongside the CC BY-SA tag, which is worth reading
-      before redistributing anything derived from it.
-    unverified: [audio_format, sample_rate_hz, speaker_ids]
+      16 kHz 16-bit mono PCM WAV, confirmed from a sampled member's RIFF header;
+      the page states no format. The audio is LONG-FORM — recordings run half an
+      hour and more — and the manifest layer addresses whole files, so the
+      preparer cuts every recording at its STM segment bounds into roughly
+      600,000 small WAVs. Budget about 320 GB of peak disk: the 159 GB tar and
+      its extracted tree exist at the same time, before the cut segments settle
+      at about 130 GB. Speaker ids are scoped to a recording — the recording id
+      prefixes every speaker id in its own STM — so the same person in two
+      recordings is two ids and the shipped split CANNOT be claimed
+      speaker-disjoint across recordings. Transcription is non-professional with
+      a documented error rate the publisher puts under 5% of words, and not all
+      of the 1334 training hours are speech. The page pairs its ShareAlike tag
+      with "Copyright of the audio material in the dataset belongs to
+      corresponding parties", which is worth reading before redistributing
+      anything derived from it. No checksum is published; the length is checked
+      against Content-Length and the server is Range-capable.
 
   - id: parlaspeech_hr
     name: ParlaSpeech-HR v1.0
@@ -335,38 +386,57 @@ corpora:
     licence_name: Creative Commons - Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)
     licence_url: https://creativecommons.org/licenses/by-sa/4.0/
     downloads:
-      - name: ParlaSpeech-HR.part{n}
-        url_pattern: https://www.clarin.si/repository/xmlui/handle/11356/1494
-        shards: "123"
-        size: 116G total across three parts
+      # The three .tgz.N are byte slices of ONE gzip stream, not three archives:
+      # only slice 0 starts 1f 8b, and the first two are exactly 50,000 MiB. They
+      # are concatenated and read as one stream. URLs and every value below come
+      # from the item's METS record, which is also where the MD5s are.
+      - name: ParlaSpeech-HR.v1.0.jsonl
+        size_bytes: 712525343
+        api: CLARIN.SI METS record, resolved at fetch time
+      - name: ParlaSpeech-HR.v1.0.txt
+        size_bytes: 1097
+        api: CLARIN.SI METS record, resolved at fetch time
+      - name: ParlaSpeech-HR.flac.tgz.0
+        size_bytes: 52428800000
+        api: CLARIN.SI METS record, resolved at fetch time
+      - name: ParlaSpeech-HR.flac.tgz.1
+        size_bytes: 52428800000
+        api: CLARIN.SI METS record, resolved at fetch time
+      - name: ParlaSpeech-HR.flac.tgz.2
+        size_bytes: 20321039259
+        api: CLARIN.SI METS record, resolved at fetch time
+    checksums:
+      ParlaSpeech-HR.v1.0.jsonl: {algorithm: MD5, value: 271ef6589623facd86527b1e05b740f4}
+      ParlaSpeech-HR.v1.0.txt: {algorithm: MD5, value: 71a7479a87e107510c99bc2602e1076e}
+      ParlaSpeech-HR.flac.tgz.0: {algorithm: MD5, value: 84076b62f51eb1da9870c1f6c4da436b}
+      ParlaSpeech-HR.flac.tgz.1: {algorithm: MD5, value: 8123e76721d437837a2439dd662a973b}
+      ParlaSpeech-HR.flac.tgz.2: {algorithm: MD5, value: cd8e71d1d93a3b89d10a208c288c824e}
     audio_format: flac
-    transcripts: JSONL with word-level alignments
+    sample_rate_hz: 16000
+    transcripts: JSONL, one object per segment, with word-level alignments
     speaker_ids: column
-    ships_split: full
+    ships_split: partial
     total_hours: 1816.0
-    speakers: "309 (train), 5 (dev), 6 (test)"
+    speakers: "309 train, 5 dev, 6 test"
     preparer: scripts/prepare_parlaspeech.py
-    citation: Ljubešić et al. — ParlaSpeech-HR, CLARIN.SI.
+    citation: >-
+      Ljubešić, Koržinek, Rupnik, Jazbec, Batanović, Bajčetić and Evkoski, "ASR
+      training dataset for Croatian ParlaSpeech-HR v1.0", Jožef Stefan Institute,
+      2022. http://hdl.handle.net/11356/1494
     notes: >-
-      Parliamentary speech. The repository publishes dev and test as segment
-      counts (500 and 513) rather than hours, so the dev and test hours are left
-      null and measured at ingest. Publicly available with no login.
-    unverified: [sample_rate_hz, dev_hours, test_hours]
+      Parliamentary speech: spontaneous, but one domain and one register, and the
+      transcripts are ParlaMint 2.1 proceedings aligned to YouTube audio rather
+      than verbatim annotations. 16 kHz mono 16-bit, read from the first file's
+      FLAC STREAMINFO. The split is partial: 22,076 of 403,925 segments carry
+      neither a speaker nor a split and are dropped, leaving 380,836 train, 500
+      dev and 513 test, counts the preparer checks rather than records. Dev is
+      drawn from the five most frequent speakers, so it is not a random held-out
+      sample. About 116 GB of slices plus about the same extracted. The item page
+      says this release "is replaced by a newer submission",
+      http://hdl.handle.net/11356/1914; v1.0 is what is pinned here and moving is
+      a decision rather than a bump.
+    unverified: [dev_hours, test_hours]
 
-  # NCHLT, via SADiLaR's DSpace 7 REST API. The resources page mentions
-  # accepting terms of use, but the bitstream endpoint serves to an
-  # unauthenticated client (verified: HTTP 206, application/zip, PK magic). The
-  # preparer resolves a handle to a download URL through
-  #   /server/api/core/items/{uuid}/bundles -> ORIGINAL
-  #   -> /server/api/core/bundles/{uuid}/bitstreams -> _links.content.href
-  # and reads dc.rights.license and dc.description from the same API, so the
-  # licence and the corpus size are asserted at fetch time rather than trusted
-  # from this file.
-  #
-  # Per-split hours are from van der Westhuizen & Niesler, Stellenbosch
-  # technical report SU-EE-1501, which reports three-way speaker-disjoint
-  # splits; the ~56 h corpus totals are SADiLaR's own. All five have a train
-  # split just under 50 h, which is recorded rather than rounded up.
   - id: nchlt_zulu
     name: NCHLT isiZulu Speech Corpus
     languages: [zu]
@@ -374,22 +444,37 @@ corpora:
     licence_name: Creative Commons Attribution 3.0 Unported License (CC BY 3.0)
     licence_url: https://creativecommons.org/licenses/by/3.0/
     downloads:
-      - name: nchlt_zulu.zip
+      - name: nchlt.speech.corpus.zul.zip
         api: DSpace bitstream, resolved from the item handle at fetch time
+        size_bytes: 4683189802
+    checksums:
+      nchlt.speech.corpus.zul.zip: {algorithm: MD5, value: aba238a62d72932edb86bd1e5295ea60}
     audio_format: wav
     sample_rate_hz: 16000
     transcripts: per-utterance XML
     speaker_ids: column
-    ships_split: full
+    ships_split: partial
     train_hours: 48.5
     dev_hours: 3.7
     test_hours: 4.0
-    speakers: 194 train / 8 dev / 8 test
+    speakers: >-
+      194 in the corpus; the published test suite is 8 speakers, ids 500-507.
+      The "194/8/8" three-way division quoted in the literature is the
+      Stellenbosch report's, not the release's.
     preparer: scripts/prepare_nchlt.py
     citation: NCHLT Speech Corpus, South African Department of Arts and Culture; SADiLaR.
     notes: >-
-      Read prompts, narrow domain, and the published test suite is 8 speakers.
-      Train alone is 48.5 h, under the 50 h rule; the corpus totals about 56 h.
+      Read prompts, narrow domain. Only two sides ship — nchlt_zul.trn.xml and
+      nchlt_zul.tst.xml — so the published 8-speaker test suite is used as
+      shipped and dev is derived from the training side by the preparer. The
+      train/dev/test hours below come from van der Westhuizen & Niesler
+      (Stellenbosch SU-EE-1501), which divides the training side three ways; that
+      division is not in the release, so the dev set differs from the one those
+      numbers describe while the test set does not. Audio is 16 kHz 16-bit mono
+      PCM WAV. This archive has no wrapper directory: its members sit at the
+      archive root, unlike the other nine, which is why the preparer detects
+      the root rather than assuming one. Speaker overlap with the other NCHLT languages is
+      not established and is a live question for a multilingual mix.
 
   - id: nchlt_xhosa
     name: NCHLT isiXhosa Speech Corpus
@@ -398,17 +483,23 @@ corpora:
     licence_name: Creative Commons Attribution 3.0 Unported License (CC BY 3.0)
     licence_url: https://creativecommons.org/licenses/by/3.0/
     downloads:
-      - name: nchlt_xhosa.zip
+      - name: nchlt.speech.corpus.xho.zip
         api: DSpace bitstream, resolved from the item handle at fetch time
+        size_bytes: 5013413061
+    checksums:
+      nchlt.speech.corpus.xho.zip: {algorithm: MD5, value: 0e8918da0e1ac9acb3a300c7198c33dd}
     audio_format: wav
     sample_rate_hz: 16000
     transcripts: per-utterance XML
     speaker_ids: column
-    ships_split: full
+    ships_split: partial
     train_hours: 49.4
     dev_hours: 3.8
     test_hours: 3.1
-    speakers: 193 train / 8 dev / 8 test
+    speakers: >-
+      193 in the corpus; the published test suite is 8 speakers, ids 500-507.
+      The "193/8/8" three-way division quoted in the literature is the
+      Stellenbosch report's, not the release's.
     preparer: scripts/prepare_nchlt.py
     citation: NCHLT Speech Corpus; SADiLaR.
     notes: Read prompts; 8-speaker test suite; train alone under 50 h.
@@ -420,17 +511,23 @@ corpora:
     licence_name: Creative Commons Attribution 3.0 Unported License (CC BY 3.0)
     licence_url: https://creativecommons.org/licenses/by/3.0/
     downloads:
-      - name: nchlt_sepedi.zip
+      - name: nchlt.speech.corpus.nso.zip
         api: DSpace bitstream, resolved from the item handle at fetch time
+        size_bytes: 4606487018
+    checksums:
+      nchlt.speech.corpus.nso.zip: {algorithm: MD5, value: e12f4c215772e8f2136cc66ae32798ea}
     audio_format: wav
     sample_rate_hz: 16000
     transcripts: per-utterance XML
     speaker_ids: column
-    ships_split: full
+    ships_split: partial
     train_hours: 50.9
     dev_hours: 2.5
     test_hours: 2.9
-    speakers: 194 train / 8 dev / 8 test
+    speakers: >-
+      194 in the corpus; the published test suite is 8 speakers, ids 500-507.
+      The "194/8/8" three-way division quoted in the literature is the
+      Stellenbosch report's, not the release's.
     preparer: scripts/prepare_nchlt.py
     citation: NCHLT Speech Corpus; SADiLaR.
     notes: Read prompts; 8-speaker test suite.
@@ -442,17 +539,23 @@ corpora:
     licence_name: Creative Commons Attribution 3.0 Unported License (CC BY 3.0)
     licence_url: https://creativecommons.org/licenses/by/3.0/
     downloads:
-      - name: nchlt_xitsonga.zip
+      - name: nchlt.speech.corpus.tso.zip
         api: DSpace bitstream, resolved from the item handle at fetch time
+        size_bytes: 4748770206
+    checksums:
+      nchlt.speech.corpus.tso.zip: {algorithm: MD5, value: 4a61b5c12d569e8c2ac0dc79a9cd6b3c}
     audio_format: wav
     sample_rate_hz: 16000
     transcripts: per-utterance XML
     speaker_ids: column
-    ships_split: full
+    ships_split: partial
     train_hours: 49.8
     dev_hours: 2.9
     test_hours: 3.6
-    speakers: 182 train / 8 dev / 8 test
+    speakers: >-
+      182 in the corpus; the published test suite is 8 speakers, ids 500-507.
+      The "182/8/8" three-way division quoted in the literature is the
+      Stellenbosch report's, not the release's.
     preparer: scripts/prepare_nchlt.py
     citation: NCHLT Speech Corpus; SADiLaR.
     notes: Read prompts; 8-speaker test suite; train alone under 50 h.
@@ -464,17 +567,23 @@ corpora:
     licence_name: Creative Commons Attribution 3.0 Unported License (CC BY 3.0)
     licence_url: https://creativecommons.org/licenses/by/3.0/
     downloads:
-      - name: nchlt_tshivenda.zip
+      - name: nchlt.speech.corpus.ven.zip
         api: DSpace bitstream, resolved from the item handle at fetch time
+        size_bytes: 4724571913
+    checksums:
+      nchlt.speech.corpus.ven.zip: {algorithm: MD5, value: 64733801596db48c5b02dd7236aad1d9}
     audio_format: wav
     sample_rate_hz: 16000
     transcripts: per-utterance XML
     speaker_ids: column
-    ships_split: full
+    ships_split: partial
     train_hours: 49.6
     dev_hours: 3.6
     test_hours: 3.1
-    speakers: 192 train / 8 dev / 8 test
+    speakers: >-
+      192 in the corpus; the published test suite is 8 speakers, ids 500-507.
+      The "192/8/8" three-way division quoted in the literature is the
+      Stellenbosch report's, not the release's.
     preparer: scripts/prepare_nchlt.py
     citation: NCHLT Speech Corpus; SADiLaR.
     notes: Read prompts; 8-speaker test suite; train alone under 50 h.

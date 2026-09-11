@@ -744,3 +744,59 @@ def test_regenerating_a_preset_carries_its_policy_assignments_forward(
 
     assert yaml.safe_load(rendered)["languages"][0]["normalizer"] == "latin-marks"
     assert "Awaiting a normalization policy" not in rendered
+
+
+def test_the_corpus_hours_come_from_the_published_evaluation_side_when_there_is_one(
+    select_languages: ModuleType,
+) -> None:
+    """`ships_split` describes the release; it does not decide the arithmetic.
+
+    Zeroth ships a partition whose test side is under the evaluation bar and
+    Kannada ships one with no dev, so both are repartitioned and their published
+    train figures stop describing anything. What survives is the question, and a
+    published dev *and* test figure is what says the evaluation side does.
+    """
+    published = _corpus(
+        select_languages,
+        ships_split="partial",
+        train_hours=48.5,
+        dev_hours=3.7,
+        test_hours=4.0,
+    )
+    repartitioned = _corpus(
+        select_languages, ships_split="partial", train_hours=51.6, total_hours=52.8
+    )
+
+    (kept,) = select_languages.corpus_locales([published])
+    (derived,) = select_languages.corpus_locales([repartitioned])
+
+    assert kept.trainable_hours == pytest.approx(48.5)
+    assert kept.test_hours == pytest.approx(4.0)
+    assert derived.trainable_hours == pytest.approx(42.24)
+
+
+def test_the_committed_preset_is_what_the_rule_selects_from_the_shipped_registry(
+    select_languages: ModuleType, pytestconfig: pytest.Config
+) -> None:
+    """The preset is generated, so an edit to `configs/corpora.yaml` can move it
+    without anyone regenerating it.
+
+    That is not hypothetical: correcting four `ships_split` values against what
+    the preparers found silently repriced the five NCHLT languages by ten hours
+    each. Every hour figure here comes from the registry, so this runs offline
+    and pins the two together.
+    """
+    from pathlib import Path
+
+    import yaml
+
+    from svb.data.corpora import load_corpora
+
+    configs = Path(pytestconfig.rootpath) / "configs"
+    decisions = select_languages.decide(select_languages.corpus_locales(load_corpora(configs)))
+    selected = {d.stats.locale for d in decisions if d.included}
+
+    preset = yaml.safe_load((configs / "scales" / "64.yaml").read_text(encoding="utf-8"))
+    from_corpora = {e["code"] for e in preset["languages"] if e["source"] == "manifest"}
+
+    assert selected == from_corpora, sorted(selected ^ from_corpora)
