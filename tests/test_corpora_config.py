@@ -87,13 +87,65 @@ def test_split_and_speaker_states_come_from_a_fixed_vocabulary(
         assert corpus.speaker_ids in SPEAKER_ID_STATES, (corpus.id, corpus.speaker_ids)
 
 
-def test_a_corpus_that_ships_no_split_can_have_one_derived(corpora: list[CorpusSpec]) -> None:
-    """Deriving a speaker-disjoint split needs speaker ids. A corpus with
-    neither a shipped split nor recoverable speakers cannot be trained on
-    honestly, and this is where that shows up rather than mid-run."""
+def test_a_corpus_whose_split_cannot_be_speaker_disjoint_says_so(
+    corpora: list[CorpusSpec],
+) -> None:
+    """Deriving a speaker-disjoint split needs speaker ids.
+
+    A corpus with no shipped split and no recoverable speaker gets an
+    utterance-level split, so the same voice appears in train and test and its
+    number is not speaker-independent. That is usable — Armenian is in the
+    preset on those terms — but only if it is written down, because it is
+    invisible in the results file. So the notes have to say it.
+    """
     for corpus in corpora:
-        if corpus.ships_split == "none":
-            assert corpus.speaker_ids != "absent", corpus.id
+        if corpus.ships_split == "none" and corpus.speaker_ids == "absent":
+            assert "not speaker-independent" in corpus.notes, corpus.id
+
+
+def test_a_corpus_whose_speakers_are_scoped_to_a_recording_says_so(
+    corpora: list[CorpusSpec],
+) -> None:
+    """`per-recording` ids look like speaker ids and are not.
+
+    The same person in two recordings gets two of them, so a split built on
+    them is not speaker-disjoint across recordings however it was produced. A
+    reader has to be told before quoting the number, not after.
+    """
+    for corpus in corpora:
+        if corpus.speaker_ids == "per-recording":
+            assert "speaker-disjoint" in corpus.notes, corpus.id
+
+
+def test_a_published_checksum_names_a_file_that_is_downloaded(
+    corpora: list[CorpusSpec],
+) -> None:
+    """Three corpora publish a checksum and the fetcher checks against it. One
+    keyed to a file name nothing downloads would silently never run."""
+    for corpus in corpora:
+        names = {item.get("name") for item in corpus.downloads}
+        for name, checksum in corpus.checksums.items():
+            assert name in names, (corpus.id, name)
+            assert checksum["algorithm"] in {"MD5", "SHA256"}, (corpus.id, name)
+            assert checksum["value"] == checksum["value"].lower().strip(), (corpus.id, name)
+
+
+def test_the_corpora_that_publish_a_checksum_are_the_ones_that_do(
+    corpora: list[CorpusSpec],
+) -> None:
+    """Recorded as a fact, so that "no corpus publishes a checksum" — which the
+    fetch manifest used to say and which is false — cannot creep back."""
+    with_checksums = {c.id for c in corpora if c.checksums}
+
+    assert with_checksums == {
+        "nchlt_zulu",
+        "nchlt_xhosa",
+        "nchlt_sepedi",
+        "nchlt_xitsonga",
+        "nchlt_tshivenda",
+        "parlaspeech_hr",
+        "slr40_zeroth_korean",
+    }
 
 
 def test_every_corpus_points_at_a_preparer_that_exists(

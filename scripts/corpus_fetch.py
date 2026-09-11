@@ -92,13 +92,65 @@ def verify_archive(path: Path) -> str | None:
     return None
 
 
-def archive_record(path: Path, url: str) -> dict[str, Any]:
-    """What the fetch manifest records about one downloaded archive."""
+#: Digest algorithms a registry entry may name. MD5 is here because that is
+#: what SADiLaR, CLARIN.SI and openslr.org publish; it is being compared against
+#: a published value, not relied on for anything adversarial.
+_DIGESTS = {"MD5": "md5", "SHA256": "sha256"}
+
+
+def digest_file(path: Path, algorithm: str) -> str:
+    """Lowercase hex digest of a file under a named algorithm."""
+    try:
+        name = _DIGESTS[algorithm.upper()]
+    except KeyError:
+        raise ValueError(
+            f"{path.name}: unknown checksum algorithm {algorithm!r}; expected one of "
+            f"{sorted(_DIGESTS)}"
+        ) from None
+    digest = hashlib.new(name, usedforsecurity=False)
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(CHUNK), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def verify_checksum(path: Path, checksum: dict[str, str] | None) -> str | None:
+    """Compare a file against a published checksum, or say there was none.
+
+    Returns None when the registry publishes no checksum for this file, and
+    raises when one is published and does not match — a mismatch is a corrupt or
+    substituted archive and there is nothing useful to do but stop. Three of the
+    corpora publish one; for the rest the recorded digest is only good for
+    comparing one fetch against another.
+    """
+    if not checksum:
+        return None
+    algorithm = checksum.get("algorithm", "")
+    published = str(checksum.get("value", "")).lower().strip()
+    if not published:
+        return None
+    got = digest_file(path, algorithm)
+    if got != published:
+        raise OSError(
+            f"{path.name}: {algorithm} {got} does not match the published {published}. "
+            "The archive is corrupt or has been replaced; delete it and fetch again."
+        )
+    return f"{algorithm.lower()}:{published}"
+
+
+def archive_record(path: Path, url: str, checksum: dict[str, str] | None = None) -> dict[str, Any]:
+    """What the fetch manifest records about one downloaded archive.
+
+    ``checksum_verified`` is the published digest this file was checked against,
+    or None where the publisher offers none — which is the difference between an
+    archive that was verified and one that was merely digested.
+    """
     return {
         "name": path.name,
         "url": url,
         "bytes": path.stat().st_size,
         "sha256": sha256_file(path),
+        "checksum_verified": verify_checksum(path, checksum),
     }
 
 
@@ -300,9 +352,13 @@ def snapshot_hf(repo_id: str, dest: Path, *, allow_patterns: list[str] | None = 
 def write_fetch_manifest(dest: Path, payload: dict[str, Any]) -> Path:
     """Record what was fetched, beside what was fetched.
 
-    ``fetched_utc`` and the per-archive SHA-256 are the only evidence later that
-    two runs read the same bytes: none of these corpora publishes a checksum, so
-    the digest is recorded for comparison rather than checked against anything.
+    Three corpora publish a checksum — NCHLT per bitstream, ParlaSpeech per file
+    and Zeroth at ``resources/40/checksum.md5`` — and those archives are compared
+    against it, with the published value recorded under ``checksum_verified``.
+    For every other corpus nothing is published, so ``checksum_verified`` is null
+    and the recorded SHA-256 is only good for comparing one fetch against
+    another. ``fetched_utc`` and that digest are then the only evidence later
+    that two runs read the same bytes.
     """
     path = dest / "fetch_manifest.json"
     payload = {"fetched_utc": datetime.now(UTC).isoformat(timespec="seconds"), **payload}
