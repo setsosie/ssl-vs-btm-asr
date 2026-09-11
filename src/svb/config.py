@@ -10,13 +10,15 @@ from __future__ import annotations
 
 import dataclasses
 import os
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
 import yaml
 
-from .text.normalize import NormalizerPolicy, get_policy, module_sha256, policy_name
+from .text.normalize import get_policy, module_sha256, policy_name
+from .text.registry import policies_for_specs
 
 Arm = Literal["A_ssl", "B_btm_ssl", "C_btm_scratch"]
 Scale = Literal["3", "16", "64"]
@@ -69,7 +71,13 @@ class TextConfig:
     full — along with the derived digests — beside each run's results.
     """
 
-    policy: NormalizerPolicy = field(default_factory=NormalizerPolicy)
+    # A policy name that replaces every language's own. Left unset, each
+    # language uses the policy its preset names or its script defaults to, which
+    # is the point of having a policy per script. Setting it is the switch for
+    # scoring a whole run the way one published system scores — useful for
+    # comparing against that system's numbers, at the cost of whatever its rules
+    # do to the scripts it was not designed for.
+    override: str | None = None
     # Corpus-wide occurrences a character needs to earn a vocabulary slot. The
     # default keeps everything, which is right for a smoke run where a real
     # character may also be rare; configs/base.yaml raises it for a full run,
@@ -79,7 +87,7 @@ class TextConfig:
 
 
 # Written into the dumped config for the reader, derived rather than set.
-_DERIVED_TEXT_KEYS = ("policy_name", "policy_hash", "normalizer_module_sha256")
+_DERIVED_TEXT_KEYS = ("policies", "normalizer_module_sha256")
 
 
 @dataclass(frozen=True)
@@ -119,14 +127,10 @@ class ExperimentConfig:
         # asdict would emit every policy field, including the ones belonging to
         # the other pipeline, which reads as a list of rules that ran. The
         # policy's own record carries only what it actually runs.
-        data["text"]["policy"] = self.text.policy.to_dict()
-        # Derived, so that a reader can tell two runs apart without recomputing
-        # anything: the policy hash identifies the settings, the module hash
-        # catches a normalizer edited without any setting changing, and the name
-        # says which published policy this is — a label for the reader, not the
-        # thing the run trusts, which is the resolved fields beside it.
-        data["text"]["policy_name"] = policy_name(self.text.policy)
-        data["text"]["policy_hash"] = self.text.policy.policy_hash()
+        # The normalizer's own digest, which the policy hashes cannot see: it
+        # catches the module being edited without any setting changing. The
+        # per-language policies are added by `dump_config`, which is where the
+        # language list is known.
         data["text"]["normalizer_module_sha256"] = module_sha256()
         return data
 
@@ -177,19 +181,27 @@ def _text_config(raw: dict[str, Any]) -> TextConfig:
     raw = dict(raw)
     for key in _DERIVED_TEXT_KEYS:
         raw.pop(key, None)
-    spec = raw.pop("policy", {})
-    # A name or the fields themselves. The name is the one-line switch a config
-    # uses to adopt a published policy; the fields are how a run says exactly
-    # what it did, which is also what its own dumped config carries back in.
-    policy = get_policy(spec) if isinstance(spec, str) else NormalizerPolicy(**spec)
-    return TextConfig(policy=policy, **raw)
+    if raw.get("override") is not None:
+        # Fail here rather than at the first language: an unknown name in a
+        # config is a typo, and finding out mid-run wastes the run.
+        get_policy(raw["override"])
+    return TextConfig(**raw)
 
 
-def dump_config(cfg: ExperimentConfig, out_dir: str | Path) -> Path:
+def dump_config(cfg: ExperimentConfig, out_dir: str | Path, specs: Iterable[Any] = ()) -> Path:
     """Write the fully-resolved config next to a run's results."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    data = cfg.to_dict()
+    # Which policy each language actually ran under, by name and by hash. The
+    # name is a label for the reader; the hash is what says whether two runs may
+    # be pooled, and a run whose languages differ in policy cannot be compared
+    # language-for-language with one whose do not.
+    data["text"]["policies"] = {
+        code: {"name": policy_name(policy), "hash": policy.policy_hash()}
+        for code, policy in sorted(policies_for_specs(specs, cfg.text.override).items())
+    }
     path = out_dir / "resolved_config.yaml"
     with open(path, "w") as f:
-        yaml.safe_dump(cfg.to_dict(), f, sort_keys=False)
+        yaml.safe_dump(data, f, sort_keys=False)
     return path

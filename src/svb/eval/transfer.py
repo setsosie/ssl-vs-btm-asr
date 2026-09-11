@@ -31,6 +31,7 @@ from ..data.datasets import load_language, load_texts
 from ..data.registry import LangSpec
 from ..model.ctc_vocab import CtcVocab, expand_vocab
 from ..model.xeus_ctc import make_model
+from ..text.registry import policy_for_language
 from ..train.trainer import train
 from .evaluate import EvalResult, evaluate
 
@@ -100,7 +101,11 @@ def transfer_one(
     # anything else — and the same floor, so the held-out language's tail is
     # treated the way the training languages' tails were.
     new_vocab, _, _ = expand_vocab(
-        base_vocab, load_texts(lang, "train"), min_char_count=cfg.text.min_char_count
+        base_vocab,
+        load_texts(lang, "train"),
+        lang.code,
+        policy_for_language(lang.code, lang.normalizer),
+        min_char_count=cfg.text.min_char_count,
     )
     model = make_model(cfg, base_vocab.size)
     if init_ckpt is not None:

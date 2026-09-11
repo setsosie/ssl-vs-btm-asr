@@ -130,7 +130,8 @@ def test_dataset_reads_wavs_and_reports_its_split_policy(slr_root):
     assert len(ds.test_files_sha1) == 40
     assert len(ds) == len(load_openslr_texts(SPEC, "train", root=str(slr_root)))
 
-    wav, text = ds[0]
+    wav, text, code = ds[0]
+    assert code == SPEC.code
     assert isinstance(wav, torch.Tensor) and wav.dtype == torch.float32
     assert wav.ndim == 1 and wav.shape[0] == 160
     assert text
@@ -163,7 +164,7 @@ def test_stereo_and_odd_sample_rate_are_normalised(slr_root, write_silent_wav):
     file_id = ds.rows[0][0]
     write_silent_wav(slr_root / "SLR63" / f"{file_id}.wav", frames=80, sr=8000, channels=2)
 
-    wav, _ = ds[0]
+    wav, _, _ = ds[0]
 
     assert wav.ndim == 1  # downmixed from stereo
     assert 150 <= wav.shape[0] <= 170  # 80 frames @8k -> ~160 @16k

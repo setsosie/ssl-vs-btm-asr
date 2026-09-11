@@ -117,7 +117,7 @@ def test_expansion_reuses_the_vocabs_own_policy_by_default() -> None:
     base, _ = build_vocab_from_texts(["abc"], policy=NormalizerPolicy(case="lower"))
     expanded, _, _ = expand_vocab(base, ["ÄÖ"])
 
-    assert expanded.policy == base.policy
+    assert expanded.policies == base.policies
     assert "ä" in expanded.char_to_id  # lower, not casefold, and not upper
 
 
@@ -138,12 +138,12 @@ def test_save_records_the_policy_alongside_the_characters(tmp_path: Path) -> Non
     vocab.save(path)
 
     saved = json.loads(path.read_text(encoding="utf-8"))
-    assert saved["policy"]["version"] == DEFAULT_POLICY.version
+    assert saved["policies"]["*"]["version"] == DEFAULT_POLICY.version
     assert saved["id_to_char"] == vocab.id_to_char
 
     reloaded = CtcVocab.load(path)
     assert reloaded.id_to_char == vocab.id_to_char
-    assert reloaded.policy == vocab.policy
+    assert reloaded.policies == vocab.policies
 
 
 def test_a_legacy_vocab_file_still_loads_and_says_what_it_is(tmp_path: Path) -> None:
@@ -155,8 +155,8 @@ def test_a_legacy_vocab_file_still_loads_and_says_what_it_is(tmp_path: Path) -> 
     vocab = CtcVocab.load(path)
 
     assert vocab.id_to_char == ["<blank>", "<unk>", "a", "b"]
-    assert vocab.policy == LEGACY_POLICY
-    assert vocab.policy.version == "svb-norm-0"
+    assert vocab.policy_for("anything") == LEGACY_POLICY
+    assert vocab.policy_for("anything").version == "svb-norm-0"
 
 
 def test_require_space_token_catches_a_vocab_that_cannot_write_words() -> None:

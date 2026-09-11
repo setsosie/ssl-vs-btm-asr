@@ -117,10 +117,12 @@ def evaluate(
         input_values = batch["input_values"].to(device)
         attn = batch["attention_mask"].to(device)
         pred_ids, pred_lens = model.greedy_decode(input_values, attention_mask=attn)  # (B, T')
-        for row, valid in zip(pred_ids, pred_lens.tolist(), strict=True):
+        for row, valid, code in zip(pred_ids, pred_lens.tolist(), batch["codes"], strict=True):
             # Slice off the padded tail before collapsing: frames past the
             # utterance's own length belong to whatever else shared the batch.
-            hyps.append(normalize_text(vocab.decode(row[: int(valid)].tolist()), vocab.policy))
+            hyps.append(
+                normalize_text(vocab.decode(row[: int(valid)].tolist()), vocab.policy_for(code))
+            )
         # References are the normalized corpus transcripts, never a round-trip
         # through the label ids: characters absent from the training vocab
         # encode to <unk> and would be silently deleted from the reference.
@@ -140,7 +142,10 @@ def evaluate(
             restored_hyps[index] = hyps[position]
         refs, hyps = restored_refs, restored_hyps
 
-    scoreable = [(r, h) for r, h in zip(refs, hyps, strict=True) if r]
+    # Blank rather than empty: a policy that does not strip leaves a
+    # punctuation-only reference as a single space, which contributes no
+    # words to the denominator and every hypothesis word to the numerator.
+    scoreable = [(r, h) for r, h in zip(refs, hyps, strict=True) if r.strip()]
     n_empty_refs = len(refs) - len(scoreable)
     if not scoreable:
         raise ValueError(
@@ -182,7 +187,7 @@ def evaluate(
 
 def _check_word_boundary(spec: LangSpec, refs: list[str], vocab: CtcVocab) -> None:
     """Warn when a language's declared ``word_boundary`` contradicts its text."""
-    stats = collect_text_stats(refs, vocab.policy)
+    stats = collect_text_stats(refs, vocab.policy_for(spec.code))
     if spec.word_boundary and stats.looks_unspaced:
         warnings.warn(
             f"{spec.code}: word_boundary is declared true but the median utterance has "

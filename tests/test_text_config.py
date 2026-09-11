@@ -15,28 +15,28 @@ import pytest
 import yaml
 
 from svb.config import TextConfig, dump_config, load_config
-from svb.text.normalize import NORMALIZER_VERSION, NormalizerPolicy, get_policy
+from svb.text.normalize import get_policy
 
 
-def test_defaults_are_the_current_policy() -> None:
+def test_a_run_defaults_to_a_policy_per_language() -> None:
+    """No global default: which rules a language gets is the language's business."""
     cfg = load_config("A_ssl", "3", 0)
 
-    assert cfg.text.policy == NormalizerPolicy()
-    assert cfg.text.policy.version == NORMALIZER_VERSION
+    assert cfg.text.override is None
     assert cfg.text.min_char_count == 1  # safe for smoke runs; raised in base.yaml
 
 
-def test_a_yaml_can_override_the_policy(tmp_path: Path) -> None:
-    path = tmp_path / "cfg.yaml"
-    path.write_text(
-        yaml.safe_dump({"text": {"policy": {"case": "lower"}, "min_char_count": 5}}),
-        encoding="utf-8",
-    )
+def test_a_yaml_can_override_every_language_at_once() -> None:
+    """The switch for scoring a whole run the way one published system scores."""
+    cfg = load_config("A_ssl", "3", 0, overrides={"text": {"override": "whisper-basic"}})
 
-    cfg = load_config("A_ssl", "3", 0, yaml_path=path)
+    assert cfg.text.override == "whisper-basic"
 
-    assert cfg.text.policy.case == "lower"
-    assert cfg.text.min_char_count == 5
+
+def test_an_override_naming_a_policy_that_does_not_exist_is_refused() -> None:
+    """At load, not at the first language: finding out mid-run wastes the run."""
+    with pytest.raises(KeyError, match="unknown normalization policy"):
+        load_config("A_ssl", "3", 0, overrides={"text": {"override": "whisper"}})
 
 
 def test_the_shipped_base_config_raises_the_floor_for_a_full_run(pytestconfig) -> None:
@@ -47,22 +47,42 @@ def test_the_shipped_base_config_raises_the_floor_for_a_full_run(pytestconfig) -
     assert cfg.text.min_char_count > 1
 
 
-def test_resolved_config_records_the_digests_a_reader_needs(tmp_path: Path) -> None:
-    """The policy hash identifies the settings; the module hash catches someone
-    editing the normalizer without changing any setting."""
+def _specs():
+    from svb.data.registry import LangSpec
+
+    return [
+        LangSpec(code="en", source="commonvoice", hf_config="en", normalizer="whisper-basic"),
+        LangSpec(code="hi", source="commonvoice", hf_config="hi", normalizer="indic-vistaar"),
+    ]
+
+
+def test_the_resolved_config_records_the_policy_each_language_ran_under(tmp_path: Path) -> None:
+    """The name is a label for the reader; the hash is what says whether two
+    runs may be pooled."""
     cfg = load_config("A_ssl", "3", 0)
 
-    dumped = yaml.safe_load(dump_config(cfg, tmp_path).read_text(encoding="utf-8"))
+    dumped = yaml.safe_load(dump_config(cfg, tmp_path, _specs()).read_text(encoding="utf-8"))
 
-    assert dumped["text"]["policy"]["case"] == "casefold"
-    assert dumped["text"]["policy_hash"] == cfg.text.policy.policy_hash()
+    assert dumped["text"]["policies"]["en"]["name"] == "whisper-basic"
+    assert dumped["text"]["policies"]["hi"]["name"] == "indic-vistaar"
+    assert dumped["text"]["policies"]["en"]["hash"] == get_policy("whisper-basic").policy_hash()
+    assert dumped["text"]["policies"]["hi"]["hash"] != dumped["text"]["policies"]["en"]["hash"]
     assert len(dumped["text"]["normalizer_module_sha256"]) == 64
+
+
+def test_an_override_shows_up_as_one_policy_for_every_language(tmp_path: Path) -> None:
+    cfg = load_config("A_ssl", "3", 0, overrides={"text": {"override": "whisper-basic"}})
+
+    dumped = yaml.safe_load(dump_config(cfg, tmp_path, _specs()).read_text(encoding="utf-8"))
+    names = {entry["name"] for entry in dumped["text"]["policies"].values()}
+
+    assert names == {"whisper-basic"}
 
 
 def test_a_resolved_config_can_be_loaded_back(tmp_path: Path) -> None:
     """Reproducing a run means feeding its own dumped config back in."""
     original = load_config("A_ssl", "3", 0, overrides={"text": {"min_char_count": 4}})
-    path = dump_config(original, tmp_path)
+    path = dump_config(original, tmp_path, _specs())
 
     reloaded = load_config("A_ssl", "3", 0, yaml_path=path)
 
@@ -71,34 +91,33 @@ def test_a_resolved_config_can_be_loaded_back(tmp_path: Path) -> None:
 
 def test_an_unknown_text_setting_is_refused() -> None:
     with pytest.raises(TypeError):
-        load_config("A_ssl", "3", 0, overrides={"text": {"policy": {"casefold": True}}})
+        load_config("A_ssl", "3", 0, overrides={"text": {"casefold": True}})
 
 
 def test_env_json_records_what_would_change_the_text(tmp_path: Path) -> None:
     """Unicode tables decide categories and case folding, so the Unicode version
-    is part of what produced a number."""
+    is part of what produced a number, and the registry digest says whether two
+    runs normalized every language the same way."""
     import unicodedata
 
     from svb.provenance import dump_run_meta
 
-    policy = NormalizerPolicy(case="lower")
-    meta = json.loads(dump_run_meta(tmp_path, policy=policy).read_text(encoding="utf-8"))
+    policies = {"en": get_policy("whisper-basic"), "hi": get_policy("indic-vistaar")}
+    meta = json.loads(dump_run_meta(tmp_path, policies=policies).read_text(encoding="utf-8"))
 
-    assert meta["normalizer"]["version"] == NORMALIZER_VERSION
-    assert meta["normalizer"]["policy_hash"] == policy.policy_hash()
+    assert meta["normalizer"]["policies"]["hi"]["name"] == "indic-vistaar"
     assert meta["normalizer"]["unicode_version"] == unicodedata.unidata_version
     assert len(meta["normalizer"]["module_sha256"]) == 64
+    assert len(meta["normalizer"]["registry_sha256"]) == 12
 
 
-def test_env_json_omits_a_policy_hash_it_was_not_given(tmp_path: Path) -> None:
-    """Recording the default's hash for a run that used something else would be
-    worse than recording nothing."""
+def test_env_json_omits_policies_it_was_not_given(tmp_path: Path) -> None:
     from svb.provenance import dump_run_meta
 
     meta = json.loads(dump_run_meta(tmp_path).read_text(encoding="utf-8"))
 
-    assert "policy_hash" not in meta["normalizer"]
-    assert meta["normalizer"]["unicode_version"]
+    assert "policies" not in meta["normalizer"]
+    assert meta["normalizer"]["registry_sha256"]
 
 
 def test_text_config_is_frozen() -> None:
@@ -147,52 +166,3 @@ def test_an_unset_merge_head_flag_leaves_the_yaml_alone(tmp_path: Path) -> None:
         load_config("B_btm_ssl", "3", 0, yaml_path=path, overrides={"merge_head": True}).merge_head
         is True
     )
-
-
-def test_a_yaml_can_name_a_published_policy() -> None:
-    """The switch the paper's comparability argument turns on: one line."""
-    cfg = load_config("A_ssl", "3", 0, overrides={"text": {"policy": "whisper-basic"}})
-
-    assert cfg.text.policy == get_policy("whisper-basic")
-    assert cfg.text.policy.pipeline == "whisper"
-
-
-def test_naming_a_policy_that_does_not_exist_says_which_do() -> None:
-    with pytest.raises(KeyError, match="unknown normalization policy"):
-        load_config("A_ssl", "3", 0, overrides={"text": {"policy": "whisper"}})
-
-
-def test_explicit_fields_still_work_alongside_the_names() -> None:
-    cfg = load_config("A_ssl", "3", 0, overrides={"text": {"policy": {"case": "lower"}}})
-
-    assert cfg.text.policy.case == "lower"
-    assert cfg.text.policy.pipeline == "svb"
-
-
-def test_the_dumped_config_names_the_policy_and_lists_only_its_rules(tmp_path: Path) -> None:
-    """The name is a label for the reader; the resolved fields are what ran."""
-    cfg = load_config("A_ssl", "3", 0, overrides={"text": {"policy": "whisper-basic"}})
-
-    dumped = yaml.safe_load(dump_config(cfg, tmp_path).read_text(encoding="utf-8"))
-
-    assert dumped["text"]["policy_name"] == "whisper-basic"
-    assert dumped["text"]["policy"]["strip_marks"] is True
-    assert "turkish_dotted_i" not in dumped["text"]["policy"]
-    assert dumped["text"]["policy_hash"] == get_policy("whisper-basic").policy_hash()
-
-
-def test_a_hand_rolled_policy_is_dumped_without_a_name(tmp_path: Path) -> None:
-    cfg = load_config("A_ssl", "3", 0, overrides={"text": {"policy": {"case": "lower"}}})
-
-    dumped = yaml.safe_load(dump_config(cfg, tmp_path).read_text(encoding="utf-8"))
-
-    assert dumped["text"]["policy_name"] is None
-
-
-def test_a_whisper_config_round_trips_through_its_own_dump(tmp_path: Path) -> None:
-    original = load_config("A_ssl", "3", 0, overrides={"text": {"policy": "whisper-basic"}})
-    path = dump_config(original, tmp_path)
-
-    reloaded = load_config("A_ssl", "3", 0, yaml_path=path)
-
-    assert reloaded.text == original.text

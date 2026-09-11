@@ -20,24 +20,28 @@
 # single index keeps the in-archive name.
 languages:
   - code: malayalam
+    normalizer: indic-vistaar
     source: openslr
     slr: 63
     archives: [ml_in_female.zip, ml_in_male.zip]
     index_files: [line_index_female.tsv, line_index_male.tsv]
     license: CC-BY-SA-4.0
   - code: marathi
+    normalizer: indic-vistaar
     source: openslr
     slr: 64
     archives: [mr_in_female.zip]
     index_files: [line_index.tsv]
     license: CC-BY-SA-4.0
   - code: telugu
+    normalizer: indic-vistaar
     source: openslr
     slr: 66
     archives: [te_in_female.zip, te_in_male.zip]
     index_files: [line_index_female.tsv, line_index_male.tsv]
     license: CC-BY-SA-4.0
   - code: gujarati
+    normalizer: indic-vistaar
     source: openslr
     slr: 78
     archives: [gu_in_female.zip, gu_in_male.zip]

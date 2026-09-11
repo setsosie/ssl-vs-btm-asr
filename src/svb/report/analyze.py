@@ -82,6 +82,50 @@ def _word_boundary(run_dir: Path) -> dict[str, bool]:
     }
 
 
+def language_policies(run_dir: Path) -> dict[str, str]:
+    """Which normalization policy each language ran under, from the run itself."""
+    stats = run_dir / "text_stats.json"
+    if not stats.is_file():
+        return {}
+    payload = json.loads(stats.read_text(encoding="utf-8"))
+    return {
+        code: str(entry["policy"])
+        for code, entry in payload.get("languages", {}).items()
+        if entry.get("policy")
+    }
+
+
+def require_same_policies(a: Path, b: Path) -> None:
+    """Refuse a comparison between runs that normalized a language differently.
+
+    Two runs whose languages were normalized under different rules produce
+    different reference strings from the same corpus, so a difference between
+    their error rates is a difference in scoring convention as much as in the
+    model. The per-utterance check catches this too, but only for languages both
+    runs evaluated; this catches it before any of them are read, and says which
+    language and which two policies.
+
+    Raises:
+        ValueError: On a disagreement, or when either run records no policies at
+            all — silence is not agreement.
+    """
+    left, right = language_policies(a), language_policies(b)
+    for path, found in ((a, left), (b, right)):
+        if not found:
+            raise ValueError(
+                f"{path} records no per-language policies, so it cannot be shown to "
+                "have used the same normalization rules; re-run it or compare runs "
+                "that both record them"
+            )
+    disagreeing = sorted(code for code in set(left) & set(right) if left[code] != right[code])
+    if disagreeing:
+        detail = "; ".join(f"{c}: {left[c]} vs {right[c]}" for c in disagreeing)
+        raise ValueError(
+            f"the two runs normalized these languages differently, so their error "
+            f"rates are not comparable — {detail}\n  {a}\n  {b}"
+        )
+
+
 def _read_pairs(path: Path) -> tuple[list[str], list[str]]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     pairs = payload.get("pairs", [])

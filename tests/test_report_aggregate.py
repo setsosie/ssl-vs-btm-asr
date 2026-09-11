@@ -20,6 +20,7 @@ def write_run(
     in_dist: dict[str, dict[str, float]],
     transfer: dict[str, dict[str, float]] | None = None,
     word_boundary: dict[str, bool] | None = None,
+    policies: dict[str, str] | None = None,
 ) -> Path:
     run = root / arm / scale / f"seed{seed}"
     run.mkdir(parents=True, exist_ok=True)
@@ -36,7 +37,14 @@ def write_run(
     if word_boundary is not None:
         stats = {
             "languages": {
-                code: {"word_boundary": wb, "heldout": code in (transfer or {}), "splits": {}}
+                code: {
+                    "word_boundary": wb,
+                    "heldout": code in (transfer or {}),
+                    # A real run always records this; the reports refuse to
+                    # compare two runs that cannot show they used the same rules.
+                    "policy": (policies or {}).get(code, "whisper-basic"),
+                    "splits": {},
+                }
                 for code, wb in word_boundary.items()
             }
         }

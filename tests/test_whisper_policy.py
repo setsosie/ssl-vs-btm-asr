@@ -99,8 +99,10 @@ def test_whisper_output_is_not_stripped() -> None:
     assert normalize_text("Hello!") == "hello"
 
 
-def test_the_registry_names_every_preset_and_refuses_the_rest() -> None:
-    assert set(POLICIES) == {"svb-norm-1", "whisper-basic", "whisper-basic-nodiacritics"}
+def test_the_registry_carries_these_presets_and_refuses_a_name_it_lacks() -> None:
+    """A subset check, not an equality one: the registry grows as families are
+    added, and the full family table is asserted in the per-script tests."""
+    assert {"svb-norm-1", "whisper-basic", "whisper-basic-nodiacritics"} <= set(POLICIES)
     assert get_policy("svb-norm-1") == NormalizerPolicy()
     with pytest.raises(KeyError, match="unknown normalization policy"):
         get_policy("whisper")

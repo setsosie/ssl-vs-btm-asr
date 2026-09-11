@@ -21,8 +21,9 @@ from ..data.collate import make_ctc_collate
 from ..data.datasets import load_language, load_texts
 from ..data.registry import LangSpec
 from ..merge.strategy import MERGE_STRATEGIES
-from ..model.ctc_vocab import CtcVocab, build_vocab_from_texts, require_space_token
+from ..model.ctc_vocab import CtcVocab, build_vocab_from_labelled_texts, require_space_token
 from ..model.xeus_ctc import make_model
+from ..text.registry import policies_for_specs
 from ..train.trainer import TrainResult, train
 
 
@@ -35,17 +36,23 @@ def build_training_vocab(
     floor evicted, which the run records rather than discarding: the floor
     changes what the model can emit, so it belongs in the artifacts.
 
+    Each language's text is normalized under its own policy before the
+    characters are pooled. Pooling first and normalizing after would apply one
+    language's rules to another's script, which is the whole reason the policies
+    are per script.
+
     Raises when a preset containing space-separated languages produces a vocab
     with no space character — a floor tuned for a full run can evict it from a
     small corpus, and the result would be a model that emits one unbroken string
     while looking merely unconverged.
     """
     text_cfg = text_cfg or TextConfig()
-    texts: list[str] = []
+    policies = policies_for_specs(specs, text_cfg.override)
+    items: list[tuple[str, str]] = []
     for spec in specs:
-        texts.extend(load_texts(spec, "train"))
-    vocab, evicted = build_vocab_from_texts(
-        texts, policy=text_cfg.policy, min_char_count=text_cfg.min_char_count
+        items.extend((spec.code, t) for t in load_texts(spec, "train"))
+    vocab, evicted = build_vocab_from_labelled_texts(
+        items, policies, min_char_count=text_cfg.min_char_count
     )
     if any(spec.word_boundary for spec in specs):
         require_space_token(vocab)
@@ -68,10 +75,10 @@ def run_phase0(
     collate = make_ctc_collate(
         vocab, max_audio_samples=cfg.train.max_audio_samples, drop_overlong=True, drop_empty=True
     )
-    train_ds: ConcatDataset[tuple[Tensor, str]] = ConcatDataset(
+    train_ds: ConcatDataset[tuple[Tensor, str, str]] = ConcatDataset(
         [load_language(s, "train", cfg.train.max_audio_samples) for s in specs]
     )
-    val_ds: ConcatDataset[tuple[Tensor, str]] = ConcatDataset(
+    val_ds: ConcatDataset[tuple[Tensor, str, str]] = ConcatDataset(
         [load_language(s, "validation", cfg.train.max_audio_samples) for s in specs]
     )
     model = make_model(cfg, vocab.size)

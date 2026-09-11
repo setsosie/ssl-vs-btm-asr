@@ -61,6 +61,7 @@ is recorded in its config; the choice, and when each is the right one, is in
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import re
@@ -72,7 +73,7 @@ from typing import Any, Literal
 
 NORMALIZER_VERSION = "svb-norm-1"
 
-Pipeline = Literal["svb", "whisper"]
+Pipeline = Literal["svb", "whisper", "script"]
 
 # The fields each pipeline reads. A policy records and hashes exactly these:
 # a field its pipeline never consults did not change a character, so recording
@@ -109,6 +110,34 @@ _HASHED_FIELDS: dict[Pipeline, frozenset[str]] = {
             "strip_symbols",
             "diacritics",
             "strip_whitespace",
+        }
+    ),
+    # The per-script pipeline of docs/normalization.md. A third pipeline rather
+    # than more switches on the first two, because both of those are frozen:
+    # `svb-norm-1` is what this project's comparability paragraph describes, and
+    # `whisper-basic` reproduces someone else's published algorithm. Neither
+    # hash may move, and a policy hashing only its own pipeline's fields is what
+    # lets ten new fields arrive without moving either.
+    "script": frozenset(
+        {
+            "version",
+            "pipeline",
+            "form",
+            "case",
+            "bracket_spans",
+            "zero_width",
+            "marks",
+            "script_map",
+            "locale_case",
+            "cyrillic_yo",
+            "delete_quotes",
+            "fold_alef_maksura",
+            "unify_apostrophes",
+            "apostrophe_is_letter",
+            "turkish_dotted_i",
+            "punct_action",
+            "strip_symbols",
+            "arabic_digits",
         }
     ),
 }
@@ -201,6 +230,66 @@ ADDITIONAL_DIACRITICS = {
 _BRACKETED_SPAN = re.compile(r"[<\[][^>\]]*[>\]]")
 _PARENTHESIZED_SPAN = re.compile(r"\(([^)]+?)\)")
 
+# --------------------------------------------------------------------------- #
+# Script-family tables
+# --------------------------------------------------------------------------- #
+
+# Hebrew niqqud and cantillation. Deleted rather than spaced, following
+# ivrit.ai's normalizer, which strips them *before* handing the text to
+# Whisper's, so they never reach the rule that would turn them into spaces.
+_HEBREW_MARKS = re.compile("[֑-ׇ]")
+
+# Zero-width and format characters, by role. ZWNJ is the one that is
+# orthographic somewhere (Perso-Arabic morpheme boundaries), so it is named
+# separately from the rest.
+_ZWNJ = "\u200c"
+_ZERO_WIDTH = (
+    "\u200b",  # zero width space
+    "\u200c",  # zero width non-joiner
+    "\u200d",  # zero width joiner
+    "\u00ad",  # soft hyphen
+    "\ufeff",  # byte order mark
+    "\u200e",  # left-to-right mark
+    "\u200f",  # right-to-left mark
+    "\u061c",  # arabic letter mark
+)
+
+# Eastern Arabic-Indic (U+0660) and Extended (U+06F0) digits to ASCII. Both the
+# Arabic leaderboard and the Persian toolkits specify this.
+_ARABIC_DIGITS = {chr(0x0660 + i): str(i) for i in range(10)} | {
+    chr(0x06F0 + i): str(i) for i in range(10)
+}
+
+# Modern Standard Arabic unifications. Hamza and madda carriers fold onto plain
+# alef, the Persian/Urdu letters fold onto their Arabic counterparts, and the
+# bare hamza and the tatweel elongation are deleted. Alef wasla is included on
+# the leaderboard's stated policy ("normalizing characters with Hamzas and
+# Maddas") even though its published code covers only the other three.
+_ARABIC_MSA_MAP = {
+    "آ": "ا",  # alef with madda
+    "أ": "ا",  # alef with hamza above
+    "إ": "ا",  # alef with hamza below
+    "ٱ": "ا",  # alef wasla
+    "ؤ": "و",  # waw with hamza
+    "ئ": "ي",  # yeh with hamza
+    "پ": "ب",  # peh
+    "ڤ": "ف",  # veh
+    "ء": "",  # bare hamza
+    "ـ": "",  # tatweel
+}
+
+# Perso-Arabic folds the other way: the Arabic forms fold onto the Persian
+# letters. Alef maksura is listed separately because Uyghur writes /i/ with it.
+_PERSO_MAP = {
+    "ي": "ی",  # arabic yeh -> farsi yeh
+    "ك": "ک",  # arabic kaf -> keheh
+    "ة": "ه",  # teh marbuta -> heh
+    "ـ": "",  # tatweel
+}
+_ALEF_MAKSURA = "ى"
+
+_CYRILLIC_YO = {"ё": "е", "Ё": "Е"}
+
 
 @dataclass(frozen=True)
 class NormalizerPolicy:
@@ -257,6 +346,37 @@ class NormalizerPolicy:
     # output routinely carries a trailing space. Kept faithful rather than
     # tidied: a leading space is one character of CER.
     strip_whitespace: bool = True
+
+    # --- read by the script pipeline only ----------------------------------
+    # Whisper deletes bracketed spans; the script pipeline does so only where a
+    # family's reference system does, and after the Unicode form rather than
+    # before it.
+    bracket_spans: Literal["keep", "delete"] = "keep"
+    # Zero-width characters are a word separator in Khmer, Myanmar, Thai and Lao,
+    # and orthographic in Perso-Arabic, where deleting the non-joiner silently
+    # turns one word into two. One global answer is wrong for one of them.
+    zero_width: Literal["delete", "space", "keep", "keep_zwnj"] = "delete"
+    # Category M handling. "space" is Whisper's rule, which the Open ASR
+    # Leaderboard forked away from because it deletes Indic vowel signs; the
+    # scoped values remove vocalization that its own script writes optionally.
+    marks: Literal["keep", "space", "arabic", "hebrew"] = "keep"
+    # The named letter tables: Malayalam chillu joiners, and the Arabic and
+    # Perso-Arabic unifications, which run in opposite directions.
+    script_map: Literal["none", "malayalam", "arabic_msa", "perso"] = "none"
+    # Turkish "İ to i, I to ı" before folding. Without it a mark rule turns the
+    # combining dot lowercasing produces into a space, splitting the word.
+    locale_case: Literal["none", "tr"] = "none"
+    # The Russian convention: ё is written optionally, so it folds to е.
+    cyrillic_yo: bool = False
+    # Hebrew deletes ASCII quotes outright, so an acronym stays one token.
+    delete_quotes: bool = False
+    # False for Uyghur, where U+0649 is the letter i rather than a variant of yeh.
+    fold_alef_maksura: bool = True
+    # Vistaar deletes punctuation where Whisper spaces it.
+    punct_action: Literal["space", "delete", "keep"] = "space"
+    # Eastern Arabic-Indic digits to ASCII, which the Arabic and Persian
+    # conventions both specify.
+    arabic_digits: Literal["keep", "to_ascii"] = "keep"
 
     def __post_init__(self) -> None:
         """Refuse a setting this pipeline cannot act on.
@@ -334,6 +454,96 @@ WHISPER_BASIC_NODIACRITICS_POLICY = NormalizerPolicy(
     strip_whitespace=False,
 )
 
+WHISPER_MARKS_POLICY = NormalizerPolicy(
+    version="whisper-marks",
+    pipeline="script",
+    form="NFKC",
+    case="lower",
+    bracket_spans="delete",
+    zero_width="delete",
+    marks="keep",
+    punct_action="space",
+    strip_symbols=True,
+    unify_apostrophes=True,
+)
+
+
+# --- the script families -------------------------------------------------- #
+#
+# Each is whisper-marks plus the rules its family's reference system specifies.
+# Sources are named in docs/normalization.md; the deviations are labelled there
+# too, along with the two policies whose base could not be verified at all.
+
+CYRILLIC_YO_POLICY = dataclasses.replace(
+    WHISPER_MARKS_POLICY, version="cyrillic-yo", cyrillic_yo=True
+)
+
+TURKIC_TR_POLICY = dataclasses.replace(
+    WHISPER_MARKS_POLICY, version="turkic-tr", locale_case="tr", turkish_dotted_i=True
+)
+
+# NFC rather than NFKC: the only thing NFKC adds for Latin is fullwidth folding,
+# which these corpora do not need, while NFC's canonical reordering is what makes
+# the two keystroke orders of Yoruba e-dot-below-acute compare equal.
+LATIN_MARKS_POLICY = dataclasses.replace(WHISPER_MARKS_POLICY, version="latin-marks", form="NFC")
+
+# Vistaar deletes punctuation rather than spacing it, applies no Unicode form,
+# and does not lowercase. We add NFC and lowercasing, both labelled deviations:
+# without a form the composed and decomposed nukta spellings are two vocabulary
+# entries, and lowercasing costs nothing for a caseless script while correcting
+# the Latin contamination these corpora carry.
+INDIC_VISTAAR_POLICY = NormalizerPolicy(
+    version="indic-vistaar",
+    pipeline="script",
+    form="NFC",
+    case="lower",
+    bracket_spans="keep",
+    zero_width="delete",
+    marks="keep",
+    script_map="malayalam",
+    punct_action="delete",
+    strip_symbols=True,
+    unify_apostrophes=True,
+)
+
+# Marks are removed by code range, letters unified onto plain alef, and Eastern
+# digits mapped to ASCII, per the Open Universal Arabic ASR Leaderboard.
+ARABIC_OUAAL_POLICY = NormalizerPolicy(
+    version="arabic-ouaal",
+    pipeline="script",
+    form="NFKC",
+    case="lower",
+    zero_width="delete",
+    marks="arabic",
+    script_map="arabic_msa",
+    punct_action="space",
+    strip_symbols=True,
+    unify_apostrophes=True,
+    arabic_digits="to_ascii",
+)
+
+# The letter table runs the other way: the Arabic forms fold onto the Persian
+# letters. The non-joiner is kept, because both Persian toolkits not only
+# preserve it but insert it — it marks a morpheme boundary, and deleting it
+# would silently turn one word into two.
+PERSO_ARABIC_POLICY = dataclasses.replace(
+    ARABIC_OUAAL_POLICY,
+    version="perso-arabic",
+    script_map="perso",
+    zero_width="keep_zwnj",
+)
+
+# Uyghur writes /i/ with alef maksura and /j/ with yeh, so the Persian fold of
+# the first onto the second would merge two distinct letters.
+UYGHUR_UG_POLICY = dataclasses.replace(
+    PERSO_ARABIC_POLICY, version="uyghur-ug", fold_alef_maksura=False
+)
+
+# Japanese needs no mark or letter rule; what it needs is the character error
+# rate, which is the language's setting rather than the policy's.
+JA_CER_POLICY = dataclasses.replace(WHISPER_MARKS_POLICY, version="ja-cer")
+
+
 # The policies a config may name. Each records only the rules its own pipeline
 # runs, so the version string is what distinguishes two records that would
 # otherwise share a shape — hence one version per preset, checked below.
@@ -341,6 +551,15 @@ POLICIES: dict[str, NormalizerPolicy] = {
     "svb-norm-1": DEFAULT_POLICY,
     "whisper-basic": WHISPER_BASIC_POLICY,
     "whisper-basic-nodiacritics": WHISPER_BASIC_NODIACRITICS_POLICY,
+    "whisper-marks": WHISPER_MARKS_POLICY,
+    "cyrillic-yo": CYRILLIC_YO_POLICY,
+    "turkic-tr": TURKIC_TR_POLICY,
+    "latin-marks": LATIN_MARKS_POLICY,
+    "indic-vistaar": INDIC_VISTAAR_POLICY,
+    "arabic-ouaal": ARABIC_OUAAL_POLICY,
+    "perso-arabic": PERSO_ARABIC_POLICY,
+    "uyghur-ug": UYGHUR_UG_POLICY,
+    "ja-cer": JA_CER_POLICY,
 }
 
 assert len({p.version for p in POLICIES.values()}) == len(POLICIES), (
@@ -465,6 +684,129 @@ def _whisper_normalize(text: str, policy: NormalizerPolicy, counts: dict[str, in
     return text.strip() if policy.strip_whitespace else text
 
 
+def _script_zero_width(text: str, policy: NormalizerPolicy, counts: dict[str, int]) -> str:
+    """Delete, space or keep the invisible format characters."""
+    if policy.zero_width == "keep":
+        return text
+    for ch in _ZERO_WIDTH:
+        if policy.zero_width == "keep_zwnj" and ch == _ZWNJ:
+            continue
+        if ch in text:
+            counts["Cf"] += text.count(ch)
+            text = text.replace(ch, " " if policy.zero_width == "space" else "")
+    return text
+
+
+def _script_marks(text: str, policy: NormalizerPolicy, counts: dict[str, int]) -> str:
+    """Remove combining marks, scoped by the policy.
+
+    ``space`` is Whisper's rule and destroys any abugida. The scoped values
+    remove only vocalization that its own script writes optionally, which is
+    what makes an inconsistently vocalized corpus learnable.
+    """
+    if policy.marks == "keep":
+        return text
+    if policy.marks == "space":
+        out = []
+        for ch in text:
+            if unicodedata.category(ch)[0] == "M":
+                counts["M"] += 1
+                out.append(" ")
+            else:
+                out.append(ch)
+        return "".join(out)
+    pattern = _ARABIC_MARKS if policy.marks == "arabic" else _HEBREW_MARKS
+    counts["M"] += len(pattern.findall(text))
+    return pattern.sub("", text)
+
+
+def _script_letter_map(text: str, policy: NormalizerPolicy) -> str:
+    """Apply the family's letter table, if it has one."""
+    if policy.script_map == "malayalam":
+        for sequence, atomic in _MALAYALAM_CHILLU.items():
+            text = text.replace(sequence, atomic)
+        return text
+    if policy.script_map == "arabic_msa":
+        for src, dst in _ARABIC_MSA_MAP.items():
+            text = text.replace(src, dst)
+        return text
+    if policy.script_map == "perso":
+        for src, dst in _PERSO_MAP.items():
+            text = text.replace(src, dst)
+        if policy.fold_alef_maksura:
+            text = text.replace(_ALEF_MAKSURA, "ی")
+        return text
+    return text
+
+
+def _script_punctuation(text: str, policy: NormalizerPolicy, counts: dict[str, int]) -> str:
+    """Punctuation and symbols, spaced or deleted, with the apostrophe carve-out."""
+    if policy.punct_action == "keep" and not policy.strip_symbols:
+        return text
+    replacement = " " if policy.punct_action == "space" else ""
+    out: list[str] = []
+    last = len(text) - 1
+    for i, ch in enumerate(text):
+        if ch == APOSTROPHE:
+            neighboured = (
+                i > 0 and i < last and _is_word_char(text[i - 1]) and _is_word_char(text[i + 1])
+            )
+            if policy.apostrophe_is_letter or neighboured or policy.punct_action == "keep":
+                out.append(APOSTROPHE)
+            else:
+                counts["P"] += 1
+                out.append(replacement)
+            continue
+        group = unicodedata.category(ch)[0]
+        if group == "P" and policy.punct_action != "keep":
+            counts["P"] += 1
+            out.append(replacement)
+        elif group == "S" and policy.strip_symbols:
+            counts["S"] += 1
+            out.append(replacement)
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def _script_normalize(text: str, policy: NormalizerPolicy, counts: dict[str, int]) -> str:
+    """The per-script pipeline, in the fixed order documented for it.
+
+    Step 3 must precede step 4: the atomic Malayalam chillu is reached *through*
+    a zero-width joiner, so deleting those first strands a bare virama. The
+    reference Indic normalizer this policy is drawn from has that ordering the
+    wrong way round.
+    """
+    text = unicodedata.normalize(policy.form, text)  # 1
+    if policy.bracket_spans == "delete":  # 2
+        text = _BRACKETED_SPAN.sub("", text)
+        text = _PARENTHESIZED_SPAN.sub("", text)
+    if policy.script_map == "malayalam":  # 3
+        text = _script_letter_map(text, policy)
+    text = _script_zero_width(text, policy, counts)  # 4
+    text = _script_marks(text, policy, counts)  # 5
+    if policy.locale_case == "tr":  # 6
+        text = text.replace("İ", "i").replace("I", "ı")
+    if policy.script_map != "malayalam":  # 7
+        text = _script_letter_map(text, policy)
+    if policy.delete_quotes:  # 8
+        text = text.replace('"', "").replace(APOSTROPHE, "")
+    text = unicodedata.normalize(policy.form, _apply_case(text, policy.case))  # 9
+    if policy.turkish_dotted_i:  # 10
+        text = text.replace(_DOTTED_I, "i")
+    if policy.cyrillic_yo:  # 11
+        for src, dst in _CYRILLIC_YO.items():
+            text = text.replace(src, dst)
+    if policy.unify_apostrophes:  # 12
+        for form in _APOSTROPHE_FORMS:
+            text = text.replace(form, APOSTROPHE)
+    text = _script_punctuation(text, policy, counts)  # 13
+    if policy.arabic_digits == "to_ascii":  # 14
+        for src, dst in _ARABIC_DIGITS.items():
+            text = text.replace(src, dst)
+    return _WHITESPACE.sub(" ", text).strip()  # 15
+
+
 def empty_removal_counts() -> dict[str, int]:
     """The removal tally's fixed shape: every category any rule can delete.
 
@@ -503,6 +845,8 @@ def normalize_with_counts(
         counts["case_changed"] += sum(1 for ch in text if ch.casefold() != ch)
     if policy.pipeline == "whisper":
         return _whisper_normalize(text, policy, counts), counts
+    if policy.pipeline == "script":
+        return _script_normalize(text, policy, counts), counts
 
     text = unicodedata.normalize(policy.form, text)
 
@@ -592,3 +936,18 @@ def module_sha256() -> str:
     that reads them.
     """
     return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+
+
+def registry_digest() -> str:
+    """One digest over every named policy.
+
+    Two runs with the same digest normalized every language the same way,
+    whichever languages they happened to use, so text equivalence can be checked
+    without walking the per-language table.
+    """
+    payload = json.dumps(
+        {name: policy.to_dict() for name, policy in sorted(POLICIES.items())},
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]

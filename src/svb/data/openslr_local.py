@@ -224,7 +224,7 @@ class OpenSLRLocal(Dataset):
     def __len__(self) -> int:
         return len(self.rows)
 
-    def __getitem__(self, idx: int) -> tuple[torch.Tensor, str]:
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, str, str]:
         import soundfile as sf
 
         file_id, text = self.rows[idx]
@@ -238,7 +238,7 @@ class OpenSLRLocal(Dataset):
             wav = torchaudio.functional.resample(wav, sr, TARGET_SR)
         if self._max is not None and wav.shape[0] > self._max:
             wav = wav[: self._max]
-        return wav, text
+        return wav, text, self.spec.code
 
 
 def load_openslr_texts(spec: LangSpec, split: str, root: str | None = None) -> list[str]:

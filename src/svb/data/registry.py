@@ -35,6 +35,8 @@ from typing import Any
 
 import yaml
 
+from ..text.normalize import POLICIES
+
 # Repo root: src/svb/data/registry.py -> parents[3]
 _CONFIGS = Path(__file__).resolve().parents[3] / "configs"
 
@@ -57,6 +59,12 @@ class LangSpec:
     # the declaration against the transcripts and warns when they disagree.
     word_boundary: bool = True
 
+    # The normalization policy this language's transcripts pass through, by
+    # name. Every shipped preset states it, so the choice sits beside the
+    # language rather than being inferred three modules away; left unset, it
+    # falls back to the script default in svb.text.registry.
+    normalizer: str | None = None
+
     # commonvoice
     hf_dataset: str = ""  # provenance label for the release, e.g. "common_voice_25"
     hf_config: str = ""  # CV language code == directory name under $CV_ROOT
@@ -71,6 +79,12 @@ class LangSpec:
     def __post_init__(self) -> None:
         object.__setattr__(self, "archives", tuple(self.archives))
         object.__setattr__(self, "index_files", tuple(self.index_files))
+
+        if self.normalizer is not None and self.normalizer not in POLICIES:
+            known = ", ".join(sorted(POLICIES))
+            raise ValueError(
+                f"{self.code}: unknown normalizer {self.normalizer!r}; known policies: {known}"
+            )
 
         if self.source not in SOURCES:
             raise ValueError(
