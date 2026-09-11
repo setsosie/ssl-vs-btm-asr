@@ -58,6 +58,7 @@ def load_language(
             text_column=spec.text_column,
             max_samples=max_samples,
             train_source=train_source,
+            code=spec.code,
         )
     if spec.source == "openslr":
         from .openslr_local import OpenSLRLocal
