@@ -1,0 +1,9 @@
+;; Exported from .../ee-transkriptsioonid/er-uudised/er-uudised.trs using local/trs2stm.py
+er-uudised 1 inter_segment_gap 0.0 5.409 <o,f0,>
+er-uudised 1 er-uudised_Vallo_Kelmsaar 5.409 9.175 <o,f0,> Kell on kaks, te kuulete Eesti Raadio uudiseid, stuudios on Vallo Kelmsaar.
+er-uudised 1 er-uudised_Vallo_Kelmsaar 9.175 13.71 <o,f0,> Välisminister Urmas Paet kohtus Ljubljanas Venemaa välisministri Sergei Lavroviga.
+er-uudised 1 inter_segment_gap 13.71 14.2 <o,f0,>
+er-uudised 1 er-uudised_Urmas_Paet 14.2 21.721 <o,f0,> Vene minister nimetas veel kord seda, et nad näeksid meeleldi uusi läbirääkimisi.
+er-uudised 1 er-uudised_Urmas_Paet 21.721 26.5 <o,f0,> IGNORE_TIME_SEGMENT_IN_SCORING
+er-uudised 1 er-uudised_Vallo_Kelmsaar 26.5 31.15 <o,f0,> Puudutati ka Eesti-Vene piirilepingute teemat, kuid jäädi eriarvamustele.
+er-uudised 1 er-uudised_Vallo_Kelmsaar 120.0 130.0 <o,f0,> See lõik algab pärast salvestuse lõppu.
