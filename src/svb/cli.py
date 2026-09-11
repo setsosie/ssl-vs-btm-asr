@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .config import ExperimentConfig, TextConfig, dump_config, load_config
+from .data.commonvoice_local import DEFAULT_TRAIN_SOURCE, TRAIN_SOURCES
 from .provenance import dump_run_meta
 from .seeding import set_all_seeds
 from .text.normalize import policy_name
@@ -147,6 +148,7 @@ def write_text_stats(
     text_cfg: TextConfig,
     vocab: CtcVocab,
     evicted: dict[str, int],
+    train_source: str = DEFAULT_TRAIN_SOURCE,
 ) -> Path:
     """Write the per-language evidence for the normalization policy.
 
@@ -174,14 +176,16 @@ def write_text_stats(
         if is_heldout:
             lang_vocab, _, lang_evicted = expand_vocab(
                 vocab,
-                load_texts(spec, "train"),
+                load_texts(spec, "train", train_source=train_source),
                 spec.code,
                 policy,
                 min_char_count=text_cfg.min_char_count,
             )
         splits: dict[str, Any] = {}
         for split in SPLITS:
-            stats = collect_text_stats(load_texts(spec, split), policy, lang_vocab)
+            stats = collect_text_stats(
+                load_texts(spec, split, train_source=train_source), policy, lang_vocab
+            )
             if split == "train":
                 stats.evicted_by_floor = lang_evicted
             _warn_on_unknown_characters(spec.code, split, stats)
@@ -198,6 +202,7 @@ def write_text_stats(
         }
 
     payload = {
+        "cv_train_source": train_source,
         "override": text_cfg.override,
         "min_char_count": text_cfg.min_char_count,
         "training_vocab_evicted": evicted,
@@ -257,9 +262,17 @@ def cmd_run(args: argparse.Namespace) -> None:
     dump_run_meta(out, policies=policies_for_specs([*specs, *heldout], cfg.text.override))
     set_all_seeds(cfg.seed)
 
-    vocab, evicted = build_training_vocab(specs, cfg.text)
+    vocab, evicted = build_training_vocab(specs, cfg.text, cfg.train.cv_train_source)
     vocab.save(out / "vocab.json")
-    write_text_stats(out / "text_stats.json", specs, heldout, cfg.text, vocab, evicted)
+    write_text_stats(
+        out / "text_stats.json",
+        specs,
+        heldout,
+        cfg.text,
+        vocab,
+        evicted,
+        cfg.train.cv_train_source,
+    )
     results = run_manifest(cfg, specs, heldout)
     # Two collates: training truncates long audio and drops the transcripts that
     # no longer fit, evaluation does neither — a truncated test utterance scored
@@ -313,7 +326,9 @@ def cmd_run(args: argparse.Namespace) -> None:
         for spec in specs:
             model = make_model(cfg, vocab.size)
             lang_dir = out / "finetune" / spec.code
-            tr = load_language(spec, "train", cfg.train.max_audio_samples)
+            tr = load_language(
+                spec, "train", cfg.train.max_audio_samples, train_source=cfg.train.cv_train_source
+            )
             va = load_language(spec, "validation", cfg.train.max_audio_samples)
             res = train(
                 model, cfg, tr, va, train_collate, cfg.train.finetune_epochs, lang_dir, device
@@ -443,7 +458,11 @@ def specs_for_scope(scope: str) -> list[LangSpec]:
 def cmd_data_stats(args: argparse.Namespace) -> None:
     from .report.durations import collect_durations, write_tables
 
-    rows = collect_durations(specs_for_scope(args.scope), min_train_hours=args.min_train_hours)
+    rows = collect_durations(
+        specs_for_scope(args.scope),
+        min_train_hours=args.min_train_hours,
+        train_source=args.cv_train_source,
+    )
     for path in write_tables(rows, Path(args.tables_dir), min_train_hours=args.min_train_hours):
         print(f"[svb] wrote {path}")
 
@@ -552,6 +571,13 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=0.0,
         help="flag languages with less training audio than this (default: no threshold)",
+    )
+    d.add_argument(
+        "--cv-train-source",
+        dest="cv_train_source",
+        default=DEFAULT_TRAIN_SOURCE,
+        choices=TRAIN_SOURCES,
+        help="which Common Voice rows count as training audio (default: %(default)s)",
     )
     d.set_defaults(func=cmd_data_stats)
 

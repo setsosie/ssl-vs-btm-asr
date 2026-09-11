@@ -28,6 +28,12 @@ train:
   grad_checkpointing: true
   max_audio_samples: 200000
   num_workers: 8
+  # Common Voice's official train.tsv is roughly one clip per sentence, so it
+  # holds about a third of the validated audio and makes most languages look
+  # too small to train on. "validated_minus_eval" trains on every validated
+  # clip that is not in dev or test and does not belong to a dev or test
+  # speaker. Set to "train" to reproduce a run made against the official split.
+  cv_train_source: validated_minus_eval
 
 text:
   # No global policy. Each language is normalized under the policy its preset

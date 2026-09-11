@@ -38,7 +38,9 @@ CORPUS = {
 def stub_texts(monkeypatch):
     import svb.data.datasets as datasets
 
-    def fake_load_texts(spec: LangSpec, split: str) -> list[str]:
+    # The double takes `train_source` because the real reader does: the
+    # vocabulary and the training targets must come from one row set.
+    def fake_load_texts(spec: LangSpec, split: str, train_source: str = "") -> list[str]:
         return CORPUS[(spec.code, split)]
 
     monkeypatch.setattr(datasets, "load_texts", fake_load_texts)
@@ -162,7 +164,9 @@ def test_a_vocabulary_that_cannot_spell_a_split_warns(tmp_path, monkeypatch) -> 
     corpus = dict(CORPUS)
     # A Greek sentence the Latin/Japanese/Telugu training vocab has no ids for.
     corpus[("en", "test")] = ["καλημέρα κόσμε"]
-    monkeypatch.setattr(datasets, "load_texts", lambda spec, split: corpus[(spec.code, split)])
+    monkeypatch.setattr(
+        datasets, "load_texts", lambda spec, split, train_source="": corpus[(spec.code, split)]
+    )
 
     training, heldout = _specs()
     text_cfg = TextConfig()

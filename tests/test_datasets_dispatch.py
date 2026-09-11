@@ -54,15 +54,33 @@ def test_max_samples_still_truncates_through_the_dispatcher(slr_root, monkeypatc
     assert ds[0][0].shape[0] == 32
 
 
+CV = LangSpec(code="hi", source="commonvoice", hf_dataset="common_voice_25", hf_config="hi")
+
+
 def test_commonvoice_dispatches_to_the_local_loader(tmp_path, monkeypatch):
     lang = tmp_path / "hi"
     (lang / "clips").mkdir(parents=True)
     (lang / "train.tsv").write_text("path\tsentence\na.mp3\tnamaste\n", encoding="utf-8")
     monkeypatch.setenv("CV_ROOT", str(tmp_path))
 
-    spec = LangSpec(code="hi", source="commonvoice", hf_dataset="common_voice_25", hf_config="hi")
-    assert datasets.load_texts(spec, "train") == ["namaste"]
-    assert len(datasets.load_language(spec, "train")) == 1
+    assert datasets.load_texts(CV, "train", train_source="train") == ["namaste"]
+    assert len(datasets.load_language(CV, "train", train_source="train")) == 1
+
+
+def test_the_train_source_reaches_the_common_voice_loader(make_cv_lang, monkeypatch):
+    """The dispatcher is the only thing between a run's config and the rows it
+    reads, so a source that stops here would leave the config key inert."""
+    monkeypatch.setenv("CV_ROOT", str(make_cv_lang("hi")))
+
+    assert len(datasets.load_language(CV, "train", train_source="train")) == 2
+    assert len(datasets.load_language(CV, "train", train_source="validated_minus_eval")) == 3
+    assert len(datasets.load_texts(CV, "train", train_source="validated_minus_eval")) == 3
+
+
+def test_the_train_source_is_ignored_for_a_corpus_that_derives_its_own_split(slr_root, monkeypatch):
+    monkeypatch.setenv("OPENSLR_ROOT", str(slr_root))
+
+    assert datasets.load_texts(SLR, "train", train_source="validated_minus_eval")
 
 
 def test_unknown_source_is_rejected_at_dispatch():

@@ -50,6 +50,8 @@ LANGUAGE_SCRIPTS: dict[str, str] = {
     "et": "Latn",
     "lt": "Latn",
     "lv": "Latn",
+    "cy": "Latn",
+    "fy-NL": "Latn",
     # Latin, outside Europe or with live combining marks
     "tr": "Latn",
     "az": "Latn",
@@ -58,11 +60,11 @@ LANGUAGE_SCRIPTS: dict[str, str] = {
     "rw": "Latn",
     "lg": "Latn",
     "kab": "Latn",
+    "kmr": "Latn",
     "vi": "Latn",
     "yo": "Latn",
     "ig": "Latn",
     "ha": "Latn",
-    "cy": "Latn",
     "id": "Latn",
     "ms": "Latn",
     # Cyrillic
@@ -78,6 +80,8 @@ LANGUAGE_SCRIPTS: dict[str, str] = {
     "tt": "Cyrl",
     "kk": "Cyrl",
     "ky": "Cyrl",
+    "kbd": "Cyrl",
+    "ady": "Cyrl",
     # Other European scripts
     "ka": "Geor",
     "el": "Grek",
@@ -101,8 +105,13 @@ LANGUAGE_SCRIPTS: dict[str, str] = {
     "ur": "Arab",
     "ps": "Arab",
     "ug": "Arab",
-    # East Asian
+    "ckb": "Arab",
+    # East Asian and mainland South-East Asian
     "ja": "Jpan",
+    "zh-CN": "Hans",
+    "zh-TW": "Hant",
+    "yue": "Hant",
+    "th": "Thai",
     # The held-out corpora name their languages in full rather than by code.
     "malayalam": "Mlym",
     "marathi": "Deva",
@@ -125,6 +134,9 @@ LANGUAGE_SCRIPTS: dict[str, str] = {
 # half the family. A language written in it must name its policy.
 SCRIPT_POLICIES: dict[str, str] = {
     "Latn": "latin-marks",
+    "Thai": "thai-cer",
+    "Hans": "han-mer",
+    "Hant": "han-mer",
     "Cyrl": "whisper-basic",
     "Geor": "whisper-basic",
     "Grek": "whisper-basic",
@@ -141,6 +153,85 @@ SCRIPT_POLICIES: dict[str, str] = {
     "Sinh": "indic-vistaar",
     "Jpan": "ja-cer",
 }
+
+
+# Languages whose policy is not their script's default.
+#
+# The Latin script cannot decide this on its own: European Latin uses Whisper's
+# normalizer as published, while Latin orthographies with live combining marks
+# or an in-word apostrophe need the mark-preserving variant, and Turkish needs a
+# locale case pre-map because lowercasing its dotted capital I yields a
+# combining dot that the mark rule then turns into a space. The Arabic script
+# cannot decide it either, for the reason given above.
+#
+# A language here overrides its script default; a preset naming a policy on the
+# language's own line overrides both, and every shipped preset does.
+LANGUAGE_POLICIES: dict[str, str] = {
+    # European Latin and Cyrillic, and Georgian: Whisper's normalizer as
+    # published. Verified safe for each — their diacritics are precomposed, so
+    # the mark rule finds nothing to remove.
+    **dict.fromkeys(
+        [
+            "en",
+            "de",
+            "fr",
+            "es",
+            "it",
+            "nl",
+            "pl",
+            "fi",
+            "ca",
+            "eo",
+            "eu",
+            "hu",
+            "gl",
+            "pt",
+            "cs",
+            "sk",
+            "ro",
+            "sv-SE",
+            "da",
+            "et",
+            "lt",
+            "lv",
+            "cy",
+            "fy-NL",
+            "ru",
+            "uk",
+            "be",
+            "ab",
+            "ba",
+            "mhr",
+            "bg",
+            "sr",
+            "mn",
+            "tt",
+            "kk",
+            "ky",
+            "kbd",
+            "ady",
+            "ka",
+            "el",
+            "hy-AM",
+        ],
+        "whisper-basic",
+    ),
+    "tr": "turkic-tr",
+    "az": "turkic-tr",
+    # Latin outside Europe, and Kurmanji, which the coordinator groups here.
+    **dict.fromkeys(
+        ["uz", "sw", "rw", "lg", "kab", "kmr", "vi", "yo", "ig", "ha", "id", "ms"], "latin-marks"
+    ),
+    "ar": "arabic-ouaal",
+    **dict.fromkeys(["fa", "ur", "ckb", "ps"], "perso-arabic"),
+    "ug": "uyghur-ug",
+}
+
+# Policies whose languages are written without word separators, so character
+# error rate is primary and a preset carrying one must set ``word_boundary``
+# false. Checked by the test suite, so a regenerated preset cannot quietly
+# disagree.
+NO_SPACE_POLICIES = frozenset({"ja-cer", "thai-cer", "han-mer"})
 
 
 def script_for_language(code: str) -> str:
@@ -175,6 +266,8 @@ def policy_for_language(code: str, explicit: str | None = None) -> NormalizerPol
     """
     if explicit is not None:
         return get_policy(explicit)
+    if code in LANGUAGE_POLICIES:
+        return get_policy(LANGUAGE_POLICIES[code])
     script = script_for_language(code)
     try:
         return get_policy(SCRIPT_POLICIES[script])

@@ -20,6 +20,10 @@ where one is shipped, and OpenSLR durations from WAV headers. Utterance counts
 are not a proxy for hours — sentence length varies by an order of magnitude
 across Common Voice languages.
 
+Its Common Voice training hours follow `--cv-train-source`, so the audit prices
+the rows a run will actually read rather than a split it may not use. Under the
+default it also reports what the speaker guard removed, per language.
+
 ## Common Voice 25 (`CV_ROOT`)
 
 Since October 2025 Common Voice is distributed only through
@@ -29,7 +33,7 @@ extract v25 yourself (account and terms acceptance required), then point
 `CV_ROOT` at the extraction root:
 
 ```
-$CV_ROOT/<lang>/train.tsv  dev.tsv  test.tsv
+$CV_ROOT/<lang>/train.tsv  dev.tsv  test.tsv  validated.tsv
 $CV_ROOT/<lang>/clips/<file>.mp3
 ```
 
@@ -39,9 +43,64 @@ those entries is **not** a Hub id — it is a provenance label for the release
 (`common_voice_25`) that gets recorded in run metadata. Both field names are
 historical; renaming them would touch every preset entry.
 
-The loader reads the `path` and `sentence` columns and uses the official
-`train`/`dev`/`test` split as shipped. mp3 decoding goes through torchaudio's
-ffmpeg backend, so install ffmpeg if clips fail to load.
+The loader reads the `path`, `sentence` and `client_id` columns. mp3 decoding
+goes through torchaudio's ffmpeg backend, so install ffmpeg if clips fail to
+load.
+
+### Split policy
+
+Evaluation is the official `dev.tsv` and `test.tsv`, always, under either
+training source. Training is one of two, set by `train.cv_train_source` in
+`configs/base.yaml` and recorded in every run's `resolved_config.yaml`:
+
+| `cv_train_source` | Training rows |
+|---|---|
+| `validated_minus_eval` (default) | every validated clip not in dev or test, and not by a dev or test speaker |
+| `train` | the official `train.tsv` |
+
+**Why the default is not `train.tsv`.** The `train`/`dev`/`test` partition is
+not a partition of `validated`. Quoting the release's
+[own documentation](https://github.com/common-voice/cv-dataset/tree/main/datasets/scripted-speech):
+
+> `validated` -- clips with two or more validations where `up_votes` >
+> `down_votes`
+
+> We use the Corpora Creator tool to parse through metadata to generate train,
+> dev, and test sets. The Corpora Creator eliminates duplication in clips and
+> maximizes for speaker diversity.
+
+> Note that total clips in these sets will most probably not add up to the total
+> validated clips because of this limitation.
+
+Corpora Creator splits a frame holding at most one clip per sentence, so
+`train.tsv` is roughly one recording per sentence and about a third of the
+validated audio across the release. Every further recording of a sentence that
+was already covered sits in `validated.tsv` and in no split at all. Counted on
+`train.tsv`, only 24 Common Voice 25 locales reach 50 training hours; counted on
+validated minus dev and test, 44 do. See [`languages.md`](languages.md).
+
+**The speaker guard.** Subtracting dev and test by clip path is not enough. In
+Corpora Creator (`src/corporacreator/corpus.py`, blob
+`da6233c3d76d13627e569763cd6cdcfb32540b80`) the split label is assigned one
+whole `client_id` at a time, so train, dev and test are speaker-disjoint from
+each other — but the labels are assigned over the deduplicated frame, and the
+test split is then truncated with `.head(test_size)`. Both leave validated clips
+in no split, and some belong to the dev and test speakers. So the loader also
+drops every validated clip whose `client_id` appears in dev or test.
+
+The release documentation promises nothing about speakers across splits, which
+is why this is a filter rather than an assertion. A release that ships no
+`client_id` column is refused rather than trained on without the guard.
+
+`svb data-stats --cv-train-source validated_minus_eval` reports per language how
+many clips, how many distinct speakers and how many hours the guard removed,
+into `tables/data_durations.{md,json}`. That is the number to look at before
+committing a large run: it is the price of speaker-disjointness, and the release
+statistics cannot predict it because they carry no speaker information.
+
+Two properties follow from the label-per-speaker rule and are asserted in the
+tests rather than assumed: `validated_minus_eval` is a **superset** of
+`train.tsv`, and no training clip shares a speaker with dev or test.
 
 **Licence.** Mozilla releases Common Voice under
 [CC0](https://creativecommons.org/publicdomain/zero/1.0/) — see the

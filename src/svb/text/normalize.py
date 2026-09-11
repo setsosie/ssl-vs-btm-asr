@@ -544,6 +544,40 @@ UYGHUR_UG_POLICY = dataclasses.replace(
 JA_CER_POLICY = dataclasses.replace(WHISPER_MARKS_POLICY, version="ja-cer")
 
 
+# Thai puts its word separator in an invisible character rather than a space, so
+# the zero-width rule maps to a space instead of deleting. NFC, never NFKC: Thai
+# SARA AM U+0E33 is a letter (category Lo) that NFKC splits into a combining
+# mark plus a vowel, lengthening every word containing it by one code point and
+# manufacturing an Mn for a mark rule to find. Verified: "ทำงาน" is 5 code
+# points under NFC and 6 under NFKC.
+#
+# Thai has two live conventions and they disagree. Whisper's appendix C measures
+# character error rate; Thonburian Whisper, the strongest published Thai system,
+# reports word error rate after `deepcut` segmentation. Character error rate is
+# primary here because putting a segmenter in the metric makes the number depend
+# on a third-party model version. Thonburian's own cleaner agrees with this
+# policy on the rule that matters: it replaces U+200B with a space.
+#
+# Not adopted: PyThaiNLP's tone-mark reordering and SARA AM composition. Those
+# are corpus-cleaning rules, and applying them to a hypothesis would silently
+# repair model errors.
+THAI_CER_POLICY = dataclasses.replace(
+    WHISPER_MARKS_POLICY, version="thai-cer", form="NFC", zero_width="space"
+)
+
+# Han script. The rules are whisper-marks unchanged — NFKC folds the fullwidth
+# punctuation and digits Chinese text carries, and there are no combining marks
+# to protect — so this policy differs from its base only in name and in the
+# metric its languages are scored on, which lives on the language rather than
+# here.
+#
+# Traditional is preserved, not folded to Simplified. NFKC does not touch it
+# (verified: U+9AD4 is stable), no Chinese benchmark converts, and MDCC keeps
+# Traditional for Cantonese. WenetSpeech-Yue does fold with OpenCC, so Cantonese
+# is genuinely contested; see docs/normalization.md.
+HAN_MER_POLICY = dataclasses.replace(WHISPER_MARKS_POLICY, version="han-mer")
+
+
 # The policies a config may name. Each records only the rules its own pipeline
 # runs, so the version string is what distinguishes two records that would
 # otherwise share a shape — hence one version per preset, checked below.
@@ -560,6 +594,8 @@ POLICIES: dict[str, NormalizerPolicy] = {
     "perso-arabic": PERSO_ARABIC_POLICY,
     "uyghur-ug": UYGHUR_UG_POLICY,
     "ja-cer": JA_CER_POLICY,
+    "thai-cer": THAI_CER_POLICY,
+    "han-mer": HAN_MER_POLICY,
 }
 
 assert len({p.version for p in POLICIES.values()}) == len(POLICIES), (

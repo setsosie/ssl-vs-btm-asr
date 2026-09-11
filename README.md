@@ -23,17 +23,20 @@ permutation tests available from the per-utterance predictions every run writes.
 ## Status
 
 **No GPU run has been executed against this code.** Everything below is
-implemented and covered by 519 CPU tests; none of it has yet produced a number
+implemented and covered by 722 CPU tests; none of it has yet produced a number
 from real audio. Three other gaps are open by design rather than by oversight:
 
-- **The largest scale tier is 32 languages, not 64.** `configs/scales/64.yaml`
-  is populated and runnable, but Common Voice 25 has only 24 locales with the 50
-  hours of training audio plus a real dev and test split the selection rule
-  asks for; the preset is those 24 plus the 8 members of the 16-language preset
-  that fall below the line and are carried because the design commits to them.
-  Reaching 64 would mean a training threshold of about 5 hours. Every locale
-  considered, with its hours and the reason it is in or out, is in
-  [`docs/languages.md`](docs/languages.md).
+- **The largest scale tier is 32 languages and the preset is out of date.**
+  `configs/scales/64.yaml` is populated and runnable, but it was selected under
+  the official `train.tsv`, which is roughly one clip per sentence and about a
+  third of the validated audio. Training now reads validated minus the
+  evaluation splits, and on that pool **44** of Common Voice 25's 290 locales
+  clear the 50-hour rule rather than 24. The committed preset is a subset of
+  what the rule now selects; the fourteen languages it is missing are listed in
+  [`docs/languages.md`](docs/languages.md), which also has every locale
+  considered with its hours and the reason it is in or out. A 64-language tier
+  is reachable at a 16-hour threshold, which is a decision about the paper
+  rather than about the data.
 - Odia is not in the held-out set. See [Held-out data](#held-out-data) below —
   the set is **four** languages, and any write-up should say four.
 - The encoder has not been checked against the reference implementation. The
@@ -41,10 +44,10 @@ from real audio. Three other gaps are open by design rather than by oversight:
   [Encoder cross-check](#encoder-cross-check-separate-environment); it needs the
   checkpoint, which is not available here.
 
-Eight of the sixteen languages in the 16-language preset are below 50 training
-hours at this release, Hindi at 6.9 and Finnish at 2.7. They were kept, and the
-numbers are in `docs/languages.md`, but they belong beside any per-language
-result for those languages.
+Two of the sixteen languages in the 16-language preset are still below 50
+training hours on that wider pool: Hindi at 7.0 and Finnish at 11.1. They were
+kept, and the numbers are in `docs/languages.md`, but they belong beside any
+per-language result for those two.
 
 ## Quickstart
 

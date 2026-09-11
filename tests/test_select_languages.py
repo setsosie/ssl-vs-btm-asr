@@ -401,3 +401,116 @@ def test_main_reports_the_thresholds_it_applied(
 
     assert "1 of 1 locales selected" in out
     assert "0.001" in out
+
+
+# --------------------------------------------------------------------------- #
+# The training statistic
+# --------------------------------------------------------------------------- #
+
+
+def test_the_training_statistic_is_validated_minus_the_evaluation_splits(
+    select_languages: ModuleType,
+) -> None:
+    """A run trains on validated minus dev and test, so that is what the rule
+    is applied to. `train.tsv` is roughly one clip per sentence and is not the
+    training set any more."""
+    stats = select_languages.load_locales(
+        _release(xx=_locale(train=720, dev=360, test=360, avg=10.0, validated=3600))
+    )
+
+    (only,) = stats
+    # 3600 clips validated at 10 s = 10 h, minus 1 h of dev and 1 h of test.
+    assert only.validated_hours == pytest.approx(10.0)
+    assert only.trainable_hours == pytest.approx(8.0)
+    assert only.train_hours == pytest.approx(2.0)  # the official split, for comparison
+
+
+def test_a_locale_whose_validated_pool_is_all_evaluation_has_no_training_hours(
+    select_languages: ModuleType,
+) -> None:
+    """`validHrs` is the release's own figure while dev and test are products of
+    a count and a mean, so the subtraction can go negative on a rounding edge.
+    Negative training hours would be a nonsense that sorts above real ones."""
+    stats = select_languages.load_locales(
+        _release(xx=_locale(train=0, dev=1800, test=1800, avg=10.0, validated=3600))
+    )
+
+    assert stats[0].trainable_hours == 0.0
+
+
+def test_a_locale_the_official_split_made_look_small_can_now_qualify(
+    select_languages: ModuleType,
+) -> None:
+    """This is the whole point of the change: the official split is about a
+    third of the validated audio, so languages that missed 50 hours on it clear
+    the same threshold on the pool a run actually reads."""
+    validated = int(120 * 3600 / 5.0)
+    decisions = _decide(
+        select_languages,
+        _release(xx=_locale(train=1000, dev=2000, test=2000, validated=validated)),
+    )
+
+    assert decisions["xx"].included
+
+
+def test_the_shortfall_names_the_trainable_hours_not_the_official_split(
+    select_languages: ModuleType,
+) -> None:
+    validated = int(40 * 3600 / 5.0)
+    decisions = _decide(
+        select_languages, _release(xx=_locale(train=10, dev=2000, test=2000, validated=validated))
+    )
+
+    assert not decisions["xx"].included
+    assert "trainable" in decisions["xx"].reason
+
+
+def test_the_table_reports_both_statistics_side_by_side(select_languages: ModuleType) -> None:
+    """A reader comparing these numbers to a published Common Voice table needs
+    the official split's hours too, so both columns are there."""
+    assert "train h" in select_languages._COLUMNS
+    assert "trainable h" in select_languages._COLUMNS
+
+
+# --------------------------------------------------------------------------- #
+# Writing a preset
+# --------------------------------------------------------------------------- #
+
+
+def test_writing_over_an_existing_preset_needs_the_explicit_flag(
+    select_languages: ModuleType, tmp_path: Path
+) -> None:
+    """A committed preset is a decision someone made, and regenerating it from
+    a new release is a decision someone else has to make. Refusing by default
+    means the script can be run to see what would change without changing it."""
+    release = tmp_path / "cv.json"
+    release.write_text(
+        json.dumps(_release(en=_locale(train=int(60 * 3600 / 5.0), dev=2000, test=2000))),
+        encoding="utf-8",
+    )
+    preset = tmp_path / "64.yaml"
+    preset.write_text("languages: []\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="write-preset"):
+        select_languages.main(["--release", str(release), "--preset-out", str(preset)])
+
+    select_languages.main(
+        ["--release", str(release), "--preset-out", str(preset), "--write-preset"]
+    )
+
+    assert "code: en" in preset.read_text(encoding="utf-8")
+
+
+def test_writing_a_preset_that_does_not_exist_yet_needs_no_flag(
+    select_languages: ModuleType, tmp_path: Path
+) -> None:
+    release = tmp_path / "cv.json"
+    release.write_text(
+        json.dumps(_release(en=_locale(train=int(60 * 3600 / 5.0), dev=2000, test=2000))),
+        encoding="utf-8",
+    )
+    preset = tmp_path / "new.yaml"
+
+    select_languages.main(["--release", str(release), "--preset-out", str(preset)])
+
+    assert preset.exists()

@@ -172,14 +172,16 @@ family, rather than one global guess applied to every script alike.
 
 | Policy | Languages here | Follows | Source |
 |---|---|---|---|
-| `whisper-basic` | en de fr es it nl pl fi ca eo eu hu gl ru uk be ab ba mhr ka | OpenAI Whisper, exactly | Radford et al. 2023, appendix C |
+| `whisper-basic` | en de fr es it nl pl fi ca eo eu hu gl pt cs lv cy fy-NL ru uk be ab ba mhr kbd ady ka | OpenAI Whisper, exactly | Radford et al. 2023, appendix C |
 | `turkic-tr` | tr | Whisper plus a Turkish locale case pre-map | our fix; see below |
-| `latin-marks` | sw rw lg kab uz | HuggingFace Open ASR Leaderboard `remove_symbols_keep_marks` | `huggingface/open_asr_leaderboard` |
+| `latin-marks` | sw rw lg kab uz kmr | HuggingFace Open ASR Leaderboard `remove_symbols_keep_marks` | `huggingface/open_asr_leaderboard` |
 | `indic-vistaar` | hi ta, and held-out ml mr te gu | AI4Bharat Vistaar / IndicWhisper | `AI4Bharat/vistaar` `evaluation.py` |
 | `arabic-ouaal` | ar | Open Universal Arabic ASR Leaderboard | arXiv:2412.13788 |
-| `perso-arabic` | ps | `hazm` and `urduhack` Perso-Arabic conventions | see the Pashto caveat |
+| `perso-arabic` | fa ur ckb ps | `hazm` and `urduhack` Perso-Arabic conventions | see the Pashto caveat |
 | `uyghur-ug` | ug | Perso-Arabic without the alef-maksura fold | see the Uyghur caveat |
 | `ja-cer` | ja | ReazonSpeech evaluation, character error rate | `reazon-research/ReazonSpeech` |
+| `thai-cer` | th | PyThaiNLP and Thonburian Whisper, character error rate | `biodatlab/thonburian-whisper` |
+| `han-mer` | zh-CN yue | WeNet `compute-wer.py`, character-level scoring | `wenet-e2e/wenet`; WenetSpeech, arXiv:2110.03370 |
 
 Also shipped and not assigned to anything: `whisper-marks`, which is Whisper's
 own pipeline with the three fixes the community has already made to it and the
@@ -211,6 +213,52 @@ two. `turkic-tr` maps `İ` to `i` and `I` to `ı` before folding, which is what 
 Turkish locale does. No Turkish ASR benchmark was found that specifies this, so
 it is our fix rather than an inherited convention.
 
+### Thai, Chinese and Cantonese
+
+**Thai uses NFC, never NFKC.** Thai SARA AM `ำ` U+0E33 is a *letter*, category
+`Lo`, and NFKC decomposes it into a combining mark plus a vowel. `ทำงาน` is five
+code points under NFC and six under NFKC, so the compatibility form lengthens
+every word containing it — moving the character error rate denominator — and
+manufactures a mark for a mark rule to find. Its zero-width rule maps U+200B to
+a space rather than deleting it, because that is where Thai puts its word
+boundary.
+
+Thai has two live conventions and they disagree. Whisper's appendix C measures
+character error rate. Thonburian Whisper, the strongest published Thai system,
+reports word error rate after `deepcut` segmentation. Character error rate is
+primary here, because putting a segmenter inside the metric makes the number
+depend on a third-party model version; the policy preserves the tone marks a
+`deepcut` word error rate could later be computed from. PyThaiNLP's tone-mark
+reordering and SARA AM composition are **not** adopted: they are corpus-cleaning
+rules, and applying them to a hypothesis would silently repair model errors.
+
+**Chinese and Cantonese are scored on characters, and that is not what WeNet
+reports.** The de-facto script, WeNet's `compute-wer.py`, splits Han characters
+individually but keeps Latin runs whole, and WenetSpeech names the result
+Mixture Error Rate: *"which considers Mandarin characters and English words as
+the tokens in the edit distance calculation"*. This repository has no such
+metric — its tokenizers are words or characters — so Chinese and Cantonese are
+reported on characters, which is the closer of the two.
+
+The two agree on pure Han text and diverge on code-mixed utterances, because
+character scoring charges an English word once per letter. On one example:
+
+| | reference `我用 Python 写代码。` vs hypothesis `我用 Java 写代码。` |
+|---|---|
+| Mixture Error Rate (WeNet) | 1 substitution over 6 tokens — **16.7%** |
+| character error rate (here) | 6 edits over 13 characters — **46.2%** |
+
+So a Chinese number from this repository is not comparable with a published
+Mixture Error Rate on material that mixes scripts, and is roughly comparable on
+material that does not. Adding the third tokenization is the fix; until then the
+tables say `CER` and mean it.
+
+**Traditional is preserved, not folded to Simplified.** Unicode normalization
+does not touch it — U+9AD4 `體` is stable under NFKC — no Chinese benchmark
+converts, and MDCC keeps Traditional for Cantonese. WenetSpeech-Yue does fold
+with OpenCC, so Cantonese is genuinely contested; if `yue` and `zh-CN` ever
+share a vocabulary, not folding means two character sets for one spoken family.
+
 ### Two policies whose base could not be verified
 
 **Uyghur.** No Uyghur ASR evaluation convention was found at all. `uyghur-ug` is
@@ -219,6 +267,12 @@ maksura and /j/ with yeh, so the Perso-Arabic fold of the first onto the second
 would merge two distinct letters — and not adopted from anything published. It
 is the weakest policy in the set. Treat any Uyghur number as provisional until
 a native speaker or a published evaluation confirms the rules.
+
+**Central Kurdish.** `ckb` is assigned by script family, exactly as Pashto is:
+it is written in the Arabic script and the Perso-Arabic conventions are the
+closer of the two available. Sorani has letters and a vowel system neither
+Persian nor Urdu uses, and no Sorani ASR normalizer was consulted. Unverified
+for this language specifically.
 
 **Pashto.** `ps` is assigned by script family rather than from a Pashto-specific
 source: it is written in the Arabic script and the Perso-Arabic conventions are
@@ -235,9 +289,12 @@ visible where a preset author would look:
 - { code: tr, source: commonvoice, hf_config: tr, normalizer: turkic-tr }
 ```
 
-Leave it out and the language falls back to its script's default, listed in
-`src/svb/text/registry.py`. Latin defaults to `latin-marks` rather than to
-`whisper-basic`, which fails safe in both directions: a European language added
+Leave it out and the language falls back to a table in
+`src/svb/text/registry.py`: first the per-language assignments, then the script
+default. The language level exists because the Latin script cannot tell European
+from non-European on its own — its European languages use Whisper's normalizer
+and the rest need the mark-preserving one. Latin's script default is
+`latin-marks` rather than `whisper-basic`, which fails safe in both directions: a European language added
 without a line differs from Whisper only in ways Latin text barely notices,
 while a Yoruba or Vietnamese one keeps its tone marks. The Arabic script has no
 default at all, because its two conventions fold letters in opposite directions

@@ -193,30 +193,50 @@ def test_word_boundary_agrees_with_the_writing_system(pytestconfig, scale):
 def test_the_large_preset_holds_the_languages_that_qualified_not_sixty_four(pytestconfig):
     """The file is named for the tier the design asked for, not for its size.
 
-    Common Voice 25 has 24 locales with 50 hours of training audio. Eight more
-    are in the file because the 16-language preset commits to them. Padding to
-    64 would mean adding languages with single-digit training hours, which is
-    the opposite of what the threshold is for, so the tier is 32 languages and
-    `docs/languages.md` shows every locale that was considered.
+    Its 32 entries were selected against the official `train.tsv`. Training now
+    reads validated minus the evaluation splits, on which 44 locales clear the
+    rule, so the preset is a subset of what the rule selects and
+    `docs/languages.md` names the fourteen it is missing. Regenerating it is
+    held until the wider-corpus survey lands rather than done twice.
     """
     assert len(_codes(pytestconfig, "64")) == 32
 
 
-def test_the_large_preset_is_exactly_what_the_evidence_table_marks_included(pytestconfig):
-    """The table is the published reason each language is in the preset.
+def _evidence(pytestconfig) -> tuple[set[str], set[str]]:
+    """What `docs/languages.md` marks included, and what it says is not yet in
+    the preset."""
+    import yaml
 
-    Editing one without the other would leave a preset whose membership no
-    longer matches the evidence given for it, which is the failure this catches.
-    """
-    root = Path(pytestconfig.rootpath)
-    table = (root / "docs" / "languages.md").read_text(encoding="utf-8")
+    text = (Path(pytestconfig.rootpath) / "docs" / "languages.md").read_text(encoding="utf-8")
     included = {
         line.split("|")[1].strip()
-        for line in table.splitlines()
+        for line in text.splitlines()
         if line.startswith("| ") and "| yes |" in line
     }
 
-    assert included == set(_codes(pytestconfig, "64"))
+    blocks = text.split("```yaml")
+    pending = next(
+        yaml.safe_load(block.split("```")[0])["pending_additions"]
+        for block in blocks[1:]
+        if "pending_additions" in block
+    )
+    return included, set(pending)
+
+
+def test_the_preset_and_the_pending_list_account_for_the_whole_evidence_table(pytestconfig):
+    """The table is the published reason each language is in the preset.
+
+    The preset has not been regenerated against the wider training statistic
+    yet, so it is a subset of what the rule now selects and the document names
+    the difference. Preset plus pending must be exactly the included set, or one
+    of the three has been edited without the others.
+    """
+    included, pending = _evidence(pytestconfig)
+    preset = set(_codes(pytestconfig, "64"))
+
+    assert preset <= included, sorted(preset - included)
+    assert not preset & pending, sorted(preset & pending)
+    assert preset | pending == included, sorted(included ^ (preset | pending))
 
 
 def test_an_empty_heldout_file_is_also_refused(tmp_path):
