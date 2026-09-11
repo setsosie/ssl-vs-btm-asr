@@ -37,7 +37,7 @@ PENDING = {
     "ckb": ("Arab", "perso-arabic"),
     "cy": ("Latn", "whisper-basic"),
     "ur": ("Arab", "perso-arabic"),
-    "kmr": ("Latn", "latin-marks"),
+    "kmr": ("Latn", "whisper-basic"),
     "fy-NL": ("Latn", "whisper-basic"),
     "ady": ("Cyrl", "whisper-basic"),
     "cs": ("Latn", "whisper-basic"),
@@ -53,18 +53,15 @@ def test_every_pending_locale_resolves(code: str, expected: tuple[str, str]) -> 
     assert policy_for_language(code).version == policy
 
 
-def test_the_latin_script_default_would_have_been_wrong_for_four_of_them() -> None:
-    """European Latin uses Whisper's normalizer; the script default does not.
+def test_the_latin_locales_take_the_default_and_the_tables_stay_quiet() -> None:
+    """Whisper's normalizer is the default, so a Latin language needs no entry
+    unless the default is wrong for it — and for none of these it is."""
+    from svb.text.registry import LANGUAGE_POLICIES, SCRIPT_POLICIES
 
-    The script cannot decide this on its own, which is why there is a
-    language-level table above it.
-    """
-    from svb.text.registry import SCRIPT_POLICIES
-
-    assert SCRIPT_POLICIES["Latn"] == "latin-marks"
-    for code in ("lv", "pt", "cy", "cs", "fy-NL"):
+    assert "Latn" not in SCRIPT_POLICIES
+    for code in ("lv", "pt", "cy", "cs", "fy-NL", "kmr"):
+        assert code not in LANGUAGE_POLICIES
         assert policy_for_language(code).version == "whisper-basic"
-    assert policy_for_language("kmr").version == "latin-marks"
 
 
 def test_whisper_basic_costs_the_new_european_locales_nothing() -> None:
@@ -151,7 +148,9 @@ def test_han_keeps_traditional_and_folds_only_width() -> None:
 
 
 def test_the_no_space_policies_are_the_ones_scored_on_characters() -> None:
-    assert {"ja-cer", "thai-cer", "han-mer"} == NO_SPACE_POLICIES
+    # Membership, not equality: the set grows as scripts without word
+    # separators arrive, and what has to hold is that these three are in it.
+    assert {"ja-cer", "thai-cer", "han-mer"} <= NO_SPACE_POLICIES
     for name in NO_SPACE_POLICIES:
         get_policy(name)  # each exists
 

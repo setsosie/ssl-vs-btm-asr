@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<corpus name="nchlt zul">
+  <speaker id="001" age="22" gender="male">
+    <recording audio="nchlt_zul/audio/001/nchlt_zul_001m_0001.wav" md5sum="2711c6cb4d4c910694b6c72407666007" duration="3.12" pdp_score="-0.6875">
+      <orth>ulwazi oluthile mayelana</orth>
+    </recording>
+    <recording audio="nchlt_zul/audio/001/nchlt_zul_001m_0003.wav" md5sum="391cd6021e87272baef99a0e1205c963" duration="4.44" pdp_score="-1.0125">
+      <orth>sithathwe yiningi lamalunga</orth>
+    </recording>
+    <recording audio="nchlt_zul/audio/001/nchlt_zul_001m_0004.wav" md5sum="ed8d8001e68ab371ffbc8d132580ca03" duration="3.36" pdp_score="-0.6563">
+      <orth>umuntu oyedwa onolwazi</orth>
+    </recording>
+    <recording audio="nchlt_zul/audio/001/nchlt_zul_001m_0005.wav" md5sum="084d4bd5a25124704f3403032ecc4079" duration="4.32" pdp_score="-0.7635">
+      <orth>okumele athole imali</orth>
+    </recording>
+  </speaker>
+  <speaker id="002" age="31" gender="female">
+    <recording audio="nchlt_zul/audio/002/nchlt_zul_002f_0001.wav" md5sum="65dd0f3f82e54cbc98234beb1edc1b99" duration="4.20" pdp_score="-0.9309">
+      <orth>lokhu kuzobonelela izidingo</orth>
+    </recording>
+    <recording audio="nchlt_zul/audio/002/nchlt_zul_002f_0002.wav" md5sum="b0af43f52514be1974e72876599901d2" duration="4.08" pdp_score="-0.7698">
+      <orth>okugcinwe kuyona igugu</orth>
+    </recording>
+    <recording audio="nchlt_zul/audio/002/nchlt_zul_002f_0006.wav" md5sum="f047f40f263fa72079e638b97e1a0521" duration="4.68" pdp_score="-0.6910">
+      <orth>wentela uzobe esegcwalisa</orth>
+    </recording>
+    <recording audio="nchlt_zul/audio/002/nchlt_zul_002f_0007.wav" md5sum="b06e6742c23b0fceba461ef64c50e3c0" duration="4.20" pdp_score="-0.9395">
+      <orth>lombhalo aluluhle kahle</orth>
+    </recording>
+  </speaker>
+  <speaker id="003" age="19" gender="male">
+    <recording audio="nchlt_zul/audio/003/nchlt_zul_003m_0001.wav" md5sum="46ce7f28364e2216470756abac15b106" duration="4.92" pdp_score="-0.6563">
+      <orth>isicelo somyalo wentela</orth>
+    </recording>
+    <recording audio="nchlt_zul/audio/003/nchlt_zul_003m_0002.wav" md5sum="e1d86636884e69c74a7d1e0dff4e2871" duration="4.20" pdp_score="-0.4489">
+      <orth>ebeka izizathu zokuthi</orth>
+    </recording>
+    <recording audio="nchlt_zul/audio/003/nchlt_zul_003m_0004.wav" md5sum="914fac6bd35e4af241212fe62d882b88" duration="3.60" pdp_score="-0.7440">
+      <orth>ethola ingeniso okumele</orth>
+    </recording>
+    <recording audio="nchlt_zul/audio/003/nchlt_zul_003m_0009.wav" md5sum="231e40a698b5eb97d529e33a4e3ac6dc" duration="3.84" pdp_score="-1.0009">
+      <orth>kungathatha isikhathi eside</orth>
+    </recording>
+  </speaker>
+  <speaker id="004" age="45" gender="female">
+    <recording audio="nchlt_zul/audio/004/nchlt_zul_004f_0002.wav" md5sum="e28d0782299a3135060787fc32fba3f9" duration="4.20" pdp_score="-0.5462">
+      <orth>kubantu abathathe umhlalaphansi</orth>
+    </recording>
+    <recording audio="nchlt_zul/audio/004/nchlt_zul_004f_0003.wav" md5sum="f3e2c32afda19e8ad6313ce0d41d25c5" duration="4.08" pdp_score="-0.4166">
+      <orth>umenzi wesicelo eneminyaka</orth>
+    </recording>
+    <recording audio="nchlt_zul/audio/004/nchlt_zul_004f_0005.wav" md5sum="523944d60bd04cb943458fa07cd8a161" duration="5.52" pdp_score="-0.7922">
+      <orth>echazwe kwibalazwe isakhiwo</orth>
+    </recording>
+    <recording audio="nchlt_zul/audio/004/nchlt_zul_004f_0008.wav" md5sum="3174c6bdb42cf355b99fe72abbe111fa" duration="3.00" pdp_score="-0.9776">
+      <orth>bheka ngenhla ikheli</orth>
+    </recording>
+  </speaker>
+  <speaker id="005" age="27" gender="male">
+    <recording audio="nchlt_zul/audio/005/nchlt_zul_005m_0001.wav" md5sum="fc07d08842a145dd8ee2dc024382ab07" duration="5.40" pdp_score="-0.7621">
+      <orth>wezokubusa ngokubambisana nezindaba</orth>
+    </recording>
+    <recording audio="nchlt_zul/audio/005/nchlt_zul_005m_0003.wav" md5sum="4231ebdf5a125f0d11d5ebfb77891a38" duration="5.04" pdp_score="-0.8066">
+      <orth>ngqongqoshe wegatsha eliphethe</orth>
+    </recording>
+    <recording audio="nchlt_zul/audio/005/nchlt_zul_005m_0006.wav" md5sum="f40542cd83554d6167218118d19b21f0" duration="3.12" pdp_score="-0.8634">
+      <orth>izindleko zokuhamba nezokudla</orth>
+    </recording>
+    <recording audio="nchlt_zul/audio/005/nchlt_zul_005m_0011.wav" md5sum="8d5c1f74a3d0b6c9e2f4a80d7c3e5119" duration="3.96" pdp_score="-0.5931">
+      <orth>ukubhalisa kwabasebenzi bakahulumeni</orth>
+    </recording>
+  </speaker>
+</corpus>

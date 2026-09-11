@@ -1,593 +1,575 @@
 # Languages
 
-Which languages each scale preset trains on, and the numbers behind the choice.
-The 3- and 16-language presets come from the design of the ablation and predate
-this document; the large preset (`configs/scales/64.yaml`) was selected here.
+The large preset is **64 languages**: 46 from Common Voice 25 and 18 from other
+public corpora. This is the evidence for each one, and for everything left out.
 
 ## The rule
 
-A language is in the large preset when it has
+A language is in when it has at least **50 hours of training audio**, at least
+**2 hours of dev** and at least **2 hours of test**.
 
-- **at least 50 hours of training audio**, and
-- **at least 2 hours of dev audio**, and
-- **at least 2 hours of test audio**.
+Training audio means what a run actually reads, which differs by source:
 
-Training audio means **validated minus the evaluation splits** — what a run
-actually reads — not the official `train.tsv`. See below for why those are very
-different numbers.
+| Source | Training hours | Dev and test |
+|---|---|---|
+| Common Voice | `validHrs` less dev and test — validated minus the evaluation splits | the official splits |
+| a corpus that ships a full partition | its published train split | its published dev and test |
+| a corpus that ships none, or an unusable one | the total less a tenth each | a tenth each, which the loader derives |
 
-**Forty-four of Common Voice 25's 290 locales clear it**, and the preset carries
-two more that the smaller presets commit to. The evaluation thresholds do not
-bind: every locale over the training threshold has at least 4.4 hours of dev and
-of test.
+That last row is the loader's own arithmetic stated up front rather than left
+for a reader to work out: `svb.data.splits` gives dev and test a tenth each,
+speaker-disjointly, so a corpus over the training threshold clears the
+evaluation thresholds by construction.
 
-## Two ways to count training audio
-
-Common Voice ships `validated.tsv` — every clip with two or more validations and
-more up-votes than down-votes — alongside the `train`/`dev`/`test` partition. The
-partition is **not** a partition of `validated`. Quoting the release's own
-[documentation](https://github.com/common-voice/cv-dataset/tree/main/datasets/scripted-speech):
-
-> We use the Corpora Creator tool to parse through metadata to generate train,
-> dev, and test sets. The Corpora Creator eliminates duplication in clips and
-> maximizes for speaker diversity.
-
-> Each train/dev/test set is generated non-deterministically, meaning they will
-> vary from release to release even for minor updates.
-
-> Note that total clips in these sets will most probably not add up to the total
-> validated clips because of this limitation.
-
-> `validated` -- clips with two or more validations where `up_votes` >
-> `down_votes`
-
-The deduplication is the whole story. Corpora Creator splits a frame holding at
-most one clip per sentence, so `train.tsv` is roughly one recording per sentence
-and is about a third of the validated audio across the release. Japanese has
-299,767 validated clips and 19,695 train clips; Russian has 251.9 validated
-hours and 38.7 train hours. Counted on `train.tsv`, only 24 locales reach 50
-hours and half the 16-language preset falls below the line. Counted on validated
-minus dev and test, 44 do.
-
-This repository trains on the second. `configs/base.yaml` sets
-`train.cv_train_source: validated_minus_eval`; setting it to `train` reproduces a
-run made against the official split, and every run records which it used.
-
-### The speaker guard
-
-Validated minus dev and test is a set difference on *clips*, and that is not
-enough. In Corpora Creator (`src/corporacreator/corpus.py`, blob
-`da6233c3d76d13627e569763cd6cdcfb32540b80`) the split label is assigned one whole
-`client_id` at a time, so train, dev and test are speaker-disjoint from each
-other — but the labels are assigned over the deduplicated frame, and the test
-split is then truncated with `.head(test_size)`. Both leave clips in
-`validated.tsv` that are in no split at all, and some of them belong to the dev
-and test speakers. Subtracting dev and test by clip path alone would train the
-model on the voices it is about to be scored against.
-
-So the loader also drops every validated clip whose `client_id` appears in dev or
-test, and `svb data-stats` reports per language how many clips, how many
-speakers and how many hours that removed. The release documentation promises
-nothing about this, which is why the guard is a filter and not an assertion. A
-release that ships no `client_id` column is refused rather than trained on
-without it.
-
-The same fact makes the wider source a superset of the narrower one: no training
-speaker is a dev or test speaker, so the guard never removes a row the official
-split had kept. That is asserted in the tests rather than assumed.
+**Fifty-seven of the 64 meet the rule outright.** Seven are below it and say so
+here rather than quietly passing; they are listed under *Carried* below.
 
 ## Where the numbers come from
 
-Mozilla publishes per-release statistics in
-[`common-voice/cv-dataset`](https://github.com/common-voice/cv-dataset). The
-file read for this document is
+Common Voice figures come from Mozilla's own release statistics:
 
 | | |
 |---|---|
 | Path | `datasets/scripted-speech/cv-corpus-25.0-2026-03-09.json` |
-| Raw URL | `https://raw.githubusercontent.com/common-voice/cv-dataset/main/datasets/scripted-speech/cv-corpus-25.0-2026-03-09.json` |
+| Repository | [`common-voice/cv-dataset`](https://github.com/common-voice/cv-dataset) |
 | Blob SHA | `ac5fe102ab012f3fba02dd2eec1b65ef670826d5` |
 | Repository HEAD when read | `f99d8239d2796131b73ac99f92ee7cb4443bf3ba` (2026-06-16) |
 
-Common Voice 25.0 is the release this repository pins. Release 26.0 exists
-(2026-06-12) and would move every number below.
+A Common Voice split's hours are its clip count times the release's mean clip
+duration, because the release publishes no per-split duration. The trainable
+figure is an **upper bound**: the release carries no speaker information, so it
+cannot subtract what the loader's speaker guard removes. `svb data-stats`
+measures the real figure against a corpus on disk.
 
-Fetch it and regenerate this file:
+Every other corpus has a row in [`../configs/corpora.yaml`](../configs/corpora.yaml)
+carrying its verbatim licence, source page, downloads, formats and hours, each
+read on that source page. Where a page publishes no value the field is null and
+named under `unverified` — four corpora have an unstated sample rate and two an
+unstated transcript format, and those are checks to make at ingest, not values
+to assume.
+
+Regenerate this file and the preset:
 
 ```bash
 gh api repos/common-voice/cv-dataset/contents/datasets/scripted-speech/cv-corpus-25.0-2026-03-09.json --jq '.content' | base64 -d > cv25.json
-python scripts/select_languages.py --release cv25.json --table-out docs/languages.md
+python scripts/select_languages.py --release cv25.json --table-out docs/languages.md --preset-out configs/scales/64.yaml --write-preset
 ```
 
-Writing over an existing preset needs `--preset-out` *and* `--write-preset`, so
-the script can be run to see what a release would change without changing it.
+Regenerating carries existing `normalizer:` values forward, so policy work done
+elsewhere is not silently dropped.
 
-### How a split's hours are computed
+## What the 18 additions are
 
-The release publishes a clip count per bucket, the validated hours (`validHrs`)
-and **one** mean clip duration per locale (`avgDurationSecs`). It publishes no
-per-split duration, so
+| Language | Code | Corpus | Trainable h | Licence | Family · script |
+|---|---|---|---:|---|---|
+| Croatian | hr | ParlaSpeech-HR v1.0 | 1452.8 | CC BY-SA 4.0 | Indo-European (Slavic) · Latn |
+| Estonian | et | TalTech Estonian 1.0 | 1334.0 | CC BY-SA 4.0 DEED | Uralic (Finnic) · Latn |
+| Sundanese | su | SLR36 | 266.4 | CC BY-SA 4.0 | Austronesian · Latn |
+| Kazakh | kk | KSC (SLR102) | 265.6 | CC BY 4.0 | Turkic (Kipchak) · Cyrl |
+| Kannada | kn | IISc-MILE (SLR126) | 280.0 | CC BY 2.0 | Dravidian · Knda |
+| Javanese | jv | SLR35 | 236.8 | CC BY-SA 4.0 | Austronesian · Latn |
+| Bengali | bn | SLR53 | 183.2 | CC BY-SA 4.0 | Indo-European (Indo-Aryan) · Beng |
+| Sinhala | si | SLR52 | 179.2 | CC BY-SA 4.0 | Indo-European (Indo-Aryan) · Sinh |
+| Nepali | ne | SLR54 | 132.0 | CC BY-SA 4.0 | Indo-European (Indo-Aryan) · Deva |
+| Icelandic | is | Samrómur 21.05 (SLR112) | 116.0 | CC BY 4.0 | Indo-European (Germanic) · Latn |
+| Tibetan | bo | TIBMD@MUC (SLR124) | 67.5 | CC BY-SA 4.0 | Sino-Tibetan · Tibt · **no word boundary** |
+| Armenian | hy | SLR160 | 56.0 | CC BY 4.0 | Indo-European (Armenian) · Armn |
+| Sepedi | nso | NCHLT | 50.9 | CC BY 3.0 | Atlantic-Congo (Sotho-Tswana) · Latn |
+| Xitsonga | ts | NCHLT | 49.8 | CC BY 3.0 | Atlantic-Congo (Tswa-Ronga) · Latn |
+| Tshivenda | ve | NCHLT | 49.6 | CC BY 3.0 | Atlantic-Congo (Venda) · Latn |
+| isiXhosa | xh | NCHLT | 49.4 | CC BY 3.0 | Atlantic-Congo (Nguni) · Latn |
+| isiZulu | zu | NCHLT | 48.5 | CC BY 3.0 | Atlantic-Congo (Nguni) · Latn |
+| Korean | ko | Zeroth (SLR40) | 42.2 | CC BY 4.0 | Koreanic · Kore |
 
-```
-split hours    = buckets.<split> x avgDurationSecs / 3600
-trainable hours = validHrs - dev hours - test hours
-```
+Bengali is in Common Voice too, at 31.5 trainable hours — below the rule. SLR53
+is what puts the language in the preset, so it is read from there and the
+Common Voice half is not used.
 
-Every hour figure below is one of those. `validated h` is the release's own
-`validHrs`; `train h` is the official split, kept for comparison against
-published Common Voice tables; `trainable h` is what the rule is applied to.
+**Two of the eighteen cannot produce a speaker-independent number.** Armenian
+carries no speaker field and is not meant to — the source page says the
+recordings cannot be matched to individual speakers — so its split is utterance
+level and the same voice appears in train and test. Kazakh has no speaker
+mapping either; its split is the published one and whether that is
+speaker-disjoint is not established. TalTech's ids are scoped to a recording, so
+its shipped split cannot be called speaker-disjoint across recordings. All three
+belong beside any per-language result for those languages.
 
-`trainable h` is an **upper bound**. The release document carries no speaker
-information, so it cannot subtract what the speaker guard removes. The measured
-figure comes from `svb data-stats` against a corpus on disk, which reads the
-split files themselves and reports the guard's cost per language. Check the
-selection against that before committing a large run.
+**Access.** Every one of these serves anonymously. The NCHLT corpora were the
+open question: SADiLaR's resources page mentions accepting terms of use, but its
+DSpace bitstream endpoint answers an unauthenticated client, which was tested
+rather than assumed. Corpora behind a gate, a form or an email request are not
+here at any size.
 
-## Why the large preset is not 64 languages
+## Carried: the seven below the rule
 
-Forty-four locales qualify. Two more — Finnish and Hindi — are in the preset
-because the 16-language preset commits to them and dropping them would stop the
-smaller tiers from being subsets of the larger one.
+| Code | Language | Trainable h | Why it is in anyway |
+|---|---|---:|---|
+| ts | Xitsonga | 49.8 | NCHLT ships a train split just under the bar against a corpus of about 56 h |
+| ve | Tshivenda | 49.6 | as above |
+| xh | isiXhosa | 49.4 | as above |
+| zu | isiZulu | 48.5 | as above |
+| ko | Korean | 42.2 | the only openly-licensed Korean corpus; its shipped 1.2 h test is under the evaluation bar, so all 52.8 h are repartitioned |
+| fi | Finnish | 11.1 | the 16-language preset commits to it |
+| hi | Hindi | 7.0 | the 3- and 16-language presets commit to it |
 
-Holding the evaluation thresholds at 2 hours and sweeping the training
-threshold:
+Finnish and Hindi are small enough that a per-language result for either is a
+small-sample result. Both could have been repaired from other corpora and were
+not: Hindi's SLR103 links its licence to a viewer rather than naming it and is
+8 kHz M4A, and the Finnish Parliament corpus carries a composite CLARIN tag with
+a NoDerivatives term. Neither meets the licence rule, so both stay Common
+Voice-only with the caveat attached.
 
-| min trainable hours | locales selected |
-|---:|---:|
-| 100 | 34 |
-| 80 | 37 |
-| **50 (the rule)** | **46** |
-| 40 | 49 |
-| 30 | 53 |
-| 20 | 59 |
-| **16** | **64** |
-| 10 | 76 |
+## Domain diversity is narrower than 64 languages sounds
 
-A 64-language tier is now reachable at a 16-hour training threshold. That is a
-real option rather than the 5-hour threshold the official-split count would have
-needed, and it is a decision about what the paper wants its largest scale to
-mean, not a data question. This file does not make it.
+This belongs in any write-up. The additions are almost entirely **read prompts**
+(the five Google crowdsourced sets, the five NCHLT languages, Samrómur, Kannada,
+Armenian, Tibetan) or **parliamentary speech** (ParlaSpeech-HR, and TalTech is
+long-form spontaneous broadcast and meeting audio). NCHLT's prompts are scripted
+and its published test side is an 8-speaker suite. So the mix gains a great deal
+of typological range and rather little domain range, and a result that improves
+on read speech should not be reported as improving on speech.
 
-## Pending preset additions
+Licence bookkeeping is a second caveat: the corpora mix CC0, CC BY 2.0, 3.0 and
+4.0 and CC BY-SA 4.0. ShareAlike over a training corpus is not settled law with
+respect to model weights, and the paper should take a position rather than say
+nothing.
 
-`configs/scales/64.yaml` still holds the 32 languages selected under the old
-`train.tsv` statistic. It has not been regenerated, because a wider-corpus
-option is being surveyed separately and regenerating twice would churn the
-preset. Every language in the preset today is still selected by the rule, so the
-committed preset is a subset of what is marked included below. These fourteen
-are selected and not yet in it:
+## Normalization policies
 
-```yaml
-pending_additions: [fa, kbd, lv, zh-CN, yue, pt, th, ckb, cy, ur, kmr, fy-NL, ady, cs]
-```
+Every one of the 64 names its policy on its own line in the preset, and the
+policy column in the table below is generated rather than written by hand — a
+regeneration that dropped it is how the assignments were lost once already.
 
-Four of them — Chinese, Cantonese, Thai and the Japanese already in the preset —
-are written without spaces, so a regeneration would add three more languages
-reported on character error rate as their primary metric.
-
-**A regeneration is blocked on normalization policy, not on these hours.** Every
-preset entry needs a policy, and `src/svb/text/registry.py` cannot resolve one
-for most of these yet:
-
-| Pending language | State in the text registry |
-|---|---|
-| lv, pt, cy, cs | script recorded (`Latn`); would default to `latin-marks`, but their European-Latin peers in the preset name `whisper-basic`, so each needs an explicit `normalizer:` to match |
-| fa, ur | script recorded (`Arab`); `Arab` has **no** default policy, deliberately — the family's conventions fold letters in opposite directions, so each Arabic-script language names its own |
-| kbd, ady, kmr, fy-NL | not in `LANGUAGE_SCRIPTS` at all |
-| zh-CN, yue, th | not in `LANGUAGE_SCRIPTS`, and `Hans`, `Hant` and `Thai` have no policy in `SCRIPT_POLICIES` either — a no-space script scored on character error rate still needs rules for what to strip first |
-
-Adding a language to the preset without that work fails at load time rather than
-silently, which is the intended behaviour: guessing a script from a language
-code is how a corpus gets quietly destroyed. See
+Whisper's `BasicTextNormalizer` is the default. A language moves off it only
+where that normalizer is demonstrably destructive or word-breaking for its
+orthography, decided by a per-language test rather than by judgement. The
+failures and the conventions adopted instead are in
 [`normalization.md`](normalization.md).
 
-## Three rules that override the arithmetic
+| Policy | Languages | |
+|---|---|---|
+| `whisper-basic` | ab ady ba be ca cs cy de en eo es et eu fi fr fy-NL gl hr hu is it jv ka kab kbd kk kmr lg lv mhr nl nso pl pt ru su ts uk uz ve xh zu | 42 |
+| `indic-vistaar` | bn hi kn ne si ta, and held-out gu ml mr te | 6 + 4 |
+| `perso-arabic` | ckb fa ps ur | 4 |
+| `han-mer` | yue zh-CN | 2 |
+| `latin-marks` | rw sw | 2 |
+| `arabic-ouaal` `armenian-hy` `ja-cer` `ko-kspon` `thai-cer` `tibetan-syllable` `turkic-tr` `uyghur-ug` | ar, hy, ja, ko, th, bo, tr, ug | 1 each |
 
-**Held-out transfer languages are excluded however large.** Malayalam, Marathi,
-Telugu and Gujarati are held out for the transfer experiment
-(`configs/scales/heldout.yaml`, sourced from OpenSLR). Three of them also exist
-in Common Voice (`ml`, `mr`, `te`); training on the Common Voice half would make
-the held-out number measure transfer to a language the pipeline had already
-supervised. None comes close to the threshold — Marathi, the largest, has 18.9
-validated hours — so the guard costs nothing today and is there for the release
-where it does not. Odia (`or`) is **not** on that list, because it is not in the
-held-out set; if the pending Odia decision in `docs/data.md` ever adds it, this
-exclusion list has to grow with it.
+Only two Latin-script languages here leave the default, and both for the same
+reason: Swahili writes its velar nasal `ng'` and Kinyarwanda its elision `y'u`
+with an apostrophe inside the word, and an apostrophe is punctuation, so the
+default turns one word into two. The Arabic script splits three ways because its
+conventions fold letters in opposite directions and there is no script-wide
+answer.
 
-**A language the smaller presets commit to is kept however small.** Under the
-official split, eight of the sixteen fell below 50 hours. On the training set a
-run actually reads, two do:
-
-| locale | language | trainable h | train h | dev h | test h | validated h |
-|---|---|---:|---:|---:|---:|---:|
-| fi | Finnish | 11.1 | 2.7 | 2.3 | 2.3 | 15.8 |
-| hi | Hindi | 7.0 | 6.9 | 3.9 | 4.7 | 15.6 |
-
-Both are small enough that a per-language result for them is a small-sample
-result, and Hindi is in the 3-language preset too. Neither was changed here —
-the smaller presets are part of a design already committed to — but the numbers
-belong beside every result they produce. The other six recovered: Turkish 104.0,
-Russian 222.4, Ukrainian 74.8, Arabic 67.9, Polish 151.0 and Japanese 349.5
-trainable hours.
-
-**Where one language appears under several locales, only the largest stands for
-it.** Keeping two variants would weight that language twice in a mix whose point
-is breadth across languages. Under the official split this rule changed nothing;
-on the wider pool it fires — `zh-HK` (95.6 h) and `zh-TW` (70.1 h) both clear the
-threshold and are dropped in favour of `zh-CN` (212.3 h).
-
-Esperanto (`eo`, 1390.7 trainable hours) is kept. It is a constructed language
-rather than one with a speech community of native speakers, which is worth a
-sentence in a write-up, but it is a real Common Voice language with real
-recorded speech and the rule has no clause that would exclude it.
+Six of the eighteen bring a script the text layer had never seen — Tibetan,
+Sinhala, Kannada, Bengali, Armenian and Korean — which for a character-CTC model
+also grows the output layer. Three of them needed a policy that did not exist:
+Armenian writes punctuation inside the word, Korean must never see the
+compatibility form, and Tibetan is an abugida written without spaces whose
+corpus states no evaluation convention at all, so its policy is reasoned from
+the orthography and flagged unverified.
 
 ## Writing system and the primary metric
 
-`word_boundary: false` makes character error rate the primary metric for a
-language, because whitespace tokenization of a transcript in a script that does
-not separate words yields one token per sentence and word error rate over it
-means nothing.
-
-It is derived from the script the language is written in, not from a list of
-locale codes. Each language's script is the ISO 15924 code CLDR resolves its
-locale to, read from
-[`unicode-org/cldr`](https://github.com/unicode-org/cldr) at
+`word_boundary: false` makes character error rate the primary metric, because
+whitespace tokenization of a script that does not separate words yields one
+token per sentence. It is derived from the script the language is written in,
+read from [`unicode-org/cldr`](https://github.com/unicode-org/cldr) at
 `common/supplemental/likelySubtags.xml` (blob
-`11be52e4d0bce1e7e048b5ddaba2a6563c1f0d85`); a script in `Hani`, `Hans`, `Hant`,
-`Jpan`, `Kore`, `Thai`, `Laoo`, `Khmr`, `Mymr` or `Tibt` sets `word_boundary`
-false. CLDR has no `mhr` entry, so Meadow Mari takes the script of the Mari
-macrolanguage `chm` (`chm_Cyrl_RU`), and none for `kmr`, so Northern Kurdish
-takes CLDR's `ku` (`ku_Latn_TR`).
+`11be52e4d0bce1e7e048b5ddaba2a6563c1f0d85`).
 
-Of the 46 selected, four are written without spaces: Japanese (`Jpan`), Chinese
-(`Hans`), Cantonese (`Hant`) and Thai (`Thai`). Uzbek resolves to `uz_Latn_UZ`,
-so the Latin orthography, not the Cyrillic one.
-
-The same script decides which text-normalization policy a language gets, since
-the reason a policy exists is a property of the writing system. Each preset
-states the policy on the language's own line; the assignments and their sources
-are in [`normalization.md`](normalization.md).
-
-| Script | Languages in the presets | Policy |
-|---|---|---|
-| `Latn` (European) | en de fr es it nl pl fi ca eo eu hu gl pt cs lv cy fy-NL | `whisper-basic` |
-| `Latn` (Turkic) | tr | `turkic-tr` |
-| `Latn` (other) | sw rw lg kab uz kmr | `latin-marks` |
-| `Cyrl` | ru uk be ab ba mhr kbd ady | `whisper-basic` |
-| `Geor` | ka | `whisper-basic` |
-| `Deva` `Taml` `Mlym` `Telu` `Gujr` | hi ta, held-out ml mr te gu | `indic-vistaar` |
-| `Arab` | ar / fa ur ckb ps / ug | `arabic-ouaal` / `perso-arabic` / `uyghur-ug` |
-| `Jpan` | ja | `ja-cer` |
-| `Thai` | th | `thai-cer` |
-| `Hans` `Hant` | zh-CN, yue | `han-mer` |
-
-Turkish is the one European-script language not on `whisper-basic`, and the
-Arabic-script locales split three ways: the family's conventions fold letters in
-opposite directions, so there is no single Arabic-script answer.
-
-Thai, Chinese and Cantonese join Japanese in being written without word
-separators, so they are scored on characters and their preset entries carry
-`word_boundary: false`. The test suite checks that pairing, so a regenerated
-preset cannot leave word error rate as their primary metric by omission. Note
-that the published Chinese convention is Mixture Error Rate rather than
-character error rate; the two differ on code-mixed utterances, quantified in
-[`normalization.md`](normalization.md).
+Five of the 64 are written without spaces: Japanese, Chinese, Cantonese, Thai
+and now **Tibetan**. Korean is **not** among them — Hangul is written with
+spaces between words, so word error rate means the same for it as for a
+Latin-script language. CLDR has no entry for `mhr` or `kmr`, so Meadow Mari
+takes the script of the Mari macrolanguage `chm` and Northern Kurdish takes
+CLDR's `ku`.
 
 ## Typological spread
 
-The point of the large tier is not the largest corpora, which would be almost
-entirely Indo-European. The selected set covers **13 top-level families across
-24 branches** and **10 scripts**:
+**15 top-level families across 33 branches, and 16 scripts:**
 
 | | |
 |---|---|
-| Families | Indo-European 23, Turkic 4, Atlantic-Congo 3, Northwest Caucasian 3, Uralic 3, Afro-Asiatic 2, Sino-Tibetan 2, Kartvelian 1, Dravidian 1, Kra-Dai 1, Japonic 1, isolate (Basque) 1, constructed (Esperanto) 1 |
-| Scripts | Latin 25, Cyrillic 8, Arabic 6, Japanese 1, Han (Simplified) 1, Han (Traditional) 1, Tamil 1, Thai 1, Georgian 1, Devanagari 1 |
+| Families | Indo-European 29, Atlantic-Congo 8, Turkic 5, Uralic 4, Northwest Caucasian 3, Sino-Tibetan 3, Afro-Asiatic 2, Dravidian 2, Austronesian 2, Japonic 1, Kra-Dai 1, Kartvelian 1, Koreanic 1, isolate (Basque) 1, constructed (Esperanto) 1 |
+| Scripts | Latin 35, Cyrillic 9, Arabic 6, Devanagari 2, Japanese 1, Kannada 1, Han (Simplified) 1, Han (Traditional) 1, Tamil 1, Bengali 1, Sinhala 1, Thai 1, Georgian 1, Tibetan 1, Armenian 1, Hangul 1 |
 
-Indo-European is 23 of 46, because Common Voice is what it is. The languages
-that carry the merge-versus-typology analysis are the far ones — Georgian,
-Tamil, Abkhaz, Kabardian, Adyghe, Kabyle, Uyghur, Pashto, Meadow Mari,
-Kinyarwanda, Luganda, Basque, Thai, Cantonese — and all of them are here on the
-strength of the rule, not by being reached for.
+The 18 additions bring five families the Common Voice half does not have at all
+— Austronesian, Koreanic, Sino-Tibetan at real branch depth, Dravidian beyond
+Tamil, and Atlantic-Congo beyond the three Bantu languages Common Voice
+supplies — and six scripts. Indo-European is still 29 of 64, because Common
+Voice is what it is.
 
-Family labels are the conventional genealogical ones and nothing computes on
-them. The script codes are the load-bearing field, and those are CLDR-resolved.
+## Reserve
 
-## Every locale considered
+Verified and qualifying, not selected. If a row above falls over on inspection,
+these are the substitutes, in rough order of size:
 
-All 290 locales of Common Voice 25, ordered by trainable hours. Family and
-script are filled in only for selected locales: curating them for all 290 would
-be 290 claims nothing in this repository checks.
+Swedish (RixVox, 5383 h, CC BY 4.0), Serbian (ParlaSpeech-RS, 896 h — its
+licence tag differs between CLARIN and the Hugging Face mirror and would need
+resolving first), Slovenian (ARTUR 1.0, 884 h, audio and transcripts under
+separate handles), Khmer (Digital-Divide-Data, 727 h but **12 speakers**, which
+is why it was not selected), Afrikaans, Sesotho, Setswana, isiNdebele and
+Siswati (NCHLT, ~56 h each, same access path as the five chosen), Punjabi and
+Sanskrit (Kathbath, 136.9 and 115.5 h, CC0, but m4a needing an ffmpeg decode),
+Norwegian (NPSC, 140 h, CC0 audio), Faroese (BLARK 1.0, 100 h, 48 kHz so it
+needs resampling), Romanian (VoxPopuli, 89 h, CC0).
 
-| locale | language | family | script | trainable h | train h | dev h | test h | validated h | avg clip s | included | reason |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| ca | Catalan | Indo-European (Romance) | Latn | 3312.4 | 1758.3 | 23.7 | 23.7 | 3359.8 | 5.194 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| ps | Pashto | Indo-European (Iranian) | Arab | 3008.0 | 239.0 | 16.9 | 16.9 | 3041.9 | 3.943 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| en | English | Indo-European (Germanic) | Latn | 2703.6 | 1679.0 | 24.0 | 24.0 | 2751.6 | 5.266 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| rw | Kinyarwanda | Atlantic-Congo (Bantu) | Latn | 1956.8 | 1395.1 | 22.2 | 22.5 | 2001.6 | 5.007 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| be | Belarusian | Indo-European (Slavic) | Cyrl | 1773.7 | 462.9 | 21.1 | 21.1 | 1816.0 | 4.793 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| eo | Esperanto | Constructed | Latn | 1390.7 | 244.6 | 25.2 | 25.2 | 1441.1 | 6.078 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| de | German | Indo-European (Germanic) | Latn | 1341.4 | 908.4 | 23.7 | 23.7 | 1388.8 | 5.265 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| fr | French | Indo-European (Romance) | Latn | 1050.5 | 858.1 | 22.7 | 22.7 | 1095.9 | 5.036 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| es | Spanish | Indo-European (Romance) | Latn | 550.2 | 485.7 | 21.6 | 21.6 | 593.3 | 4.880 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| kab | Kabyle | Afro-Asiatic (Berber) | Latn | 542.9 | 141.6 | 13.9 | 13.9 | 570.7 | 3.342 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| eu | Basque | Isolate | Latn | 427.7 | 203.1 | 22.4 | 22.4 | 472.4 | 5.438 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| ug | Uyghur | Turkic (Karluk) | Arab | 402.2 | 209.4 | 24.2 | 24.2 | 450.6 | 5.922 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| lg | Luganda | Atlantic-Congo (Bantu) | Latn | 393.9 | 114.2 | 21.5 | 21.5 | 436.8 | 5.784 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| sw | Swahili | Atlantic-Congo (Bantu) | Latn | 356.4 | 68.1 | 17.9 | 17.9 | 392.1 | 5.246 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| ja | Japanese | Japonic | Jpan | 349.5 | 24.4 | 11.2 | 11.2 | 371.9 | 4.467 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| fa | Persian | Indo-European (Iranian) | Arab | 349.5 | 33.0 | 11.7 | 11.7 | 372.9 | 3.942 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| it | Italian | Indo-European (Romance) | Latn | 317.1 | 261.9 | 22.9 | 22.9 | 362.9 | 5.433 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| gl | Galician | Indo-European (Romance) | Latn | 265.7 | 256.2 | 21.1 | 21.2 | 308.0 | 4.988 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| kbd | Kabardian | Northwest Caucasian | Cyrl | 246.0 | 24.0 | 13.1 | 13.1 | 272.2 | 6.223 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| lv | Latvian | Indo-European (Baltic) | Latn | 244.5 | 19.7 | 10.5 | 10.5 | 265.4 | 4.810 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| mhr | Meadow Mari | Uralic (Mari) | Cyrl | 242.6 | 239.5 | 18.8 | 19.5 | 280.9 | 4.622 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| ba | Bashkir | Turkic (Kipchak) | Cyrl | 223.0 | 146.5 | 17.9 | 17.9 | 258.8 | 4.427 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| ru | Russian | Indo-European (Slavic) | Cyrl | 222.4 | 38.7 | 14.8 | 14.8 | 251.9 | 5.179 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| zh-CN | Chinese (Mandarin) | Sino-Tibetan (Sinitic) | Hans | 212.3 | 37.3 | 13.4 | 13.4 | 239.1 | 4.539 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| yue | Cantonese | Sino-Tibetan (Sinitic) | Hant | 199.4 | 8.2 | 5.6 | 5.6 | 210.7 | 3.961 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| ta | Tamil | Dravidian | Taml | 192.9 | 79.9 | 20.9 | 21.0 | 234.8 | 6.182 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| pt | Portuguese | Indo-European (Romance) | Latn | 164.8 | 26.9 | 11.2 | 11.2 | 187.3 | 4.188 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| ab | Abkhaz | Northwest Caucasian | Cyrl | 164.1 | 148.8 | 21.6 | 21.7 | 207.4 | 5.505 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| pl | Polish | Indo-European (Slavic) | Latn | 151.0 | 32.3 | 12.8 | 12.8 | 176.6 | 4.572 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| th | Thai | Kra-Dai (Tai) | Thai | 147.5 | 38.4 | 12.9 | 12.9 | 173.3 | 4.193 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| ka | Georgian | Kartvelian | Geor | 130.3 | 89.7 | 18.6 | 18.7 | 167.5 | 5.121 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| ckb | Central Kurdish | Indo-European (Iranian) | Arab | 124.8 | 9.0 | 6.1 | 6.1 | 137.0 | 4.095 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| cy | Welsh | Indo-European (Celtic) | Latn | 109.3 | 11.0 | 7.4 | 7.4 | 124.1 | 4.916 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| tr | Turkish | Turkic (Oghuz) | Latn | 104.0 | 43.6 | 12.6 | 12.6 | 129.2 | 3.850 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| nl | Dutch | Indo-European (Germanic) | Latn | 96.5 | 56.3 | 14.9 | 14.9 | 126.2 | 4.371 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| zh-HK | — | — | — | 95.6 | 9.7 | 6.5 | 6.5 | 108.5 | 4.151 | no | same language as zh-CN, which has more trainable audio |
-| hu | Hungarian | Uralic (Ugric) | Latn | 92.6 | 91.4 | 19.9 | 20.0 | 132.6 | 5.541 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| uk | Ukrainian | Indo-European (Slavic) | Cyrl | 74.8 | 35.6 | 13.4 | 13.4 | 101.6 | 4.649 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| uz | Uzbek | Turkic (Karluk) | Latn | 72.5 | 56.5 | 14.2 | 14.3 | 101.0 | 4.159 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| zh-TW | — | — | — | 70.1 | 6.9 | 4.8 | 4.8 | 79.7 | 3.362 | no | same language as zh-CN, which has more trainable audio |
-| ar | Arabic | Afro-Asiatic (Semitic) | Arab | 67.9 | 33.4 | 11.8 | 12.1 | 91.9 | 4.162 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| ur | Urdu | Indo-European (Indo-Aryan) | Arab | 67.8 | 8.6 | 6.0 | 6.0 | 79.7 | 4.230 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| kmr | Northern Kurdish | Indo-European (Iranian) | Latn | 66.0 | 6.5 | 4.8 | 4.8 | 75.7 | 4.161 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| fy-NL | West Frisian | Indo-European (Germanic) | Latn | 61.9 | 5.3 | 4.3 | 4.3 | 70.4 | 4.852 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| ady | Adyghe | Northwest Caucasian | Cyrl | 60.7 | 6.2 | 4.9 | 4.9 | 70.5 | 5.217 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| cs | Czech | Indo-European (Slavic) | Latn | 57.6 | 27.6 | 11.7 | 11.7 | 81.1 | 4.460 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
-| sk | — | — | — | 42.9 | 11.6 | 6.6 | 7.1 | 56.6 | 4.296 | no | trainable 42.9 h < 50.0 h |
-| et | — | — | — | 40.9 | 6.5 | 5.4 | 5.4 | 51.7 | 6.717 | no | trainable 40.9 h < 50.0 h |
-| mn | — | — | — | 40.6 | 3.0 | 2.6 | 2.6 | 45.8 | 4.892 | no | trainable 40.6 h < 50.0 h |
-| sv-SE | — | — | — | 35.4 | 9.2 | 6.1 | 6.2 | 47.7 | 4.024 | no | trainable 35.4 h < 50.0 h |
-| ky | — | — | — | 34.8 | 2.3 | 2.0 | 2.0 | 38.9 | 4.553 | no | trainable 34.8 h < 50.0 h |
-| bn | — | — | — | 31.5 | 26.2 | 11.4 | 11.4 | 54.3 | 4.371 | no | trainable 31.5 h < 50.0 h |
-| dv | — | — | — | 31.4 | 3.8 | 3.2 | 3.2 | 37.8 | 5.120 | no | trainable 31.4 h < 50.0 h |
-| qxp | — | — | — | 29.3 | 1.0 | 0.9 | 0.9 | 31.2 | 4.937 | no | trainable 29.3 h < 50.0 h |
-| id | — | — | — | 25.7 | 5.5 | 3.8 | 4.1 | 33.6 | 3.991 | no | trainable 25.7 h < 50.0 h |
-| kln | — | — | — | 24.9 | 13.9 | 8.1 | 7.6 | 40.6 | 4.530 | no | trainable 24.9 h < 50.0 h |
-| br | — | — | — | 24.4 | 4.0 | 3.2 | 3.2 | 30.7 | 3.256 | no | trainable 24.4 h < 50.0 h |
-| tt | — | — | — | 22.1 | 9.0 | 4.7 | 5.4 | 32.3 | 3.835 | no | trainable 22.1 h < 50.0 h |
-| cv | — | — | — | 21.0 | 2.0 | 1.7 | 1.8 | 24.5 | 5.042 | no | trainable 21.0 h < 50.0 h |
-| ltg | — | — | — | 20.4 | 6.3 | 4.9 | 4.9 | 30.1 | 4.775 | no | trainable 20.4 h < 50.0 h |
-| mk | — | — | — | 20.1 | 2.8 | 2.4 | 2.4 | 25.0 | 4.807 | no | trainable 20.1 h < 50.0 h |
-| luo | — | — | — | 19.3 | 6.1 | 4.1 | 4.1 | 27.5 | 4.873 | no | trainable 19.3 h < 50.0 h |
-| nnh | — | — | — | 17.7 | 1.0 | 0.5 | 0.7 | 18.9 | 8.916 | no | trainable 17.7 h < 50.0 h |
-| phl | — | — | — | 17.5 | 2.7 | 1.9 | 1.9 | 21.3 | 4.921 | no | trainable 17.5 h < 50.0 h |
-| lzz | — | — | — | 17.4 | 6.2 | 4.4 | 4.3 | 26.1 | 4.450 | no | trainable 17.4 h < 50.0 h |
-| mrj | — | — | — | 16.9 | 16.7 | 8.5 | 8.3 | 33.7 | 4.193 | no | trainable 16.9 h < 50.0 h |
-| mvy | — | — | — | 16.7 | 3.4 | 2.6 | 2.8 | 22.1 | 4.791 | no | trainable 16.7 h < 50.0 h |
-| hy-AM | — | — | — | 16.0 | 15.7 | 8.9 | 9.3 | 34.3 | 5.383 | no | trainable 16.0 h < 50.0 h |
-| el | — | — | — | 16.0 | 2.2 | 2.0 | 2.0 | 19.9 | 4.152 | no | trainable 16.0 h < 50.0 h |
-| ksf | — | — | — | 15.7 | 0.9 | 0.7 | 0.7 | 17.2 | 8.354 | no | trainable 15.7 h < 50.0 h |
-| oru | — | — | — | 14.8 | 8.4 | 3.5 | 3.0 | 21.2 | 7.306 | no | trainable 14.8 h < 50.0 h |
-| sl | — | — | — | 14.4 | 1.6 | 1.5 | 1.5 | 17.3 | 3.986 | no | trainable 14.4 h < 50.0 h |
-| sva | — | — | — | 14.1 | 0.9 | 0.8 | 0.8 | 15.7 | 5.921 | no | trainable 14.1 h < 50.0 h |
-| bnm | — | — | — | 14.1 | 0.8 | 0.6 | 0.7 | 15.3 | 7.173 | no | trainable 14.1 h < 50.0 h |
-| ro | — | — | — | 13.4 | 5.8 | 4.4 | 4.4 | 22.3 | 4.046 | no | trainable 13.4 h < 50.0 h |
-| szy | — | — | — | 12.9 | 0.4 | 0.4 | 0.4 | 13.7 | 5.397 | no | trainable 12.9 h < 50.0 h |
-| mr | — | — | — | 12.8 | 3.8 | 3.0 | 3.1 | 18.9 | 6.200 | no | held-out transfer language (marathi); never trained on |
-| dag | — | — | — | 12.7 | 1.9 | 1.7 | 1.7 | 16.2 | 4.294 | no | trainable 12.7 h < 50.0 h |
-| pwn | — | — | — | 12.7 | 1.0 | 1.0 | 1.0 | 14.6 | 4.873 | no | trainable 12.7 h < 50.0 h |
-| nan-tw | — | — | — | 12.6 | 8.5 | 4.4 | 4.7 | 21.8 | 2.651 | no | trainable 12.6 h < 50.0 h |
-| ewo | — | — | — | 12.6 | 0.6 | 0.5 | 0.5 | 13.6 | 6.472 | no | trainable 12.6 h < 50.0 h |
-| lt | — | — | — | 12.5 | 12.2 | 7.9 | 8.0 | 28.4 | 5.104 | no | trainable 12.5 h < 50.0 h |
-| phr | — | — | — | 12.5 | 0.8 | 0.7 | 0.7 | 14.0 | 3.963 | no | trainable 12.5 h < 50.0 h |
-| ga-IE | — | — | — | 12.4 | 1.0 | 0.9 | 0.9 | 14.2 | 3.831 | no | trainable 12.4 h < 50.0 h |
-| byv | — | — | — | 12.1 | 0.6 | 0.6 | 0.6 | 13.2 | 6.178 | no | trainable 12.1 h < 50.0 h |
-| fub | — | — | — | 11.9 | 0.8 | 0.5 | 0.6 | 12.9 | 6.068 | no | trainable 11.9 h < 50.0 h |
-| gwt | — | — | — | 11.9 | 5.0 | 0.0 | 0.3 | 12.2 | 5.722 | no | trainable 11.9 h < 50.0 h |
-| ajg | — | — | — | 11.8 | 1.2 | 0.4 | 0.5 | 12.7 | 2.389 | no | trainable 11.8 h < 50.0 h |
-| pcm | — | — | — | 11.4 | 0.5 | 0.5 | 0.5 | 12.5 | 5.808 | no | trainable 11.4 h < 50.0 h |
-| dua | — | — | — | 11.4 | 0.7 | 0.6 | 0.6 | 12.5 | 6.424 | no | trainable 11.4 h < 50.0 h |
-| mxu | — | — | — | 11.3 | 0.5 | 0.5 | 0.5 | 12.3 | 5.733 | no | trainable 11.3 h < 50.0 h |
-| bbj | — | — | — | 11.3 | 0.7 | 0.5 | 0.5 | 12.3 | 6.110 | no | trainable 11.3 h < 50.0 h |
-| qxw | — | — | — | 11.1 | 0.9 | 0.2 | 0.3 | 11.7 | 5.250 | no | trainable 11.1 h < 50.0 h |
-| fi | Finnish | Uralic (Finnic) | Latn | 11.1 | 2.7 | 2.3 | 2.3 | 15.8 | 4.629 | yes | below the rule (trainable 11.1 h < 50.0 h); kept because the smaller presets commit to it |
-| qup | — | — | — | 11.0 | 0.7 | 0.5 | 0.4 | 11.9 | 5.932 | no | trainable 11.0 h < 50.0 h |
-| kxp | — | — | — | 10.8 | 1.8 | 0.0 | 0.2 | 11.0 | 3.403 | no | trainable 10.8 h < 50.0 h |
-| lrk | — | — | — | 10.7 | 1.6 | 0.0 | 0.3 | 11.1 | 3.480 | no | trainable 10.7 h < 50.0 h |
-| cjk | — | — | — | 10.7 | 0.6 | 0.6 | 0.6 | 12.0 | 5.874 | no | trainable 10.7 h < 50.0 h |
-| nlv | — | — | — | 10.7 | 0.8 | 0.4 | 0.5 | 11.6 | 6.272 | no | trainable 10.7 h < 50.0 h |
-| bft | — | — | — | 10.6 | 3.6 | 3.0 | 3.0 | 16.6 | 5.928 | no | trainable 10.6 h < 50.0 h |
-| bkm | — | — | — | 10.5 | 0.5 | 0.5 | 0.5 | 11.4 | 5.425 | no | trainable 10.5 h < 50.0 h |
-| sbn | — | — | — | 10.5 | 1.7 | 0.0 | 0.2 | 10.7 | 3.524 | no | trainable 10.5 h < 50.0 h |
-| qvi | — | — | — | 10.5 | 0.5 | 0.4 | 0.5 | 11.4 | 4.427 | no | trainable 10.5 h < 50.0 h |
-| trw | — | — | — | 10.5 | 4.3 | 3.1 | 2.9 | 16.5 | 5.373 | no | trainable 10.5 h < 50.0 h |
-| xmf | — | — | — | 10.5 | 0.6 | 0.6 | 0.6 | 11.6 | 6.156 | no | trainable 10.5 h < 50.0 h |
-| fue | — | — | — | 10.4 | 1.3 | 0.0 | 0.1 | 10.6 | 5.332 | no | trainable 10.4 h < 50.0 h |
-| mhk | — | — | — | 10.4 | 0.8 | 0.5 | 0.3 | 11.3 | 6.149 | no | trainable 10.4 h < 50.0 h |
-| ssi | — | — | — | 10.4 | 1.9 | 0.0 | 0.2 | 10.5 | 3.721 | no | trainable 10.4 h < 50.0 h |
-| abb | — | — | — | 10.3 | 0.6 | 0.4 | 0.4 | 11.2 | 5.109 | no | trainable 10.3 h < 50.0 h |
-| ydg | — | — | — | 10.3 | 1.4 | 0.0 | 0.4 | 10.6 | 3.596 | no | trainable 10.3 h < 50.0 h |
-| qws | — | — | — | 10.2 | 1.1 | 0.0 | 0.1 | 10.3 | 4.164 | no | trainable 10.2 h < 50.0 h |
-| bci | — | — | — | 10.1 | 0.6 | 0.5 | 0.6 | 11.3 | 7.210 | no | trainable 10.1 h < 50.0 h |
-| tok | — | — | — | 10.1 | 3.2 | 2.7 | 2.7 | 15.6 | 4.310 | no | trainable 10.1 h < 50.0 h |
-| khw | — | — | — | 10.1 | 5.0 | 3.0 | 2.9 | 16.0 | 6.777 | no | trainable 10.1 h < 50.0 h |
-| bag | — | — | — | 10.1 | 0.7 | 0.4 | 0.5 | 11.0 | 5.636 | no | trainable 10.1 h < 50.0 h |
-| qus | — | — | — | 10.1 | 0.4 | 0.3 | 0.3 | 10.8 | 3.749 | no | trainable 10.1 h < 50.0 h |
-| sah | — | — | — | 10.1 | 4.1 | 3.1 | 3.2 | 16.3 | 6.336 | no | trainable 10.1 h < 50.0 h |
-| dar | — | — | — | 10.1 | 3.2 | 2.3 | 2.2 | 14.5 | 5.703 | no | trainable 10.1 h < 50.0 h |
-| jgo | — | — | — | 10.1 | 0.7 | 0.6 | 0.6 | 11.3 | 6.695 | no | trainable 10.1 h < 50.0 h |
-| mcf | — | — | — | 10.0 | 0.5 | 0.0 | 0.2 | 10.2 | 2.656 | no | trainable 10.0 h < 50.0 h |
-| qur | — | — | — | 10.0 | 0.9 | 0.0 | 0.0 | 10.0 | 3.470 | no | trainable 10.0 h < 50.0 h |
-| mbo | — | — | — | 10.0 | 0.6 | 0.5 | 0.4 | 10.9 | 5.513 | no | trainable 10.0 h < 50.0 h |
-| gig | — | — | — | 10.0 | 1.6 | 0.0 | 0.1 | 10.1 | 2.992 | no | trainable 10.0 h < 50.0 h |
-| fmp | — | — | — | 9.9 | 0.8 | 0.7 | 0.7 | 11.4 | 7.865 | no | trainable 9.9 h < 50.0 h |
-| plk | — | — | — | 9.9 | 3.5 | 1.7 | 0.9 | 12.6 | 5.026 | no | trainable 9.9 h < 50.0 h |
-| mdd | — | — | — | 9.9 | 1.6 | 0.0 | 0.1 | 10.0 | 6.498 | no | trainable 9.9 h < 50.0 h |
-| nmz | — | — | — | 9.9 | 0.7 | 0.7 | 0.7 | 11.2 | 2.947 | no | trainable 9.9 h < 50.0 h |
-| mki | — | — | — | 9.9 | 1.8 | 0.0 | 0.0 | 9.9 | 3.194 | no | trainable 9.9 h < 50.0 h |
-| gej | — | — | — | 9.9 | 0.9 | 0.6 | 0.6 | 11.1 | 2.444 | no | trainable 9.9 h < 50.0 h |
-| ncx | — | — | — | 9.9 | 0.4 | 0.4 | 0.4 | 10.7 | 4.457 | no | trainable 9.9 h < 50.0 h |
-| haz | — | — | — | 9.8 | 1.0 | 0.1 | 0.6 | 10.5 | 4.556 | no | trainable 9.8 h < 50.0 h |
-| qxt | — | — | — | 9.8 | 0.7 | 0.1 | 0.4 | 10.3 | 4.290 | no | trainable 9.8 h < 50.0 h |
-| ia | — | — | — | 9.8 | 5.7 | 2.2 | 2.2 | 14.3 | 4.202 | no | trainable 9.8 h < 50.0 h |
-| bri | — | — | — | 9.8 | 0.8 | 0.2 | 0.4 | 10.4 | 4.241 | no | trainable 9.8 h < 50.0 h |
-| bba | — | — | — | 9.7 | 0.5 | 0.4 | 0.4 | 10.6 | 6.068 | no | trainable 9.7 h < 50.0 h |
-| qxu | — | — | — | 9.7 | 0.8 | 0.0 | 0.4 | 10.1 | 4.186 | no | trainable 9.7 h < 50.0 h |
-| bax | — | — | — | 9.7 | 0.5 | 0.4 | 0.5 | 10.6 | 4.917 | no | trainable 9.7 h < 50.0 h |
-| qvj | — | — | — | 9.7 | 0.6 | 0.6 | 0.6 | 10.8 | 5.961 | no | trainable 9.7 h < 50.0 h |
-| btv | — | — | — | 9.6 | 0.5 | 0.3 | 0.4 | 10.3 | 4.057 | no | trainable 9.6 h < 50.0 h |
-| kw | — | — | — | 9.6 | 7.1 | 0.0 | 2.7 | 12.4 | 4.121 | no | trainable 9.6 h < 50.0 h |
-| hux | — | — | — | 9.6 | 0.7 | 0.0 | 0.4 | 10.0 | 3.876 | no | trainable 9.6 h < 50.0 h |
-| wes | — | — | — | 9.6 | 0.4 | 0.4 | 0.4 | 10.3 | 4.118 | no | trainable 9.6 h < 50.0 h |
-| gju | — | — | — | 9.5 | 2.9 | 0.0 | 0.6 | 10.1 | 3.274 | no | trainable 9.5 h < 50.0 h |
-| tay | — | — | — | 9.5 | 2.0 | 0.7 | 1.3 | 11.5 | 5.572 | no | trainable 9.5 h < 50.0 h |
-| an | — | — | — | 9.5 | 5.3 | 3.6 | 3.7 | 16.9 | 4.574 | no | trainable 9.5 h < 50.0 h |
-| xka | — | — | — | 9.5 | 1.4 | 0.0 | 0.4 | 9.8 | 3.159 | no | trainable 9.5 h < 50.0 h |
-| nmg | — | — | — | 9.5 | 0.9 | 0.5 | 0.5 | 10.4 | 6.401 | no | trainable 9.5 h < 50.0 h |
-| mau | — | — | — | 9.4 | 1.0 | 0.4 | 0.5 | 10.4 | 6.216 | no | trainable 9.4 h < 50.0 h |
-| cpy | — | — | — | 9.4 | 0.6 | 0.2 | 0.4 | 10.0 | 4.421 | no | trainable 9.4 h < 50.0 h |
-| mcx | — | — | — | 9.4 | 1.0 | 0.2 | 0.5 | 10.1 | 6.611 | no | trainable 9.4 h < 50.0 h |
-| qxa | — | — | — | 9.4 | 0.5 | 0.3 | 0.4 | 10.1 | 4.343 | no | trainable 9.4 h < 50.0 h |
-| kvx | — | — | — | 9.4 | 1.3 | 1.0 | 0.7 | 11.0 | 5.322 | no | trainable 9.4 h < 50.0 h |
-| qvl | — | — | — | 9.4 | 0.5 | 0.2 | 0.4 | 10.0 | 3.960 | no | trainable 9.4 h < 50.0 h |
-| rof | — | — | — | 9.4 | 0.5 | 0.5 | 0.5 | 10.4 | 3.905 | no | trainable 9.4 h < 50.0 h |
-| qwa | — | — | — | 9.4 | 0.8 | 0.1 | 0.4 | 9.9 | 4.951 | no | trainable 9.4 h < 50.0 h |
-| mcn | — | — | — | 9.4 | 0.4 | 0.4 | 0.4 | 10.1 | 4.214 | no | trainable 9.4 h < 50.0 h |
-| bbl | — | — | — | 9.3 | 1.0 | 0.9 | 0.9 | 11.2 | 8.787 | no | trainable 9.3 h < 50.0 h |
-| bum | — | — | — | 9.3 | 0.4 | 0.3 | 0.4 | 10.0 | 4.657 | no | trainable 9.3 h < 50.0 h |
-| dmk | — | — | — | 9.3 | 3.1 | 0.0 | 0.9 | 10.2 | 3.445 | no | trainable 9.3 h < 50.0 h |
-| odk | — | — | — | 9.3 | 1.7 | 0.8 | 1.1 | 11.2 | 6.369 | no | trainable 9.3 h < 50.0 h |
-| bfd | — | — | — | 9.3 | 0.4 | 0.4 | 0.4 | 10.1 | 5.609 | no | trainable 9.3 h < 50.0 h |
-| gjk | — | — | — | 9.2 | 1.0 | 0.7 | 0.8 | 10.8 | 4.528 | no | trainable 9.2 h < 50.0 h |
-| qva | — | — | — | 9.2 | 0.6 | 0.2 | 0.4 | 9.8 | 4.287 | no | trainable 9.2 h < 50.0 h |
-| mgg | — | — | — | 9.2 | 1.0 | 0.6 | 0.4 | 10.2 | 7.580 | no | trainable 9.2 h < 50.0 h |
-| giz | — | — | — | 9.1 | 0.6 | 0.5 | 0.4 | 10.1 | 5.572 | no | trainable 9.1 h < 50.0 h |
-| mve | — | — | — | 9.1 | 1.7 | 0.7 | 0.2 | 10.1 | 4.739 | no | trainable 9.1 h < 50.0 h |
-| beb | — | — | — | 9.1 | 0.5 | 0.5 | 0.5 | 10.0 | 5.347 | no | trainable 9.1 h < 50.0 h |
-| mua | — | — | — | 9.0 | 0.5 | 0.3 | 0.4 | 9.7 | 4.006 | no | trainable 9.0 h < 50.0 h |
-| prq | — | — | — | 9.0 | 0.5 | 0.4 | 0.4 | 9.7 | 4.726 | no | trainable 9.0 h < 50.0 h |
-| zoc | — | — | — | 9.0 | 0.6 | 0.5 | 0.5 | 10.1 | 4.083 | no | trainable 9.0 h < 50.0 h |
-| gwc | — | — | — | 9.0 | 5.1 | 1.2 | 1.4 | 11.6 | 5.651 | no | trainable 9.0 h < 50.0 h |
-| bas | — | — | — | 9.0 | 2.3 | 1.4 | 1.7 | 12.1 | 3.909 | no | trainable 9.0 h < 50.0 h |
-| sei | — | — | — | 9.0 | 0.9 | 0.5 | 0.6 | 10.1 | 4.535 | no | trainable 9.0 h < 50.0 h |
-| cux | — | — | — | 9.0 | 1.3 | 0.7 | 0.6 | 10.3 | 4.101 | no | trainable 9.0 h < 50.0 h |
-| bce | — | — | — | 9.0 | 0.5 | 0.5 | 0.5 | 10.0 | 5.892 | no | trainable 9.0 h < 50.0 h |
-| cut | — | — | — | 9.0 | 0.7 | 0.5 | 0.6 | 10.1 | 6.631 | no | trainable 9.0 h < 50.0 h |
-| tar | — | — | — | 8.9 | 0.5 | 0.5 | 0.5 | 10.0 | 4.549 | no | trainable 8.9 h < 50.0 h |
-| jqr | — | — | — | 8.9 | 0.7 | 0.5 | 0.4 | 9.9 | 5.898 | no | trainable 8.9 h < 50.0 h |
-| bsk | — | — | — | 8.9 | 1.4 | 0.4 | 0.9 | 10.2 | 4.262 | no | trainable 8.9 h < 50.0 h |
-| eto | — | — | — | 8.9 | 0.3 | 0.3 | 0.3 | 9.4 | 3.225 | no | trainable 8.9 h < 50.0 h |
-| bkh | — | — | — | 8.9 | 0.7 | 0.5 | 0.5 | 10.0 | 6.400 | no | trainable 8.9 h < 50.0 h |
-| qux | — | — | — | 8.9 | 0.6 | 0.4 | 0.5 | 9.8 | 5.721 | no | trainable 8.9 h < 50.0 h |
-| lss | — | — | — | 8.9 | 0.9 | 0.5 | 0.6 | 9.9 | 3.463 | no | trainable 8.9 h < 50.0 h |
-| yaq | — | — | — | 8.8 | 2.8 | 0.2 | 1.2 | 10.2 | 5.311 | no | trainable 8.8 h < 50.0 h |
-| hem | — | — | — | 8.8 | 0.6 | 0.6 | 0.6 | 9.9 | 5.999 | no | trainable 8.8 h < 50.0 h |
-| pua | — | — | — | 8.8 | 1.6 | 0.7 | 0.7 | 10.2 | 4.885 | no | trainable 8.8 h < 50.0 h |
-| gid | — | — | — | 8.8 | 0.6 | 0.6 | 0.6 | 9.9 | 7.000 | no | trainable 8.8 h < 50.0 h |
-| gya | — | — | — | 8.8 | 0.5 | 0.5 | 0.5 | 9.8 | 5.078 | no | trainable 8.8 h < 50.0 h |
-| kdh | — | — | — | 8.7 | 0.3 | 0.2 | 0.2 | 9.2 | 2.448 | no | trainable 8.7 h < 50.0 h |
-| fan | — | — | — | 8.6 | 0.4 | 0.4 | 0.4 | 9.4 | 4.399 | no | trainable 8.6 h < 50.0 h |
-| udl | — | — | — | 8.6 | 0.6 | 0.4 | 0.5 | 9.5 | 5.352 | no | trainable 8.6 h < 50.0 h |
-| nyu | — | — | — | 8.5 | 2.6 | 0.0 | 0.6 | 9.2 | 9.059 | no | trainable 8.5 h < 50.0 h |
-| hno | — | — | — | 8.5 | 1.0 | 0.9 | 0.8 | 10.2 | 4.009 | no | trainable 8.5 h < 50.0 h |
-| xhe | — | — | — | 8.4 | 3.0 | 0.0 | 1.2 | 9.6 | 3.032 | no | trainable 8.4 h < 50.0 h |
-| tvu | — | — | — | 8.4 | 1.4 | 1.0 | 0.9 | 10.2 | 7.009 | no | trainable 8.4 h < 50.0 h |
-| var | — | — | — | 8.4 | 1.1 | 0.8 | 0.9 | 10.1 | 5.307 | no | trainable 8.4 h < 50.0 h |
-| trv | — | — | — | 8.3 | 1.4 | 0.9 | 0.8 | 9.9 | 5.611 | no | trainable 8.3 h < 50.0 h |
-| nla | — | — | — | 8.2 | 1.1 | 0.3 | 0.4 | 8.9 | 6.930 | no | trainable 8.2 h < 50.0 h |
-| tui | — | — | — | 8.1 | 0.9 | 0.8 | 0.8 | 9.7 | 4.634 | no | trainable 8.1 h < 50.0 h |
-| bsh | — | — | — | 8.1 | 2.1 | 0.8 | 1.0 | 9.9 | 5.264 | no | trainable 8.1 h < 50.0 h |
-| tli | — | — | — | 8.1 | 8.1 | 0.0 | 1.8 | 9.9 | 12.604 | no | trainable 8.1 h < 50.0 h |
-| scl | — | — | — | 7.9 | 1.6 | 1.0 | 1.1 | 10.0 | 4.072 | no | trainable 7.9 h < 50.0 h |
-| wbl | — | — | — | 7.9 | 4.8 | 2.1 | 2.1 | 12.1 | 6.753 | no | trainable 7.9 h < 50.0 h |
-| lua | — | — | — | 7.8 | 0.6 | 0.5 | 0.5 | 8.9 | 6.664 | no | trainable 7.8 h < 50.0 h |
-| bg | — | — | — | 7.6 | 7.6 | 4.5 | 5.2 | 17.3 | 5.475 | no | trainable 7.6 h < 50.0 h |
-| bnn | — | — | — | 7.6 | 1.5 | 1.4 | 1.4 | 10.3 | 5.090 | no | trainable 7.6 h < 50.0 h |
-| yav | — | — | — | 7.5 | 0.8 | 0.5 | 0.6 | 8.6 | 6.655 | no | trainable 7.5 h < 50.0 h |
-| kls | — | — | — | 7.5 | 1.5 | 1.3 | 1.3 | 10.0 | 3.699 | no | trainable 7.5 h < 50.0 h |
-| gv | — | — | — | 7.4 | 3.9 | 1.9 | 0.8 | 10.1 | 5.782 | no | trainable 7.4 h < 50.0 h |
-| dru | — | — | — | 7.4 | 1.7 | 1.5 | 1.5 | 10.4 | 5.676 | no | trainable 7.4 h < 50.0 h |
-| dml | — | — | — | 7.3 | 5.3 | 1.8 | 1.0 | 10.2 | 6.019 | no | trainable 7.3 h < 50.0 h |
-| brh | — | — | — | 7.2 | 3.3 | 1.0 | 1.7 | 9.9 | 7.019 | no | trainable 7.2 h < 50.0 h |
-| esu | — | — | — | 7.1 | 6.5 | 0.0 | 0.5 | 7.6 | 3.800 | no | trainable 7.1 h < 50.0 h |
-| ggg | — | — | — | 7.0 | 1.9 | 0.0 | 0.4 | 7.4 | 3.988 | no | trainable 7.0 h < 50.0 h |
-| hi | Hindi | Indo-European (Indo-Aryan) | Deva | 7.0 | 6.9 | 3.9 | 4.7 | 15.6 | 5.045 | yes | below the rule (trainable 7.0 h < 50.0 h); kept because the smaller presets commit to it |
-| ipk | — | — | — | 6.8 | 6.8 | 0.0 | 0.4 | 7.2 | 7.938 | no | trainable 6.8 h < 50.0 h |
-| da | — | — | — | 6.8 | 4.1 | 3.1 | 3.1 | 13.0 | 4.072 | no | trainable 6.8 h < 50.0 h |
-| dav | — | — | — | 6.7 | 2.4 | 1.4 | 1.1 | 9.3 | 4.059 | no | trainable 6.7 h < 50.0 h |
-| eko | — | — | — | 6.7 | 1.1 | 0.7 | 0.9 | 8.3 | 7.541 | no | trainable 6.7 h < 50.0 h |
-| mse | — | — | — | 6.6 | 0.7 | 0.6 | 0.5 | 7.7 | 6.412 | no | trainable 6.6 h < 50.0 h |
-| bgp | — | — | — | 6.6 | 5.3 | 2.1 | 2.8 | 11.5 | 5.418 | no | trainable 6.6 h < 50.0 h |
-| ibb | — | — | — | 6.2 | 0.9 | 0.8 | 0.8 | 7.8 | 9.002 | no | trainable 6.2 h < 50.0 h |
-| ush | — | — | — | 5.6 | 1.0 | 0.3 | 0.6 | 6.6 | 6.148 | no | trainable 5.6 h < 50.0 h |
-| tig | — | — | — | 5.3 | 3.3 | 2.7 | 2.7 | 10.7 | 5.984 | no | trainable 5.3 h < 50.0 h |
-| or | — | — | — | 4.6 | 3.3 | 1.0 | 0.7 | 6.3 | 5.539 | no | trainable 4.6 h < 50.0 h |
-| mt | — | — | — | 4.4 | 2.5 | 2.1 | 2.2 | 8.7 | 4.747 | no | trainable 4.4 h < 50.0 h |
-| mug | — | — | — | 4.2 | 0.8 | 0.6 | 0.6 | 5.4 | 7.273 | no | trainable 4.2 h < 50.0 h |
-| sr | — | — | — | 4.2 | 2.3 | 1.7 | 1.8 | 7.6 | 3.261 | no | trainable 4.2 h < 50.0 h |
-| vi | — | — | — | 4.2 | 2.1 | 1.5 | 1.6 | 7.3 | 3.997 | no | trainable 4.2 h < 50.0 h |
-| sq | — | — | — | 3.8 | 3.8 | 2.5 | 2.7 | 9.0 | 5.088 | no | trainable 3.8 h < 50.0 h |
-| he | — | — | — | 3.6 | 2.4 | 0.5 | 1.2 | 5.3 | 4.551 | no | trainable 3.6 h < 50.0 h |
-| tn | — | — | — | 3.4 | 1.3 | 0.4 | 0.4 | 4.2 | 4.370 | no | trainable 3.4 h < 50.0 h |
-| rm-sursilv | — | — | — | 3.1 | 2.9 | 2.4 | 2.5 | 7.9 | 5.379 | no | trainable 3.1 h < 50.0 h |
-| gn | — | — | — | 2.9 | 2.2 | 0.8 | 1.4 | 5.2 | 4.597 | no | trainable 2.9 h < 50.0 h |
-| lij | — | — | — | 2.6 | 2.5 | 1.0 | 1.5 | 5.0 | 3.870 | no | trainable 2.6 h < 50.0 h |
-| ha | — | — | — | 2.5 | 2.3 | 0.8 | 0.9 | 4.2 | 4.351 | no | trainable 2.5 h < 50.0 h |
-| yo | — | — | — | 2.4 | 2.4 | 1.6 | 1.8 | 5.8 | 6.040 | no | trainable 2.4 h < 50.0 h |
-| myv | — | — | — | 2.0 | 2.0 | 0.4 | 0.8 | 3.2 | 5.784 | no | trainable 2.0 h < 50.0 h |
-| ml | — | — | — | 1.9 | 1.5 | 1.1 | 1.0 | 4.1 | 4.242 | no | held-out transfer language (malayalam); never trained on |
-| oc | — | — | — | 1.9 | 0.4 | 0.4 | 0.4 | 2.7 | 4.871 | no | trainable 1.9 h < 50.0 h |
-| skr | — | — | — | 1.8 | 1.8 | 1.3 | 1.2 | 4.3 | 4.164 | no | trainable 1.8 h < 50.0 h |
-| hsb | — | — | — | 1.7 | 1.7 | 0.7 | 1.0 | 3.4 | 7.503 | no | trainable 1.7 h < 50.0 h |
-| as | — | — | — | 1.5 | 1.6 | 0.8 | 0.7 | 3.0 | 5.857 | no | trainable 1.5 h < 50.0 h |
-| ebr | — | — | — | 1.5 | 0.7 | 0.0 | 0.3 | 1.8 | 4.167 | no | trainable 1.5 h < 50.0 h |
-| nb-NO | — | — | — | 1.5 | 1.5 | 0.5 | 0.4 | 2.3 | 4.193 | no | trainable 1.5 h < 50.0 h |
-| tk | — | — | — | 1.5 | 1.1 | 0.8 | 0.8 | 3.1 | 5.509 | no | trainable 1.5 h < 50.0 h |
-| sc | — | — | — | 1.4 | 1.2 | 0.7 | 0.9 | 3.0 | 4.705 | no | trainable 1.4 h < 50.0 h |
-| pa-IN | — | — | — | 1.1 | 1.1 | 0.7 | 0.7 | 2.4 | 4.806 | no | trainable 1.1 h < 50.0 h |
-| yi | — | — | — | 1.0 | 0.5 | 0.5 | 0.5 | 2.0 | 3.975 | no | trainable 1.0 h < 50.0 h |
-| ko | — | — | — | 1.0 | 1.0 | 0.7 | 0.8 | 2.5 | 5.211 | no | trainable 1.0 h < 50.0 h |
-| ig | — | — | — | 1.0 | 1.0 | 0.9 | 0.9 | 2.7 | 5.428 | no | trainable 1.0 h < 50.0 h |
-| am | — | — | — | 1.0 | 1.0 | 0.4 | 0.5 | 1.9 | 6.345 | no | trainable 1.0 h < 50.0 h |
-| kk | — | — | — | 0.9 | 0.9 | 0.8 | 0.8 | 2.5 | 4.946 | no | trainable 0.9 h < 50.0 h |
-| rm-vallader | — | — | — | 0.9 | 0.9 | 0.8 | 0.8 | 2.5 | 5.832 | no | trainable 0.9 h < 50.0 h |
-| cnh | — | — | — | 0.9 | 0.8 | 0.7 | 0.7 | 2.4 | 3.517 | no | trainable 0.9 h < 50.0 h |
-| zza | — | — | — | 0.9 | 0.9 | 0.5 | 0.5 | 1.9 | 4.032 | no | trainable 0.9 h < 50.0 h |
-| zgh | — | — | — | 0.9 | 0.9 | 0.3 | 0.2 | 1.4 | 3.559 | no | trainable 0.9 h < 50.0 h |
-| nn-NO | — | — | — | 0.7 | 0.7 | 0.4 | 0.5 | 1.6 | 4.441 | no | trainable 0.7 h < 50.0 h |
-| os | — | — | — | 0.7 | 0.6 | 0.4 | 0.3 | 1.4 | 5.523 | no | trainable 0.7 h < 50.0 h |
-| ne-NP | — | — | — | 0.7 | 0.4 | 0.4 | 0.3 | 1.3 | 4.111 | no | trainable 0.7 h < 50.0 h |
-| te | — | — | — | 0.6 | 0.1 | 0.1 | 0.1 | 0.8 | 4.195 | no | held-out transfer language (telugu); never trained on |
-| ast | — | — | — | 0.6 | 0.5 | 0.1 | 0.3 | 1.0 | 4.397 | no | trainable 0.6 h < 50.0 h |
-| gsw | — | — | — | 0.5 | 0.0 | 0.0 | 0.0 | 0.6 | 5.716 | no | trainable 0.5 h < 50.0 h |
-| tg | — | — | — | 0.4 | 0.5 | 0.2 | 0.2 | 0.8 | 5.027 | no | trainable 0.4 h < 50.0 h |
-| sat | — | — | — | 0.4 | 0.4 | 0.1 | 0.2 | 0.7 | 4.481 | no | trainable 0.4 h < 50.0 h |
-| az | — | — | — | 0.3 | 0.3 | 0.1 | 0.2 | 0.7 | 5.452 | no | trainable 0.3 h < 50.0 h |
-| af | — | — | — | 0.3 | 0.3 | 0.2 | 0.2 | 0.8 | 6.080 | no | trainable 0.3 h < 50.0 h |
-| sd | — | — | — | 0.3 | 0.3 | 0.0 | 0.0 | 0.4 | 4.070 | no | trainable 0.3 h < 50.0 h |
-| mdf | — | — | — | 0.3 | 0.3 | 0.1 | 0.2 | 0.5 | 5.250 | no | trainable 0.3 h < 50.0 h |
-| tw | — | — | — | 0.3 | 0.3 | 0.0 | 0.0 | 0.3 | 4.385 | no | trainable 0.3 h < 50.0 h |
-| lo | — | — | — | 0.2 | 0.2 | 0.1 | 0.1 | 0.3 | 6.532 | no | trainable 0.2 h < 50.0 h |
-| dyu | — | — | — | 0.2 | 0.2 | 0.1 | 0.1 | 0.4 | 6.309 | no | trainable 0.2 h < 50.0 h |
-| is | — | — | — | 0.1 | 0.1 | 0.0 | 0.1 | 0.2 | 6.425 | no | trainable 0.1 h < 50.0 h |
-| vot | — | — | — | 0.1 | 0.1 | 0.0 | 0.0 | 0.1 | 2.412 | no | trainable 0.1 h < 50.0 h |
-| ti | — | — | — | 0.0 | 0.1 | 0.0 | 0.0 | 0.1 | 5.194 | no | trainable 0.0 h < 50.0 h |
-| quy | — | — | — | 0.0 | 0.0 | 0.0 | 0.0 | 0.1 | 4.994 | no | trainable 0.0 h < 50.0 h |
-| ms | — | — | — | 0.0 | 0.0 | 0.0 | 0.0 | 0.1 | 6.176 | no | trainable 0.0 h < 50.0 h |
-| nhi | — | — | — | 0.0 | 0.0 | 0.0 | 0.0 | 0.1 | 5.081 | no | trainable 0.0 h < 50.0 h |
-| rup | — | — | — | 0.0 | 0.0 | 0.0 | 0.0 | 0.1 | 7.021 | no | trainable 0.0 h < 50.0 h |
-| ht | — | — | — | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 5.566 | no | trainable 0.0 h < 50.0 h |
-| zu | — | — | — | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 5.533 | no | trainable 0.0 h < 50.0 h |
-| nso | — | — | — | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 4.630 | no | trainable 0.0 h < 50.0 h |
-| xh | — | — | — | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 5.990 | no | trainable 0.0 h < 50.0 h |
-| dsb | — | — | — | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 8.057 | no | trainable 0.0 h < 50.0 h |
-| hr | — | — | — | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 4.311 | no | trainable 0.0 h < 50.0 h |
-| nr | — | — | — | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 8.671 | no | trainable 0.0 h < 50.0 h |
-| ss | — | — | — | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 7.440 | no | trainable 0.0 h < 50.0 h |
-| st | — | — | — | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 3.223 | no | trainable 0.0 h < 50.0 h |
-| ts | — | — | — | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 8.928 | no | trainable 0.0 h < 50.0 h |
-| ve | — | — | — | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 5.733 | no | trainable 0.0 h < 50.0 h |
+## Rejected, and why
+
+Grouped by the criterion each fails. None is counted anywhere above.
+
+**Gated.** IndicVoices and Shrutilipi (AI4Bharat contact-info gate),
+NaijaVoices (gate and CC BY-NC-SA), ivrit.ai, ReazonSpeech, MDCC Cantonese
+(signed licence by email), Bud500, WenetSpeech (application form), AISHELL-2
+(institutional-email form), LaboroTVSpeech, FT Speech Danish (Google Form),
+LIEPA-2 Lithuanian (both channels), LATE Latvian, Kaggle Bengali.AI, CSJ (paid),
+AI-Hub Korean, LDC and ELRA.
+
+**Licence.** MAGICDATA, Primewords and ST-CMDS (CC BY-NC-ND); Multilingual TEDx
+(the NoDerivatives term, not the NonCommercial one); MASRI Maltese; SWARA and
+RSC Romanian; CMU Wilderness, whose audio is governed by bible.is terms that
+permit personal non-commercial use only.
+
+**Transcripts.** VoxLingua107 (language-ID labels, no transcripts), Greek
+Podcast Corpus and both `mesolitica` Malay sets (Whisper or Google-STT
+pseudo-labels), WenetSpeech's high-label subset (OCR/ASR-derived).
+
+**Too small.** FLEURS (~12 h per language, which rules out all 102),
+MediaSpeech (10 h), THCHS-30, VIVOS, JSUT, Gowajee Thai, CantoMap, NICT-Tib1
+(superseded by TIBMD@MUC), ArmSpeech (superseded by SLR160), Bashkir `AigizK`
+(and mostly synthetic), Lwazi (telephone bandwidth), BembaSpeech, Kallaama
+Wolof, and every OpenSLR "high quality TTS data" set (SLR41–44, 63–66, 78–80),
+which are TTS corpora rather than ASR training sets.
+
+**Structurally unusable.** BibleTTS (one speaker per language, so no
+speaker-disjoint split exists, and scripture-only), HKCanCor (samples only),
+`aidatatang_200zh` (retracted by its owner), MBSpeech Mongolian and ManaTTS
+Persian (single speaker).
+
+**Held out by rule.** Malayalam, Marathi, Telugu and Gujarati are the transfer
+set and Odia is the pending fifth. None may appear as training data under any
+corpus, and because five of the corpora above come from the same crowdsourced
+programme as the held-out four, that is enforced by a test rather than by care.
+
+**No qualifying corpus found**, after looking: Azerbaijani, Sakha, Mongolian,
+Macedonian, Bosnian, Montenegrin, Manx, Breton, Lao, Indonesian, Malay
+(human-transcribed), Tagalog.
+
+## Every locale and corpus considered
+
+All 290 Common Voice locales plus the 18 corpus languages, ordered by trainable
+hours. Family and script are filled in only for selected languages: curating
+them for all 308 would be 308 claims nothing in this repository checks.
+
+| locale | language | family | script | policy | corpus | trainable h | train h | dev h | test h | validated h | included | reason |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| ca | Catalan | Indo-European (Romance) | Latn | whisper-basic | common_voice_25 | 3312.4 | 1758.3 | 23.7 | 23.7 | 3359.8 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| ps | Pashto | Indo-European (Iranian) | Arab | perso-arabic | common_voice_25 | 3008.0 | 239.0 | 16.9 | 16.9 | 3041.9 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| en | English | Indo-European (Germanic) | Latn | whisper-basic | common_voice_25 | 2703.6 | 1679.0 | 24.0 | 24.0 | 2751.6 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| rw | Kinyarwanda | Atlantic-Congo (Bantu) | Latn | latin-marks | common_voice_25 | 1956.8 | 1395.1 | 22.2 | 22.5 | 2001.6 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| be | Belarusian | Indo-European (Slavic) | Cyrl | whisper-basic | common_voice_25 | 1773.7 | 462.9 | 21.1 | 21.1 | 1816.0 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| hr | Croatian | Indo-European (Slavic) | Latn | whisper-basic | parlaspeech_hr | 1452.8 | 0.0 | 181.6 | 181.6 | 1816.0 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| eo | Esperanto | Constructed | Latn | whisper-basic | common_voice_25 | 1390.7 | 244.6 | 25.2 | 25.2 | 1441.1 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| de | German | Indo-European (Germanic) | Latn | whisper-basic | common_voice_25 | 1341.4 | 908.4 | 23.7 | 23.7 | 1388.8 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| et | Estonian | Uralic (Finnic) | Latn | whisper-basic | taltech_estonian | 1334.0 | 1334.0 | 21.0 | 23.0 | 0.0 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| fr | French | Indo-European (Romance) | Latn | whisper-basic | common_voice_25 | 1050.5 | 858.1 | 22.7 | 22.7 | 1095.9 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| es | Spanish | Indo-European (Romance) | Latn | whisper-basic | common_voice_25 | 550.2 | 485.7 | 21.6 | 21.6 | 593.3 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| kab | Kabyle | Afro-Asiatic (Berber) | Latn | whisper-basic | common_voice_25 | 542.9 | 141.6 | 13.9 | 13.9 | 570.7 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| eu | Basque | Isolate | Latn | whisper-basic | common_voice_25 | 427.7 | 203.1 | 22.4 | 22.4 | 472.4 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| ug | Uyghur | Turkic (Karluk) | Arab | uyghur-ug | common_voice_25 | 402.2 | 209.4 | 24.2 | 24.2 | 450.6 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| lg | Luganda | Atlantic-Congo (Bantu) | Latn | whisper-basic | common_voice_25 | 393.9 | 114.2 | 21.5 | 21.5 | 436.8 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| sw | Swahili | Atlantic-Congo (Bantu) | Latn | latin-marks | common_voice_25 | 356.4 | 68.1 | 17.9 | 17.9 | 392.1 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| ja | Japanese | Japonic | Jpan | ja-cer | common_voice_25 | 349.5 | 24.4 | 11.2 | 11.2 | 371.9 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| fa | Persian | Indo-European (Iranian) | Arab | perso-arabic | common_voice_25 | 349.5 | 33.0 | 11.7 | 11.7 | 372.9 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| it | Italian | Indo-European (Romance) | Latn | whisper-basic | common_voice_25 | 317.1 | 261.9 | 22.9 | 22.9 | 362.9 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| kn | Kannada | Dravidian | Knda | indic-vistaar | slr126_kannada | 280.0 | 0.0 | 35.0 | 35.0 | 350.0 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| su | Sundanese | Austronesian (Malayo-Polynesian) | Latn | whisper-basic | slr36_sundanese | 266.4 | 0.0 | 33.3 | 33.3 | 333.0 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| gl | Galician | Indo-European (Romance) | Latn | whisper-basic | common_voice_25 | 265.7 | 256.2 | 21.1 | 21.2 | 308.0 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| kk | Kazakh | Turkic (Kipchak) | Cyrl | whisper-basic | slr102_ksc_kazakh | 265.6 | 0.0 | 33.2 | 33.2 | 332.0 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| kbd | Kabardian | Northwest Caucasian | Cyrl | whisper-basic | common_voice_25 | 246.0 | 24.0 | 13.1 | 13.1 | 272.2 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| lv | Latvian | Indo-European (Baltic) | Latn | whisper-basic | common_voice_25 | 244.5 | 19.7 | 10.5 | 10.5 | 265.4 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| mhr | Meadow Mari | Uralic (Mari) | Cyrl | whisper-basic | common_voice_25 | 242.6 | 239.5 | 18.8 | 19.5 | 280.9 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| jv | Javanese | Austronesian (Malayo-Polynesian) | Latn | whisper-basic | slr35_javanese | 236.8 | 0.0 | 29.6 | 29.6 | 296.0 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| ba | Bashkir | Turkic (Kipchak) | Cyrl | whisper-basic | common_voice_25 | 223.0 | 146.5 | 17.9 | 17.9 | 258.8 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| ru | Russian | Indo-European (Slavic) | Cyrl | whisper-basic | common_voice_25 | 222.4 | 38.7 | 14.8 | 14.8 | 251.9 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| zh-CN | Chinese (Mandarin) | Sino-Tibetan (Sinitic) | Hans | han-mer | common_voice_25 | 212.3 | 37.3 | 13.4 | 13.4 | 239.1 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| yue | Cantonese | Sino-Tibetan (Sinitic) | Hant | han-mer | common_voice_25 | 199.4 | 8.2 | 5.6 | 5.6 | 210.7 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| ta | Tamil | Dravidian | Taml | indic-vistaar | common_voice_25 | 192.9 | 79.9 | 20.9 | 21.0 | 234.8 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| bn | Bengali | Indo-European (Indo-Aryan) | Beng | indic-vistaar | slr53_bengali | 183.2 | 0.0 | 22.9 | 22.9 | 229.0 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| si | Sinhala | Indo-European (Indo-Aryan) | Sinh | indic-vistaar | slr52_sinhala | 179.2 | 0.0 | 22.4 | 22.4 | 224.0 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| pt | Portuguese | Indo-European (Romance) | Latn | whisper-basic | common_voice_25 | 164.8 | 26.9 | 11.2 | 11.2 | 187.3 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| ab | Abkhaz | Northwest Caucasian | Cyrl | whisper-basic | common_voice_25 | 164.1 | 148.8 | 21.6 | 21.7 | 207.4 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| pl | Polish | Indo-European (Slavic) | Latn | whisper-basic | common_voice_25 | 151.0 | 32.3 | 12.8 | 12.8 | 176.6 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| th | Thai | Kra-Dai (Tai) | Thai | thai-cer | common_voice_25 | 147.5 | 38.4 | 12.9 | 12.9 | 173.3 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| ne | Nepali | Indo-European (Indo-Aryan) | Deva | indic-vistaar | slr54_nepali | 132.0 | 0.0 | 16.5 | 16.5 | 165.0 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| ka | Georgian | Kartvelian | Geor | whisper-basic | common_voice_25 | 130.3 | 89.7 | 18.6 | 18.7 | 167.5 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| ckb | Central Kurdish | Indo-European (Iranian) | Arab | perso-arabic | common_voice_25 | 124.8 | 9.0 | 6.1 | 6.1 | 137.0 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| is | Icelandic | Indo-European (Germanic) | Latn | whisper-basic | slr112_samromur | 116.0 | 0.0 | 14.5 | 14.5 | 145.0 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| cy | Welsh | Indo-European (Celtic) | Latn | whisper-basic | common_voice_25 | 109.3 | 11.0 | 7.4 | 7.4 | 124.1 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| tr | Turkish | Turkic (Oghuz) | Latn | turkic-tr | common_voice_25 | 104.0 | 43.6 | 12.6 | 12.6 | 129.2 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| nl | Dutch | Indo-European (Germanic) | Latn | whisper-basic | common_voice_25 | 96.5 | 56.3 | 14.9 | 14.9 | 126.2 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| zh-HK | — | — | — | — | common_voice_25 | 95.6 | 9.7 | 6.5 | 6.5 | 108.5 | no | same language as zh-CN, which has more trainable audio |
+| hu | Hungarian | Uralic (Ugric) | Latn | whisper-basic | common_voice_25 | 92.6 | 91.4 | 19.9 | 20.0 | 132.6 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| uk | Ukrainian | Indo-European (Slavic) | Cyrl | whisper-basic | common_voice_25 | 74.8 | 35.6 | 13.4 | 13.4 | 101.6 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| uz | Uzbek | Turkic (Karluk) | Latn | whisper-basic | common_voice_25 | 72.5 | 56.5 | 14.2 | 14.3 | 101.0 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| zh-TW | — | — | — | — | common_voice_25 | 70.1 | 6.9 | 4.8 | 4.8 | 79.7 | no | same language as zh-CN, which has more trainable audio |
+| ar | Arabic | Afro-Asiatic (Semitic) | Arab | arabic-ouaal | common_voice_25 | 67.9 | 33.4 | 11.8 | 12.1 | 91.9 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| ur | Urdu | Indo-European (Indo-Aryan) | Arab | perso-arabic | common_voice_25 | 67.8 | 8.6 | 6.0 | 6.0 | 79.7 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| bo | Tibetan | Sino-Tibetan (Bodish) | Tibt | tibetan-syllable | slr124_tibetan | 67.5 | 0.0 | 8.4 | 8.4 | 84.3 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| kmr | Northern Kurdish | Indo-European (Iranian) | Latn | whisper-basic | common_voice_25 | 66.0 | 6.5 | 4.8 | 4.8 | 75.7 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| fy-NL | West Frisian | Indo-European (Germanic) | Latn | whisper-basic | common_voice_25 | 61.9 | 5.3 | 4.3 | 4.3 | 70.4 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| ady | Adyghe | Northwest Caucasian | Cyrl | whisper-basic | common_voice_25 | 60.7 | 6.2 | 4.9 | 4.9 | 70.5 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| cs | Czech | Indo-European (Slavic) | Latn | whisper-basic | common_voice_25 | 57.6 | 27.6 | 11.7 | 11.7 | 81.1 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| hy | Armenian | Indo-European (Armenian) | Armn | armenian-hy | slr160_armenian | 56.0 | 0.0 | 7.0 | 7.0 | 70.0 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| nso | Sepedi | Atlantic-Congo (Sotho-Tswana) | Latn | whisper-basic | nchlt_sepedi | 50.9 | 50.9 | 2.5 | 2.9 | 0.0 | yes | meets the rule (trainable >= 50.0 h, dev >= 2.0 h, test >= 2.0 h) |
+| ts | Xitsonga | Atlantic-Congo (Tswa-Ronga) | Latn | whisper-basic | nchlt_xitsonga | 49.8 | 49.8 | 2.9 | 3.6 | 0.0 | yes | below the rule (trainable 49.8 h < 50.0 h); kept for typological coverage; its NCHLT corpus totals about 56 h and the shortfall is in the shipped train split, not in the corpus |
+| ve | Tshivenda | Atlantic-Congo (Venda) | Latn | whisper-basic | nchlt_tshivenda | 49.6 | 49.6 | 3.6 | 3.1 | 0.0 | yes | below the rule (trainable 49.6 h < 50.0 h); kept for typological coverage; its NCHLT corpus totals about 56 h and the shortfall is in the shipped train split, not in the corpus |
+| xh | isiXhosa | Atlantic-Congo (Nguni) | Latn | whisper-basic | nchlt_xhosa | 49.4 | 49.4 | 3.8 | 3.1 | 0.0 | yes | below the rule (trainable 49.4 h < 50.0 h); kept for typological coverage; its NCHLT corpus totals about 56 h and the shortfall is in the shipped train split, not in the corpus |
+| zu | isiZulu | Atlantic-Congo (Nguni) | Latn | whisper-basic | nchlt_zulu | 48.5 | 48.5 | 3.7 | 4.0 | 0.0 | yes | below the rule (trainable 48.5 h < 50.0 h); kept for typological coverage; its NCHLT corpus totals about 56 h and the shortfall is in the shipped train split, not in the corpus |
+| sk | — | — | — | — | common_voice_25 | 42.9 | 11.6 | 6.6 | 7.1 | 56.6 | no | trainable 42.9 h < 50.0 h |
+| ko | Korean | Koreanic | Kore | ko-kspon | slr40_zeroth_korean | 42.2 | 51.6 | 5.3 | 5.3 | 52.8 | yes | below the rule (trainable 42.2 h < 50.0 h); kept because it is the only open Korean corpus, and Koreanic and Hangul are in the preset only through it; the shipped 1.2 h test is under the evaluation bar, so all 52.8 h are repartitioned |
+| et | — | — | — | — | common_voice_25 | 40.9 | 6.5 | 5.4 | 5.4 | 51.7 | no | read from taltech_estonian instead, which has more trainable audio |
+| mn | — | — | — | — | common_voice_25 | 40.6 | 3.0 | 2.6 | 2.6 | 45.8 | no | trainable 40.6 h < 50.0 h |
+| sv-SE | — | — | — | — | common_voice_25 | 35.4 | 9.2 | 6.1 | 6.2 | 47.7 | no | trainable 35.4 h < 50.0 h |
+| ky | — | — | — | — | common_voice_25 | 34.8 | 2.3 | 2.0 | 2.0 | 38.9 | no | trainable 34.8 h < 50.0 h |
+| bn | — | — | — | — | common_voice_25 | 31.5 | 26.2 | 11.4 | 11.4 | 54.3 | no | read from slr53_bengali instead, which has more trainable audio |
+| dv | — | — | — | — | common_voice_25 | 31.4 | 3.8 | 3.2 | 3.2 | 37.8 | no | trainable 31.4 h < 50.0 h |
+| qxp | — | — | — | — | common_voice_25 | 29.3 | 1.0 | 0.9 | 0.9 | 31.2 | no | trainable 29.3 h < 50.0 h |
+| id | — | — | — | — | common_voice_25 | 25.7 | 5.5 | 3.8 | 4.1 | 33.6 | no | trainable 25.7 h < 50.0 h |
+| kln | — | — | — | — | common_voice_25 | 24.9 | 13.9 | 8.1 | 7.6 | 40.6 | no | trainable 24.9 h < 50.0 h |
+| br | — | — | — | — | common_voice_25 | 24.4 | 4.0 | 3.2 | 3.2 | 30.7 | no | trainable 24.4 h < 50.0 h |
+| tt | — | — | — | — | common_voice_25 | 22.1 | 9.0 | 4.7 | 5.4 | 32.3 | no | trainable 22.1 h < 50.0 h |
+| cv | — | — | — | — | common_voice_25 | 21.0 | 2.0 | 1.7 | 1.8 | 24.5 | no | trainable 21.0 h < 50.0 h |
+| ltg | — | — | — | — | common_voice_25 | 20.4 | 6.3 | 4.9 | 4.9 | 30.1 | no | trainable 20.4 h < 50.0 h |
+| mk | — | — | — | — | common_voice_25 | 20.1 | 2.8 | 2.4 | 2.4 | 25.0 | no | trainable 20.1 h < 50.0 h |
+| luo | — | — | — | — | common_voice_25 | 19.3 | 6.1 | 4.1 | 4.1 | 27.5 | no | trainable 19.3 h < 50.0 h |
+| nnh | — | — | — | — | common_voice_25 | 17.7 | 1.0 | 0.5 | 0.7 | 18.9 | no | trainable 17.7 h < 50.0 h |
+| phl | — | — | — | — | common_voice_25 | 17.5 | 2.7 | 1.9 | 1.9 | 21.3 | no | trainable 17.5 h < 50.0 h |
+| lzz | — | — | — | — | common_voice_25 | 17.4 | 6.2 | 4.4 | 4.3 | 26.1 | no | trainable 17.4 h < 50.0 h |
+| mrj | — | — | — | — | common_voice_25 | 16.9 | 16.7 | 8.5 | 8.3 | 33.7 | no | trainable 16.9 h < 50.0 h |
+| mvy | — | — | — | — | common_voice_25 | 16.7 | 3.4 | 2.6 | 2.8 | 22.1 | no | trainable 16.7 h < 50.0 h |
+| hy-AM | — | — | — | — | common_voice_25 | 16.0 | 15.7 | 8.9 | 9.3 | 34.3 | no | trainable 16.0 h < 50.0 h |
+| el | — | — | — | — | common_voice_25 | 16.0 | 2.2 | 2.0 | 2.0 | 19.9 | no | trainable 16.0 h < 50.0 h |
+| ksf | — | — | — | — | common_voice_25 | 15.7 | 0.9 | 0.7 | 0.7 | 17.2 | no | trainable 15.7 h < 50.0 h |
+| oru | — | — | — | — | common_voice_25 | 14.8 | 8.4 | 3.5 | 3.0 | 21.2 | no | trainable 14.8 h < 50.0 h |
+| sl | — | — | — | — | common_voice_25 | 14.4 | 1.6 | 1.5 | 1.5 | 17.3 | no | trainable 14.4 h < 50.0 h |
+| sva | — | — | — | — | common_voice_25 | 14.1 | 0.9 | 0.8 | 0.8 | 15.7 | no | trainable 14.1 h < 50.0 h |
+| bnm | — | — | — | — | common_voice_25 | 14.1 | 0.8 | 0.6 | 0.7 | 15.3 | no | trainable 14.1 h < 50.0 h |
+| ro | — | — | — | — | common_voice_25 | 13.4 | 5.8 | 4.4 | 4.4 | 22.3 | no | trainable 13.4 h < 50.0 h |
+| szy | — | — | — | — | common_voice_25 | 12.9 | 0.4 | 0.4 | 0.4 | 13.7 | no | trainable 12.9 h < 50.0 h |
+| mr | — | — | — | — | common_voice_25 | 12.8 | 3.8 | 3.0 | 3.1 | 18.9 | no | held-out transfer language (marathi); never trained on |
+| dag | — | — | — | — | common_voice_25 | 12.7 | 1.9 | 1.7 | 1.7 | 16.2 | no | trainable 12.7 h < 50.0 h |
+| pwn | — | — | — | — | common_voice_25 | 12.7 | 1.0 | 1.0 | 1.0 | 14.6 | no | trainable 12.7 h < 50.0 h |
+| nan-tw | — | — | — | — | common_voice_25 | 12.6 | 8.5 | 4.4 | 4.7 | 21.8 | no | trainable 12.6 h < 50.0 h |
+| ewo | — | — | — | — | common_voice_25 | 12.6 | 0.6 | 0.5 | 0.5 | 13.6 | no | trainable 12.6 h < 50.0 h |
+| lt | — | — | — | — | common_voice_25 | 12.5 | 12.2 | 7.9 | 8.0 | 28.4 | no | trainable 12.5 h < 50.0 h |
+| phr | — | — | — | — | common_voice_25 | 12.5 | 0.8 | 0.7 | 0.7 | 14.0 | no | trainable 12.5 h < 50.0 h |
+| ga-IE | — | — | — | — | common_voice_25 | 12.4 | 1.0 | 0.9 | 0.9 | 14.2 | no | trainable 12.4 h < 50.0 h |
+| byv | — | — | — | — | common_voice_25 | 12.1 | 0.6 | 0.6 | 0.6 | 13.2 | no | trainable 12.1 h < 50.0 h |
+| fub | — | — | — | — | common_voice_25 | 11.9 | 0.8 | 0.5 | 0.6 | 12.9 | no | trainable 11.9 h < 50.0 h |
+| gwt | — | — | — | — | common_voice_25 | 11.9 | 5.0 | 0.0 | 0.3 | 12.2 | no | trainable 11.9 h < 50.0 h |
+| ajg | — | — | — | — | common_voice_25 | 11.8 | 1.2 | 0.4 | 0.5 | 12.7 | no | trainable 11.8 h < 50.0 h |
+| pcm | — | — | — | — | common_voice_25 | 11.4 | 0.5 | 0.5 | 0.5 | 12.5 | no | trainable 11.4 h < 50.0 h |
+| dua | — | — | — | — | common_voice_25 | 11.4 | 0.7 | 0.6 | 0.6 | 12.5 | no | trainable 11.4 h < 50.0 h |
+| mxu | — | — | — | — | common_voice_25 | 11.3 | 0.5 | 0.5 | 0.5 | 12.3 | no | trainable 11.3 h < 50.0 h |
+| bbj | — | — | — | — | common_voice_25 | 11.3 | 0.7 | 0.5 | 0.5 | 12.3 | no | trainable 11.3 h < 50.0 h |
+| qxw | — | — | — | — | common_voice_25 | 11.1 | 0.9 | 0.2 | 0.3 | 11.7 | no | trainable 11.1 h < 50.0 h |
+| fi | Finnish | Uralic (Finnic) | Latn | whisper-basic | common_voice_25 | 11.1 | 2.7 | 2.3 | 2.3 | 15.8 | yes | below the rule (trainable 11.1 h < 50.0 h); kept because the smaller presets commit to it |
+| qup | — | — | — | — | common_voice_25 | 11.0 | 0.7 | 0.5 | 0.4 | 11.9 | no | trainable 11.0 h < 50.0 h |
+| kxp | — | — | — | — | common_voice_25 | 10.8 | 1.8 | 0.0 | 0.2 | 11.0 | no | trainable 10.8 h < 50.0 h |
+| lrk | — | — | — | — | common_voice_25 | 10.7 | 1.6 | 0.0 | 0.3 | 11.1 | no | trainable 10.7 h < 50.0 h |
+| cjk | — | — | — | — | common_voice_25 | 10.7 | 0.6 | 0.6 | 0.6 | 12.0 | no | trainable 10.7 h < 50.0 h |
+| nlv | — | — | — | — | common_voice_25 | 10.7 | 0.8 | 0.4 | 0.5 | 11.6 | no | trainable 10.7 h < 50.0 h |
+| bft | — | — | — | — | common_voice_25 | 10.6 | 3.6 | 3.0 | 3.0 | 16.6 | no | trainable 10.6 h < 50.0 h |
+| bkm | — | — | — | — | common_voice_25 | 10.5 | 0.5 | 0.5 | 0.5 | 11.4 | no | trainable 10.5 h < 50.0 h |
+| sbn | — | — | — | — | common_voice_25 | 10.5 | 1.7 | 0.0 | 0.2 | 10.7 | no | trainable 10.5 h < 50.0 h |
+| qvi | — | — | — | — | common_voice_25 | 10.5 | 0.5 | 0.4 | 0.5 | 11.4 | no | trainable 10.5 h < 50.0 h |
+| trw | — | — | — | — | common_voice_25 | 10.5 | 4.3 | 3.1 | 2.9 | 16.5 | no | trainable 10.5 h < 50.0 h |
+| xmf | — | — | — | — | common_voice_25 | 10.5 | 0.6 | 0.6 | 0.6 | 11.6 | no | trainable 10.5 h < 50.0 h |
+| fue | — | — | — | — | common_voice_25 | 10.4 | 1.3 | 0.0 | 0.1 | 10.6 | no | trainable 10.4 h < 50.0 h |
+| mhk | — | — | — | — | common_voice_25 | 10.4 | 0.8 | 0.5 | 0.3 | 11.3 | no | trainable 10.4 h < 50.0 h |
+| ssi | — | — | — | — | common_voice_25 | 10.4 | 1.9 | 0.0 | 0.2 | 10.5 | no | trainable 10.4 h < 50.0 h |
+| abb | — | — | — | — | common_voice_25 | 10.3 | 0.6 | 0.4 | 0.4 | 11.2 | no | trainable 10.3 h < 50.0 h |
+| ydg | — | — | — | — | common_voice_25 | 10.3 | 1.4 | 0.0 | 0.4 | 10.6 | no | trainable 10.3 h < 50.0 h |
+| qws | — | — | — | — | common_voice_25 | 10.2 | 1.1 | 0.0 | 0.1 | 10.3 | no | trainable 10.2 h < 50.0 h |
+| bci | — | — | — | — | common_voice_25 | 10.1 | 0.6 | 0.5 | 0.6 | 11.3 | no | trainable 10.1 h < 50.0 h |
+| tok | — | — | — | — | common_voice_25 | 10.1 | 3.2 | 2.7 | 2.7 | 15.6 | no | trainable 10.1 h < 50.0 h |
+| khw | — | — | — | — | common_voice_25 | 10.1 | 5.0 | 3.0 | 2.9 | 16.0 | no | trainable 10.1 h < 50.0 h |
+| bag | — | — | — | — | common_voice_25 | 10.1 | 0.7 | 0.4 | 0.5 | 11.0 | no | trainable 10.1 h < 50.0 h |
+| qus | — | — | — | — | common_voice_25 | 10.1 | 0.4 | 0.3 | 0.3 | 10.8 | no | trainable 10.1 h < 50.0 h |
+| sah | — | — | — | — | common_voice_25 | 10.1 | 4.1 | 3.1 | 3.2 | 16.3 | no | trainable 10.1 h < 50.0 h |
+| dar | — | — | — | — | common_voice_25 | 10.1 | 3.2 | 2.3 | 2.2 | 14.5 | no | trainable 10.1 h < 50.0 h |
+| jgo | — | — | — | — | common_voice_25 | 10.1 | 0.7 | 0.6 | 0.6 | 11.3 | no | trainable 10.1 h < 50.0 h |
+| mcf | — | — | — | — | common_voice_25 | 10.0 | 0.5 | 0.0 | 0.2 | 10.2 | no | trainable 10.0 h < 50.0 h |
+| qur | — | — | — | — | common_voice_25 | 10.0 | 0.9 | 0.0 | 0.0 | 10.0 | no | trainable 10.0 h < 50.0 h |
+| mbo | — | — | — | — | common_voice_25 | 10.0 | 0.6 | 0.5 | 0.4 | 10.9 | no | trainable 10.0 h < 50.0 h |
+| gig | — | — | — | — | common_voice_25 | 10.0 | 1.6 | 0.0 | 0.1 | 10.1 | no | trainable 10.0 h < 50.0 h |
+| fmp | — | — | — | — | common_voice_25 | 9.9 | 0.8 | 0.7 | 0.7 | 11.4 | no | trainable 9.9 h < 50.0 h |
+| plk | — | — | — | — | common_voice_25 | 9.9 | 3.5 | 1.7 | 0.9 | 12.6 | no | trainable 9.9 h < 50.0 h |
+| mdd | — | — | — | — | common_voice_25 | 9.9 | 1.6 | 0.0 | 0.1 | 10.0 | no | trainable 9.9 h < 50.0 h |
+| nmz | — | — | — | — | common_voice_25 | 9.9 | 0.7 | 0.7 | 0.7 | 11.2 | no | trainable 9.9 h < 50.0 h |
+| mki | — | — | — | — | common_voice_25 | 9.9 | 1.8 | 0.0 | 0.0 | 9.9 | no | trainable 9.9 h < 50.0 h |
+| gej | — | — | — | — | common_voice_25 | 9.9 | 0.9 | 0.6 | 0.6 | 11.1 | no | trainable 9.9 h < 50.0 h |
+| ncx | — | — | — | — | common_voice_25 | 9.9 | 0.4 | 0.4 | 0.4 | 10.7 | no | trainable 9.9 h < 50.0 h |
+| haz | — | — | — | — | common_voice_25 | 9.8 | 1.0 | 0.1 | 0.6 | 10.5 | no | trainable 9.8 h < 50.0 h |
+| qxt | — | — | — | — | common_voice_25 | 9.8 | 0.7 | 0.1 | 0.4 | 10.3 | no | trainable 9.8 h < 50.0 h |
+| ia | — | — | — | — | common_voice_25 | 9.8 | 5.7 | 2.2 | 2.2 | 14.3 | no | trainable 9.8 h < 50.0 h |
+| bri | — | — | — | — | common_voice_25 | 9.8 | 0.8 | 0.2 | 0.4 | 10.4 | no | trainable 9.8 h < 50.0 h |
+| bba | — | — | — | — | common_voice_25 | 9.7 | 0.5 | 0.4 | 0.4 | 10.6 | no | trainable 9.7 h < 50.0 h |
+| qxu | — | — | — | — | common_voice_25 | 9.7 | 0.8 | 0.0 | 0.4 | 10.1 | no | trainable 9.7 h < 50.0 h |
+| bax | — | — | — | — | common_voice_25 | 9.7 | 0.5 | 0.4 | 0.5 | 10.6 | no | trainable 9.7 h < 50.0 h |
+| qvj | — | — | — | — | common_voice_25 | 9.7 | 0.6 | 0.6 | 0.6 | 10.8 | no | trainable 9.7 h < 50.0 h |
+| btv | — | — | — | — | common_voice_25 | 9.6 | 0.5 | 0.3 | 0.4 | 10.3 | no | trainable 9.6 h < 50.0 h |
+| kw | — | — | — | — | common_voice_25 | 9.6 | 7.1 | 0.0 | 2.7 | 12.4 | no | trainable 9.6 h < 50.0 h |
+| hux | — | — | — | — | common_voice_25 | 9.6 | 0.7 | 0.0 | 0.4 | 10.0 | no | trainable 9.6 h < 50.0 h |
+| wes | — | — | — | — | common_voice_25 | 9.6 | 0.4 | 0.4 | 0.4 | 10.3 | no | trainable 9.6 h < 50.0 h |
+| gju | — | — | — | — | common_voice_25 | 9.5 | 2.9 | 0.0 | 0.6 | 10.1 | no | trainable 9.5 h < 50.0 h |
+| tay | — | — | — | — | common_voice_25 | 9.5 | 2.0 | 0.7 | 1.3 | 11.5 | no | trainable 9.5 h < 50.0 h |
+| an | — | — | — | — | common_voice_25 | 9.5 | 5.3 | 3.6 | 3.7 | 16.9 | no | trainable 9.5 h < 50.0 h |
+| xka | — | — | — | — | common_voice_25 | 9.5 | 1.4 | 0.0 | 0.4 | 9.8 | no | trainable 9.5 h < 50.0 h |
+| nmg | — | — | — | — | common_voice_25 | 9.5 | 0.9 | 0.5 | 0.5 | 10.4 | no | trainable 9.5 h < 50.0 h |
+| mau | — | — | — | — | common_voice_25 | 9.4 | 1.0 | 0.4 | 0.5 | 10.4 | no | trainable 9.4 h < 50.0 h |
+| cpy | — | — | — | — | common_voice_25 | 9.4 | 0.6 | 0.2 | 0.4 | 10.0 | no | trainable 9.4 h < 50.0 h |
+| mcx | — | — | — | — | common_voice_25 | 9.4 | 1.0 | 0.2 | 0.5 | 10.1 | no | trainable 9.4 h < 50.0 h |
+| qxa | — | — | — | — | common_voice_25 | 9.4 | 0.5 | 0.3 | 0.4 | 10.1 | no | trainable 9.4 h < 50.0 h |
+| kvx | — | — | — | — | common_voice_25 | 9.4 | 1.3 | 1.0 | 0.7 | 11.0 | no | trainable 9.4 h < 50.0 h |
+| qvl | — | — | — | — | common_voice_25 | 9.4 | 0.5 | 0.2 | 0.4 | 10.0 | no | trainable 9.4 h < 50.0 h |
+| rof | — | — | — | — | common_voice_25 | 9.4 | 0.5 | 0.5 | 0.5 | 10.4 | no | trainable 9.4 h < 50.0 h |
+| qwa | — | — | — | — | common_voice_25 | 9.4 | 0.8 | 0.1 | 0.4 | 9.9 | no | trainable 9.4 h < 50.0 h |
+| mcn | — | — | — | — | common_voice_25 | 9.4 | 0.4 | 0.4 | 0.4 | 10.1 | no | trainable 9.4 h < 50.0 h |
+| bbl | — | — | — | — | common_voice_25 | 9.3 | 1.0 | 0.9 | 0.9 | 11.2 | no | trainable 9.3 h < 50.0 h |
+| bum | — | — | — | — | common_voice_25 | 9.3 | 0.4 | 0.3 | 0.4 | 10.0 | no | trainable 9.3 h < 50.0 h |
+| dmk | — | — | — | — | common_voice_25 | 9.3 | 3.1 | 0.0 | 0.9 | 10.2 | no | trainable 9.3 h < 50.0 h |
+| odk | — | — | — | — | common_voice_25 | 9.3 | 1.7 | 0.8 | 1.1 | 11.2 | no | trainable 9.3 h < 50.0 h |
+| bfd | — | — | — | — | common_voice_25 | 9.3 | 0.4 | 0.4 | 0.4 | 10.1 | no | trainable 9.3 h < 50.0 h |
+| gjk | — | — | — | — | common_voice_25 | 9.2 | 1.0 | 0.7 | 0.8 | 10.8 | no | trainable 9.2 h < 50.0 h |
+| qva | — | — | — | — | common_voice_25 | 9.2 | 0.6 | 0.2 | 0.4 | 9.8 | no | trainable 9.2 h < 50.0 h |
+| mgg | — | — | — | — | common_voice_25 | 9.2 | 1.0 | 0.6 | 0.4 | 10.2 | no | trainable 9.2 h < 50.0 h |
+| giz | — | — | — | — | common_voice_25 | 9.1 | 0.6 | 0.5 | 0.4 | 10.1 | no | trainable 9.1 h < 50.0 h |
+| mve | — | — | — | — | common_voice_25 | 9.1 | 1.7 | 0.7 | 0.2 | 10.1 | no | trainable 9.1 h < 50.0 h |
+| beb | — | — | — | — | common_voice_25 | 9.1 | 0.5 | 0.5 | 0.5 | 10.0 | no | trainable 9.1 h < 50.0 h |
+| mua | — | — | — | — | common_voice_25 | 9.0 | 0.5 | 0.3 | 0.4 | 9.7 | no | trainable 9.0 h < 50.0 h |
+| prq | — | — | — | — | common_voice_25 | 9.0 | 0.5 | 0.4 | 0.4 | 9.7 | no | trainable 9.0 h < 50.0 h |
+| zoc | — | — | — | — | common_voice_25 | 9.0 | 0.6 | 0.5 | 0.5 | 10.1 | no | trainable 9.0 h < 50.0 h |
+| gwc | — | — | — | — | common_voice_25 | 9.0 | 5.1 | 1.2 | 1.4 | 11.6 | no | trainable 9.0 h < 50.0 h |
+| bas | — | — | — | — | common_voice_25 | 9.0 | 2.3 | 1.4 | 1.7 | 12.1 | no | trainable 9.0 h < 50.0 h |
+| sei | — | — | — | — | common_voice_25 | 9.0 | 0.9 | 0.5 | 0.6 | 10.1 | no | trainable 9.0 h < 50.0 h |
+| cux | — | — | — | — | common_voice_25 | 9.0 | 1.3 | 0.7 | 0.6 | 10.3 | no | trainable 9.0 h < 50.0 h |
+| bce | — | — | — | — | common_voice_25 | 9.0 | 0.5 | 0.5 | 0.5 | 10.0 | no | trainable 9.0 h < 50.0 h |
+| cut | — | — | — | — | common_voice_25 | 9.0 | 0.7 | 0.5 | 0.6 | 10.1 | no | trainable 9.0 h < 50.0 h |
+| tar | — | — | — | — | common_voice_25 | 8.9 | 0.5 | 0.5 | 0.5 | 10.0 | no | trainable 8.9 h < 50.0 h |
+| jqr | — | — | — | — | common_voice_25 | 8.9 | 0.7 | 0.5 | 0.4 | 9.9 | no | trainable 8.9 h < 50.0 h |
+| bsk | — | — | — | — | common_voice_25 | 8.9 | 1.4 | 0.4 | 0.9 | 10.2 | no | trainable 8.9 h < 50.0 h |
+| eto | — | — | — | — | common_voice_25 | 8.9 | 0.3 | 0.3 | 0.3 | 9.4 | no | trainable 8.9 h < 50.0 h |
+| bkh | — | — | — | — | common_voice_25 | 8.9 | 0.7 | 0.5 | 0.5 | 10.0 | no | trainable 8.9 h < 50.0 h |
+| qux | — | — | — | — | common_voice_25 | 8.9 | 0.6 | 0.4 | 0.5 | 9.8 | no | trainable 8.9 h < 50.0 h |
+| lss | — | — | — | — | common_voice_25 | 8.9 | 0.9 | 0.5 | 0.6 | 9.9 | no | trainable 8.9 h < 50.0 h |
+| yaq | — | — | — | — | common_voice_25 | 8.8 | 2.8 | 0.2 | 1.2 | 10.2 | no | trainable 8.8 h < 50.0 h |
+| hem | — | — | — | — | common_voice_25 | 8.8 | 0.6 | 0.6 | 0.6 | 9.9 | no | trainable 8.8 h < 50.0 h |
+| pua | — | — | — | — | common_voice_25 | 8.8 | 1.6 | 0.7 | 0.7 | 10.2 | no | trainable 8.8 h < 50.0 h |
+| gid | — | — | — | — | common_voice_25 | 8.8 | 0.6 | 0.6 | 0.6 | 9.9 | no | trainable 8.8 h < 50.0 h |
+| gya | — | — | — | — | common_voice_25 | 8.8 | 0.5 | 0.5 | 0.5 | 9.8 | no | trainable 8.8 h < 50.0 h |
+| kdh | — | — | — | — | common_voice_25 | 8.7 | 0.3 | 0.2 | 0.2 | 9.2 | no | trainable 8.7 h < 50.0 h |
+| fan | — | — | — | — | common_voice_25 | 8.6 | 0.4 | 0.4 | 0.4 | 9.4 | no | trainable 8.6 h < 50.0 h |
+| udl | — | — | — | — | common_voice_25 | 8.6 | 0.6 | 0.4 | 0.5 | 9.5 | no | trainable 8.6 h < 50.0 h |
+| nyu | — | — | — | — | common_voice_25 | 8.5 | 2.6 | 0.0 | 0.6 | 9.2 | no | trainable 8.5 h < 50.0 h |
+| hno | — | — | — | — | common_voice_25 | 8.5 | 1.0 | 0.9 | 0.8 | 10.2 | no | trainable 8.5 h < 50.0 h |
+| xhe | — | — | — | — | common_voice_25 | 8.4 | 3.0 | 0.0 | 1.2 | 9.6 | no | trainable 8.4 h < 50.0 h |
+| tvu | — | — | — | — | common_voice_25 | 8.4 | 1.4 | 1.0 | 0.9 | 10.2 | no | trainable 8.4 h < 50.0 h |
+| var | — | — | — | — | common_voice_25 | 8.4 | 1.1 | 0.8 | 0.9 | 10.1 | no | trainable 8.4 h < 50.0 h |
+| trv | — | — | — | — | common_voice_25 | 8.3 | 1.4 | 0.9 | 0.8 | 9.9 | no | trainable 8.3 h < 50.0 h |
+| nla | — | — | — | — | common_voice_25 | 8.2 | 1.1 | 0.3 | 0.4 | 8.9 | no | trainable 8.2 h < 50.0 h |
+| tui | — | — | — | — | common_voice_25 | 8.1 | 0.9 | 0.8 | 0.8 | 9.7 | no | trainable 8.1 h < 50.0 h |
+| bsh | — | — | — | — | common_voice_25 | 8.1 | 2.1 | 0.8 | 1.0 | 9.9 | no | trainable 8.1 h < 50.0 h |
+| tli | — | — | — | — | common_voice_25 | 8.1 | 8.1 | 0.0 | 1.8 | 9.9 | no | trainable 8.1 h < 50.0 h |
+| scl | — | — | — | — | common_voice_25 | 7.9 | 1.6 | 1.0 | 1.1 | 10.0 | no | trainable 7.9 h < 50.0 h |
+| wbl | — | — | — | — | common_voice_25 | 7.9 | 4.8 | 2.1 | 2.1 | 12.1 | no | trainable 7.9 h < 50.0 h |
+| lua | — | — | — | — | common_voice_25 | 7.8 | 0.6 | 0.5 | 0.5 | 8.9 | no | trainable 7.8 h < 50.0 h |
+| bg | — | — | — | — | common_voice_25 | 7.6 | 7.6 | 4.5 | 5.2 | 17.3 | no | trainable 7.6 h < 50.0 h |
+| bnn | — | — | — | — | common_voice_25 | 7.6 | 1.5 | 1.4 | 1.4 | 10.3 | no | trainable 7.6 h < 50.0 h |
+| yav | — | — | — | — | common_voice_25 | 7.5 | 0.8 | 0.5 | 0.6 | 8.6 | no | trainable 7.5 h < 50.0 h |
+| kls | — | — | — | — | common_voice_25 | 7.5 | 1.5 | 1.3 | 1.3 | 10.0 | no | trainable 7.5 h < 50.0 h |
+| gv | — | — | — | — | common_voice_25 | 7.4 | 3.9 | 1.9 | 0.8 | 10.1 | no | trainable 7.4 h < 50.0 h |
+| dru | — | — | — | — | common_voice_25 | 7.4 | 1.7 | 1.5 | 1.5 | 10.4 | no | trainable 7.4 h < 50.0 h |
+| dml | — | — | — | — | common_voice_25 | 7.3 | 5.3 | 1.8 | 1.0 | 10.2 | no | trainable 7.3 h < 50.0 h |
+| brh | — | — | — | — | common_voice_25 | 7.2 | 3.3 | 1.0 | 1.7 | 9.9 | no | trainable 7.2 h < 50.0 h |
+| esu | — | — | — | — | common_voice_25 | 7.1 | 6.5 | 0.0 | 0.5 | 7.6 | no | trainable 7.1 h < 50.0 h |
+| ggg | — | — | — | — | common_voice_25 | 7.0 | 1.9 | 0.0 | 0.4 | 7.4 | no | trainable 7.0 h < 50.0 h |
+| hi | Hindi | Indo-European (Indo-Aryan) | Deva | indic-vistaar | common_voice_25 | 7.0 | 6.9 | 3.9 | 4.7 | 15.6 | yes | below the rule (trainable 7.0 h < 50.0 h); kept because the smaller presets commit to it |
+| ipk | — | — | — | — | common_voice_25 | 6.8 | 6.8 | 0.0 | 0.4 | 7.2 | no | trainable 6.8 h < 50.0 h |
+| da | — | — | — | — | common_voice_25 | 6.8 | 4.1 | 3.1 | 3.1 | 13.0 | no | trainable 6.8 h < 50.0 h |
+| dav | — | — | — | — | common_voice_25 | 6.7 | 2.4 | 1.4 | 1.1 | 9.3 | no | trainable 6.7 h < 50.0 h |
+| eko | — | — | — | — | common_voice_25 | 6.7 | 1.1 | 0.7 | 0.9 | 8.3 | no | trainable 6.7 h < 50.0 h |
+| mse | — | — | — | — | common_voice_25 | 6.6 | 0.7 | 0.6 | 0.5 | 7.7 | no | trainable 6.6 h < 50.0 h |
+| bgp | — | — | — | — | common_voice_25 | 6.6 | 5.3 | 2.1 | 2.8 | 11.5 | no | trainable 6.6 h < 50.0 h |
+| ibb | — | — | — | — | common_voice_25 | 6.2 | 0.9 | 0.8 | 0.8 | 7.8 | no | trainable 6.2 h < 50.0 h |
+| ush | — | — | — | — | common_voice_25 | 5.6 | 1.0 | 0.3 | 0.6 | 6.6 | no | trainable 5.6 h < 50.0 h |
+| tig | — | — | — | — | common_voice_25 | 5.3 | 3.3 | 2.7 | 2.7 | 10.7 | no | trainable 5.3 h < 50.0 h |
+| or | — | — | — | — | common_voice_25 | 4.6 | 3.3 | 1.0 | 0.7 | 6.3 | no | trainable 4.6 h < 50.0 h |
+| mt | — | — | — | — | common_voice_25 | 4.4 | 2.5 | 2.1 | 2.2 | 8.7 | no | trainable 4.4 h < 50.0 h |
+| mug | — | — | — | — | common_voice_25 | 4.2 | 0.8 | 0.6 | 0.6 | 5.4 | no | trainable 4.2 h < 50.0 h |
+| sr | — | — | — | — | common_voice_25 | 4.2 | 2.3 | 1.7 | 1.8 | 7.6 | no | trainable 4.2 h < 50.0 h |
+| vi | — | — | — | — | common_voice_25 | 4.2 | 2.1 | 1.5 | 1.6 | 7.3 | no | trainable 4.2 h < 50.0 h |
+| sq | — | — | — | — | common_voice_25 | 3.8 | 3.8 | 2.5 | 2.7 | 9.0 | no | trainable 3.8 h < 50.0 h |
+| he | — | — | — | — | common_voice_25 | 3.6 | 2.4 | 0.5 | 1.2 | 5.3 | no | trainable 3.6 h < 50.0 h |
+| tn | — | — | — | — | common_voice_25 | 3.4 | 1.3 | 0.4 | 0.4 | 4.2 | no | trainable 3.4 h < 50.0 h |
+| rm-sursilv | — | — | — | — | common_voice_25 | 3.1 | 2.9 | 2.4 | 2.5 | 7.9 | no | trainable 3.1 h < 50.0 h |
+| gn | — | — | — | — | common_voice_25 | 2.9 | 2.2 | 0.8 | 1.4 | 5.2 | no | trainable 2.9 h < 50.0 h |
+| lij | — | — | — | — | common_voice_25 | 2.6 | 2.5 | 1.0 | 1.5 | 5.0 | no | trainable 2.6 h < 50.0 h |
+| ha | — | — | — | — | common_voice_25 | 2.5 | 2.3 | 0.8 | 0.9 | 4.2 | no | trainable 2.5 h < 50.0 h |
+| yo | — | — | — | — | common_voice_25 | 2.4 | 2.4 | 1.6 | 1.8 | 5.8 | no | trainable 2.4 h < 50.0 h |
+| myv | — | — | — | — | common_voice_25 | 2.0 | 2.0 | 0.4 | 0.8 | 3.2 | no | trainable 2.0 h < 50.0 h |
+| ml | — | — | — | — | common_voice_25 | 1.9 | 1.5 | 1.1 | 1.0 | 4.1 | no | held-out transfer language (malayalam); never trained on |
+| oc | — | — | — | — | common_voice_25 | 1.9 | 0.4 | 0.4 | 0.4 | 2.7 | no | trainable 1.9 h < 50.0 h |
+| skr | — | — | — | — | common_voice_25 | 1.8 | 1.8 | 1.3 | 1.2 | 4.3 | no | trainable 1.8 h < 50.0 h |
+| hsb | — | — | — | — | common_voice_25 | 1.7 | 1.7 | 0.7 | 1.0 | 3.4 | no | trainable 1.7 h < 50.0 h |
+| as | — | — | — | — | common_voice_25 | 1.5 | 1.6 | 0.8 | 0.7 | 3.0 | no | trainable 1.5 h < 50.0 h |
+| ebr | — | — | — | — | common_voice_25 | 1.5 | 0.7 | 0.0 | 0.3 | 1.8 | no | trainable 1.5 h < 50.0 h |
+| nb-NO | — | — | — | — | common_voice_25 | 1.5 | 1.5 | 0.5 | 0.4 | 2.3 | no | trainable 1.5 h < 50.0 h |
+| tk | — | — | — | — | common_voice_25 | 1.5 | 1.1 | 0.8 | 0.8 | 3.1 | no | trainable 1.5 h < 50.0 h |
+| sc | — | — | — | — | common_voice_25 | 1.4 | 1.2 | 0.7 | 0.9 | 3.0 | no | trainable 1.4 h < 50.0 h |
+| pa-IN | — | — | — | — | common_voice_25 | 1.1 | 1.1 | 0.7 | 0.7 | 2.4 | no | trainable 1.1 h < 50.0 h |
+| yi | — | — | — | — | common_voice_25 | 1.0 | 0.5 | 0.5 | 0.5 | 2.0 | no | trainable 1.0 h < 50.0 h |
+| ko | — | — | — | — | common_voice_25 | 1.0 | 1.0 | 0.7 | 0.8 | 2.5 | no | read from slr40_zeroth_korean instead, which has more trainable audio |
+| ig | — | — | — | — | common_voice_25 | 1.0 | 1.0 | 0.9 | 0.9 | 2.7 | no | trainable 1.0 h < 50.0 h |
+| am | — | — | — | — | common_voice_25 | 1.0 | 1.0 | 0.4 | 0.5 | 1.9 | no | trainable 1.0 h < 50.0 h |
+| kk | — | — | — | — | common_voice_25 | 0.9 | 0.9 | 0.8 | 0.8 | 2.5 | no | read from slr102_ksc_kazakh instead, which has more trainable audio |
+| rm-vallader | — | — | — | — | common_voice_25 | 0.9 | 0.9 | 0.8 | 0.8 | 2.5 | no | trainable 0.9 h < 50.0 h |
+| cnh | — | — | — | — | common_voice_25 | 0.9 | 0.8 | 0.7 | 0.7 | 2.4 | no | trainable 0.9 h < 50.0 h |
+| zza | — | — | — | — | common_voice_25 | 0.9 | 0.9 | 0.5 | 0.5 | 1.9 | no | trainable 0.9 h < 50.0 h |
+| zgh | — | — | — | — | common_voice_25 | 0.9 | 0.9 | 0.3 | 0.2 | 1.4 | no | trainable 0.9 h < 50.0 h |
+| nn-NO | — | — | — | — | common_voice_25 | 0.7 | 0.7 | 0.4 | 0.5 | 1.6 | no | trainable 0.7 h < 50.0 h |
+| os | — | — | — | — | common_voice_25 | 0.7 | 0.6 | 0.4 | 0.3 | 1.4 | no | trainable 0.7 h < 50.0 h |
+| ne-NP | — | — | — | — | common_voice_25 | 0.7 | 0.4 | 0.4 | 0.3 | 1.3 | no | trainable 0.7 h < 50.0 h |
+| te | — | — | — | — | common_voice_25 | 0.6 | 0.1 | 0.1 | 0.1 | 0.8 | no | held-out transfer language (telugu); never trained on |
+| ast | — | — | — | — | common_voice_25 | 0.6 | 0.5 | 0.1 | 0.3 | 1.0 | no | trainable 0.6 h < 50.0 h |
+| gsw | — | — | — | — | common_voice_25 | 0.5 | 0.0 | 0.0 | 0.0 | 0.6 | no | trainable 0.5 h < 50.0 h |
+| tg | — | — | — | — | common_voice_25 | 0.4 | 0.5 | 0.2 | 0.2 | 0.8 | no | trainable 0.4 h < 50.0 h |
+| sat | — | — | — | — | common_voice_25 | 0.4 | 0.4 | 0.1 | 0.2 | 0.7 | no | trainable 0.4 h < 50.0 h |
+| az | — | — | — | — | common_voice_25 | 0.3 | 0.3 | 0.1 | 0.2 | 0.7 | no | trainable 0.3 h < 50.0 h |
+| af | — | — | — | — | common_voice_25 | 0.3 | 0.3 | 0.2 | 0.2 | 0.8 | no | trainable 0.3 h < 50.0 h |
+| sd | — | — | — | — | common_voice_25 | 0.3 | 0.3 | 0.0 | 0.0 | 0.4 | no | trainable 0.3 h < 50.0 h |
+| mdf | — | — | — | — | common_voice_25 | 0.3 | 0.3 | 0.1 | 0.2 | 0.5 | no | trainable 0.3 h < 50.0 h |
+| tw | — | — | — | — | common_voice_25 | 0.3 | 0.3 | 0.0 | 0.0 | 0.3 | no | trainable 0.3 h < 50.0 h |
+| lo | — | — | — | — | common_voice_25 | 0.2 | 0.2 | 0.1 | 0.1 | 0.3 | no | trainable 0.2 h < 50.0 h |
+| dyu | — | — | — | — | common_voice_25 | 0.2 | 0.2 | 0.1 | 0.1 | 0.4 | no | trainable 0.2 h < 50.0 h |
+| is | — | — | — | — | common_voice_25 | 0.1 | 0.1 | 0.0 | 0.1 | 0.2 | no | read from slr112_samromur instead, which has more trainable audio |
+| vot | — | — | — | — | common_voice_25 | 0.1 | 0.1 | 0.0 | 0.0 | 0.1 | no | trainable 0.1 h < 50.0 h |
+| ti | — | — | — | — | common_voice_25 | 0.0 | 0.1 | 0.0 | 0.0 | 0.1 | no | trainable 0.0 h < 50.0 h |
+| quy | — | — | — | — | common_voice_25 | 0.0 | 0.0 | 0.0 | 0.0 | 0.1 | no | trainable 0.0 h < 50.0 h |
+| ms | — | — | — | — | common_voice_25 | 0.0 | 0.0 | 0.0 | 0.0 | 0.1 | no | trainable 0.0 h < 50.0 h |
+| nhi | — | — | — | — | common_voice_25 | 0.0 | 0.0 | 0.0 | 0.0 | 0.1 | no | trainable 0.0 h < 50.0 h |
+| rup | — | — | — | — | common_voice_25 | 0.0 | 0.0 | 0.0 | 0.0 | 0.1 | no | trainable 0.0 h < 50.0 h |
+| ht | — | — | — | — | common_voice_25 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | no | trainable 0.0 h < 50.0 h |
+| zu | — | — | — | — | common_voice_25 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | no | read from nchlt_zulu instead, which has more trainable audio |
+| nso | — | — | — | — | common_voice_25 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | no | read from nchlt_sepedi instead, which has more trainable audio |
+| xh | — | — | — | — | common_voice_25 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | no | read from nchlt_xhosa instead, which has more trainable audio |
+| dsb | — | — | — | — | common_voice_25 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | no | trainable 0.0 h < 50.0 h |
+| hr | — | — | — | — | common_voice_25 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | no | read from parlaspeech_hr instead, which has more trainable audio |
+| nr | — | — | — | — | common_voice_25 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | no | trainable 0.0 h < 50.0 h |
+| ss | — | — | — | — | common_voice_25 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | no | trainable 0.0 h < 50.0 h |
+| st | — | — | — | — | common_voice_25 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | no | trainable 0.0 h < 50.0 h |
+| ts | — | — | — | — | common_voice_25 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | no | read from nchlt_xitsonga instead, which has more trainable audio |
+| ve | — | — | — | — | common_voice_25 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | no | read from nchlt_tshivenda instead, which has more trainable audio |

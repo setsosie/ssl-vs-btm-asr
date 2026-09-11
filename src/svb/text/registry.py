@@ -18,6 +18,7 @@ guessing, and a wrong guess silently destroys a corpus.
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Iterable
 from typing import Any
 
@@ -48,6 +49,8 @@ LANGUAGE_SCRIPTS: dict[str, str] = {
     "sv-SE": "Latn",
     "da": "Latn",
     "et": "Latn",
+    "is": "Latn",
+    "hr": "Latn",
     "lt": "Latn",
     "lv": "Latn",
     "cy": "Latn",
@@ -67,6 +70,13 @@ LANGUAGE_SCRIPTS: dict[str, str] = {
     "ha": "Latn",
     "id": "Latn",
     "ms": "Latn",
+    "jv": "Latn",
+    "su": "Latn",
+    "zu": "Latn",
+    "xh": "Latn",
+    "nso": "Latn",
+    "ts": "Latn",
+    "ve": "Latn",
     # Cyrillic
     "ru": "Cyrl",
     "uk": "Cyrl",
@@ -86,10 +96,12 @@ LANGUAGE_SCRIPTS: dict[str, str] = {
     "ka": "Geor",
     "el": "Grek",
     "hy-AM": "Armn",
+    "hy": "Armn",
     # Indic abugidas
     "hi": "Deva",
     "mr": "Deva",
     "ne-NP": "Deva",
+    "ne": "Deva",
     "bn": "Beng",
     "pa-IN": "Guru",
     "gu": "Gujr",
@@ -112,6 +124,8 @@ LANGUAGE_SCRIPTS: dict[str, str] = {
     "zh-TW": "Hant",
     "yue": "Hant",
     "th": "Thai",
+    "bo": "Tibt",
+    "ko": "Kore",
     # The held-out corpora name their languages in full rather than by code.
     "malayalam": "Mlym",
     "marathi": "Deva",
@@ -120,27 +134,19 @@ LANGUAGE_SCRIPTS: dict[str, str] = {
     "odia": "Orya",
 }
 
-# Script to its default policy.
+#: What every language gets unless an exception below says otherwise.
+DEFAULT_POLICY_NAME = "whisper-basic"
+
+# The scripts whose reference systems disagree with the default, and why. A
+# script absent here takes the default; an entry that agreed with the default
+# would be a rule nobody could see the point of, so there are none.
 #
-# ``Latn`` defaults to the mark-preserving policy rather than to
-# ``whisper-basic``, which fails safe in both directions: a European language
-# added without an explicit line gets a policy differing from whisper-basic only
-# in ways Latin text barely notices, while a Yoruba or Vietnamese one keeps its
-# tone marks instead of having them replaced with spaces.
-#
-# ``Arab`` is deliberately absent. Its two conventions fold letters in *opposite*
-# directions — the Arabic one folds the Persian letters onto the Arabic ones, the
-# Perso-Arabic one folds them back — so there is no guess that is not wrong for
-# half the family. A language written in it must name its policy.
+# Latin, Cyrillic and Georgian are deliberately absent: Whisper's normalizer is
+# what those want, and it is now the default rather than a table entry.
 SCRIPT_POLICIES: dict[str, str] = {
-    "Latn": "latin-marks",
-    "Thai": "thai-cer",
-    "Hans": "han-mer",
-    "Hant": "han-mer",
-    "Cyrl": "whisper-basic",
-    "Geor": "whisper-basic",
-    "Grek": "whisper-basic",
-    "Armn": "whisper-basic",
+    # Abugidas. Whisper replaces Unicode category M with a space, and an Indic
+    # vowel sign is a combining mark, so the default deletes the vowels and
+    # leaves the consonant skeleton.
     "Deva": "indic-vistaar",
     "Beng": "indic-vistaar",
     "Guru": "indic-vistaar",
@@ -151,87 +157,54 @@ SCRIPT_POLICIES: dict[str, str] = {
     "Knda": "indic-vistaar",
     "Mlym": "indic-vistaar",
     "Sinh": "indic-vistaar",
+    # Same defect, plus a word separator the default would delete rather than
+    # space, and a letter the compatibility form splits in two.
+    "Thai": "thai-cer",
+    # Same defect: Tibetan stacks vowel signs and subjoined consonants as marks.
+    "Tibt": "tibetan-syllable",
+    # The compatibility form composes two jamo into one syllable, which moves
+    # the character count for a language scored on characters.
+    "Kore": "ko-kspon",
+    # The question and emphasis marks are written inside the word, so the
+    # default's punctuation rule splits every question in two.
+    "Armn": "armenian-hy",
+    # No text defect; a different metric and a name for it.
+    "Hans": "han-mer",
+    "Hant": "han-mer",
     "Jpan": "ja-cer",
 }
 
-
-# Languages whose policy is not their script's default.
+# The languages whose policy differs from their script's answer, and why.
 #
-# The Latin script cannot decide this on its own: European Latin uses Whisper's
-# normalizer as published, while Latin orthographies with live combining marks
-# or an in-word apostrophe need the mark-preserving variant, and Turkish needs a
-# locale case pre-map because lowercasing its dotted capital I yields a
-# combining dot that the mark rule then turns into a space. The Arabic script
-# cannot decide it either, for the reason given above.
-#
-# A language here overrides its script default; a preset naming a policy on the
-# language's own line overrides both, and every shipped preset does.
+# The Arabic script has no entry of its own: its two conventions fold letters in
+# opposite directions, so there is no script-wide answer, and each language names
+# the one it follows. An Arabic-script language absent from this table takes the
+# default rather than being refused, which normalizes nothing away — the default
+# strips its vocalization along with everything else in category M.
 LANGUAGE_POLICIES: dict[str, str] = {
-    # European Latin and Cyrillic, and Georgian: Whisper's normalizer as
-    # published. Verified safe for each — their diacritics are precomposed, so
-    # the mark rule finds nothing to remove.
-    **dict.fromkeys(
-        [
-            "en",
-            "de",
-            "fr",
-            "es",
-            "it",
-            "nl",
-            "pl",
-            "fi",
-            "ca",
-            "eo",
-            "eu",
-            "hu",
-            "gl",
-            "pt",
-            "cs",
-            "sk",
-            "ro",
-            "sv-SE",
-            "da",
-            "et",
-            "lt",
-            "lv",
-            "cy",
-            "fy-NL",
-            "ru",
-            "uk",
-            "be",
-            "ab",
-            "ba",
-            "mhr",
-            "bg",
-            "sr",
-            "mn",
-            "tt",
-            "kk",
-            "ky",
-            "kbd",
-            "ady",
-            "ka",
-            "el",
-            "hy-AM",
-        ],
-        "whisper-basic",
-    ),
+    # Lowercasing the dotted capital I yields a combining dot that the default's
+    # mark rule turns into a space, splitting every sentence-initial I-word.
     "tr": "turkic-tr",
     "az": "turkic-tr",
-    # Latin outside Europe, and Kurmanji, which the coordinator groups here.
-    **dict.fromkeys(
-        ["uz", "sw", "rw", "lg", "kab", "kmr", "vi", "yo", "ig", "ha", "id", "ms"], "latin-marks"
-    ),
+    # Arabic script: the conventions disagree, so each language names its own.
     "ar": "arabic-ouaal",
     **dict.fromkeys(["fa", "ur", "ckb", "ps"], "perso-arabic"),
     "ug": "uyghur-ug",
+    # Latin orthographies the default is demonstrably wrong for. Swahili writes
+    # its velar nasal `ng'` and Kinyarwanda its elision `y'u` with an apostrophe
+    # *inside* the word, and an apostrophe is punctuation, so the default turns
+    # one word into two. Yoruba and Igbo stack a tone accent on a dot-below
+    # vowel, a combination with no single code point, so the mark rule deletes
+    # the tone. Every other Latin orthography in the presets is verified
+    # harmless on the default; see tests/test_whisper_default.py.
+    **dict.fromkeys(["sw", "rw", "yo", "ig"], "latin-marks"),
 }
 
 # Policies whose languages are written without word separators, so character
 # error rate is primary and a preset carrying one must set ``word_boundary``
 # false. Checked by the test suite, so a regenerated preset cannot quietly
 # disagree.
-NO_SPACE_POLICIES = frozenset({"ja-cer", "thai-cer", "han-mer"})
+NO_SPACE_POLICIES = frozenset({"ja-cer", "thai-cer", "han-mer", "tibetan-syllable"})
 
 
 def script_for_language(code: str) -> str:
@@ -253,30 +226,38 @@ def script_for_language(code: str) -> str:
 def policy_for_language(code: str, explicit: str | None = None) -> NormalizerPolicy:
     """The policy a language is normalized under.
 
+    Whisper's normalizer is the default. A language moves off it only where that
+    normalizer is demonstrably destructive or word-breaking for its orthography,
+    and every such case is an entry in one of the two tables above with its
+    reason. Falling through to the default warns, because a default nobody sees
+    is how a script ends up scored under rules written for another one.
+
     Args:
         code: The language code.
-        explicit: The ``normalizer:`` named in the preset, which wins. This is
-            how Turkish and Arabic get policies their script default would not
-            give them.
+        explicit: The ``normalizer:`` named in the preset, which wins. Every
+            shipped preset names one, including where it equals the default, so
+            the choice is auditable from the preset alone.
 
     Raises:
-        KeyError: The language has no recorded script, or the named policy does
-            not exist.
-        ValueError: The language's script has no default and none was named.
+        KeyError: The named policy does not exist.
     """
     if explicit is not None:
         return get_policy(explicit)
     if code in LANGUAGE_POLICIES:
         return get_policy(LANGUAGE_POLICIES[code])
-    script = script_for_language(code)
     try:
-        return get_policy(SCRIPT_POLICIES[script])
+        script = script_for_language(code)
     except KeyError:
-        raise ValueError(
-            f"{code!r} is written in {script!r}, which has no default normalization "
-            "policy because its conventions disagree with each other; name one in "
-            "the preset's `normalizer:` field"
-        ) from None
+        warnings.warn(
+            f"no script recorded for {code!r}, so it falls back to the default "
+            f"normalization policy {DEFAULT_POLICY_NAME!r}; add it to "
+            "LANGUAGE_SCRIPTS, and to the exception tables if the default is "
+            "wrong for its orthography",
+            UserWarning,
+            stacklevel=2,
+        )
+        return get_policy(DEFAULT_POLICY_NAME)
+    return get_policy(SCRIPT_POLICIES.get(script, DEFAULT_POLICY_NAME))
 
 
 def policies_for_specs(

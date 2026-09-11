@@ -6,7 +6,7 @@
 carries low-resource multilingual ASR?**
 
 A multi-seed ablation on the [XEUS](https://arxiv.org/abs/2407.00837) encoder.
-Three training conditions, compared across 3 / 16 / 32 languages and on four
+Three training conditions, compared across 3 / 16 / 64 languages and on four
 held-out Indic languages absent from every supervised training mix and from the
 output vocabulary, though present in XEUS's self-supervised pretraining data:
 
@@ -23,20 +23,26 @@ permutation tests available from the per-utterance predictions every run writes.
 ## Status
 
 **No GPU run has been executed against this code.** Everything below is
-implemented and covered by 722 CPU tests; none of it has yet produced a number
+implemented and covered by 1042 CPU tests; none of it has yet produced a number
 from real audio. Three other gaps are open by design rather than by oversight:
 
-- **The largest scale tier is 32 languages and the preset is out of date.**
-  `configs/scales/64.yaml` is populated and runnable, but it was selected under
-  the official `train.tsv`, which is roughly one clip per sentence and about a
-  third of the validated audio. Training now reads validated minus the
-  evaluation splits, and on that pool **44** of Common Voice 25's 290 locales
-  clear the 50-hour rule rather than 24. The committed preset is a subset of
-  what the rule now selects; the fourteen languages it is missing are listed in
-  [`docs/languages.md`](docs/languages.md), which also has every locale
-  considered with its hours and the reason it is in or out. A 64-language tier
-  is reachable at a 16-hour threshold, which is a decision about the paper
-  rather than about the data.
+- **The 64-language tier is populated and every preparer is written, but none
+  has been run against a real archive.** 46 languages come from Common Voice 25
+  and 18 from other public corpora, each recorded in
+  [`configs/corpora.yaml`](configs/corpora.yaml) with its licence, downloads,
+  published checksum where there is one, and hours. All ten preparers are
+  implemented. Their format claims come from reading zip central directories and
+  tar header chains over HTTP Range and from repository metadata — real
+  evidence, but not an ingest — and each corpus has a page in
+  [`docs/corpora/`](docs/corpora/) recording what was read. **Staging the tier
+  end to end is therefore still unproven**, and two things will bite first:
+  Tibetan's transcript convention is not verified (its preparer discovers it and
+  refuses rather than guessing), and Samrómur's `info.txt` describes only train
+  and dev, so its test split is confirmed at ingest.
+- **TalTech Estonian needs about 320 GB of peak disk.** Its 159 GB tar and its
+  extracted tree exist at once, and its half-hour recordings are then cut at
+  their transcript bounds into roughly 600,000 small WAVs. ParlaSpeech needs
+  about 116 GB twice over. Budget before starting either.
 - Odia is not in the held-out set. See [Held-out data](#held-out-data) below —
   the set is **four** languages, and any write-up should say four.
 - The encoder has not been checked against the reference implementation. The
@@ -44,10 +50,22 @@ from real audio. Three other gaps are open by design rather than by oversight:
   [Encoder cross-check](#encoder-cross-check-separate-environment); it needs the
   checkpoint, which is not available here.
 
-Two of the sixteen languages in the 16-language preset are still below 50
-training hours on that wider pool: Hindi at 7.0 and Finnish at 11.1. They were
-kept, and the numbers are in `docs/languages.md`, but they belong beside any
-per-language result for those two.
+Seven of the 64 are below the 50-hour rule and carried deliberately: isiZulu
+(48.5 h), isiXhosa (49.4), Tshivenda (49.6) and Xitsonga (49.8), whose NCHLT
+train side is just under the bar against a ~56 h corpus; Korean (42.2) once its
+1.2-hour test split is discarded and all 52.8 h are repartitioned; and Hindi
+(7.0) and Finnish (11.1), which the smaller presets commit to. Those numbers
+belong beside any per-language result for them.
+
+Two more caveats belong in a write-up rather than in a footnote. **Armenian's
+number is not speaker-independent** — the corpus carries no speaker field and is
+not meant to, so its split is utterance level and the same voice appears in train
+and test. And **TalTech's speaker ids are scoped to a recording**, so its shipped
+split cannot be called speaker-disjoint across recordings either.
+
+The additions are also heavily read-prompt and parliamentary, so the mix gains a
+great deal of typological range and rather little domain range. A result that
+improves on read speech should not be reported as improving on speech.
 
 ## Quickstart
 
@@ -78,9 +96,8 @@ randomly initialized and needs no checkpoint.
 
 ## Data
 
-Two public corpora, both read from a local directory. Nothing downloads at load
-time and nothing goes through the Hugging Face Hub. Full details in
-[`docs/data.md`](docs/data.md).
+Everything is read from a local directory and nothing downloads at load time.
+Full details in [`docs/data.md`](docs/data.md).
 
 **Training and in-distribution evaluation** use Common Voice 25. Since October
 2025 Common Voice is distributed only through
@@ -88,10 +105,29 @@ time and nothing goes through the Hugging Face Hub. Full details in
 an account and a terms acceptance no script can give, so you download and
 extract it yourself and point `CV_ROOT` at the result.
 
-Which languages each scale tier trains on, how many hours each one actually
-has, and why the rest of Common Voice is left out are in
+**The other eighteen languages** come from public corpora on openslr.org,
+CLARIN.SI, SADiLaR and one university page — all served anonymously, none behind
+a gate or a form. Each is converted once by `scripts/prepare_<corpus>.py` into a
+single manifest layout under `CORPORA_ROOT`, so fourteen corpora in ten shapes
+need one loader rather than ten.
+
+[`docs/corpora/`](docs/corpora/) has a page per corpus recording what was read
+off the real archive and where: [NCHLT](docs/corpora/nchlt.md),
+[ParlaSpeech-HR](docs/corpora/parlaspeech.md),
+[TalTech Estonian](docs/corpora/taltech.md),
+[Kazakh](docs/corpora/slr102_ksc_kazakh.md),
+[Samrómur](docs/corpora/slr112_samromur.md),
+[Zeroth Korean](docs/corpora/slr40_zeroth_korean.md),
+[Kannada](docs/corpora/slr126_kannada.md),
+[Tibetan](docs/corpora/slr124_tibetan.md) and
+[Armenian](docs/corpora/slr160_armenian.md). Licences, download sizes and the
+three published checksums are in
+[`configs/corpora.yaml`](configs/corpora.yaml).
+
+Which language comes from which corpus, how many hours each actually has, what
+was rejected and why, and the reserve list are in
 [`docs/languages.md`](docs/languages.md), which `scripts/select_languages.py`
-regenerates from Mozilla's published release statistics.
+regenerates from Mozilla's release statistics and `configs/corpora.yaml`.
 
 ### Held-out data
 
@@ -124,20 +160,16 @@ utterance list beside the number.
 
 ## Text normalization
 
-Every transcript passes through a normalizer chosen for the **script it is
-written in**, applied at exactly three places — vocabulary construction,
-training targets, and both sides of every score — so training and evaluation
-cannot drift apart on text policy. European-script languages use OpenAI
-Whisper's `BasicTextNormalizer`, reproduced exactly; every other family follows
-the convention of a reference system for that family, because Whisper's own rule
-replaces Unicode category M with a space and that deletes the vowel signs an
-abugida is written with. Turkish is the one European-script exception: the same
-rule splits every sentence-initial `İ`-word in two.
-
-Each preset names its policy on the language's own line, and a run can force one
-policy on everything with a single config line. The family table, its sources,
-the two policies whose base could not be verified, and how to override are in
-[`docs/normalization.md`](docs/normalization.md).
+Every transcript is normalized with OpenAI Whisper's `BasicTextNormalizer`,
+reproduced exactly, applied at three places — vocabulary construction, training
+targets, and both sides of every score — so training and evaluation cannot drift
+apart on text policy. A language moves off that default only where it is
+demonstrably destructive or word-breaking for the orthography: it replaces every
+combining mark with a space, which deletes the vowel signs of an abugida, and it
+treats the apostrophe as punctuation, which splits Swahili `ng'ombe` in two.
+Each of the sixteen exceptions is listed with its failure and the convention
+adopted instead in [`docs/normalization.md`](docs/normalization.md), and a
+per-language test decides membership rather than judgement.
 
 Results produced under different policies are not comparable. Every run records
 the policy each language used by name and hash; `svb analyze` refuses to compare

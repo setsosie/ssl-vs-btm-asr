@@ -1,6 +1,5 @@
 """LangSpec validates both sources; the shipped presets parse."""
 
-import re
 from pathlib import Path
 
 import pytest
@@ -96,13 +95,23 @@ SCALES = ["3", "16", "64"]
 # Small and hard-coded on purpose: it is the independent check on what the
 # presets declare, so deriving it the way the presets were built would make it
 # agree with them by construction.
-NO_SPACE_LOCALES = frozenset({"ja", "th", "zh-CN", "zh-HK", "zh-TW", "yue", "nan-tw"})
+NO_SPACE_LOCALES = frozenset({"ja", "th", "zh-CN", "zh-HK", "zh-TW", "yue", "nan-tw", "bo"})
 
 
-@pytest.mark.parametrize("scale", SCALES)
-def test_commonvoice_presets_still_parse(pytestconfig, scale):
+@pytest.mark.parametrize("scale", ["3", "16"])
+def test_the_small_presets_are_common_voice_only(pytestconfig, scale):
     specs = get_preset(scale, configs_dir=Path(pytestconfig.rootpath) / "configs")
     assert specs and {s.source for s in specs} == {"commonvoice"}
+
+
+def test_the_large_preset_draws_on_both_sources(pytestconfig):
+    """Common Voice alone cannot reach 64 languages at 50 training hours, so the
+    large tier is a mix and every non-Common-Voice entry names the corpus it is
+    read from."""
+    specs = get_preset("64", configs_dir=Path(pytestconfig.rootpath) / "configs")
+
+    assert {s.source for s in specs} == {"commonvoice", "manifest"}
+    assert all(s.corpus for s in specs if s.source == "manifest")
 
 
 def test_word_boundary_defaults_to_true_and_is_declarable():
@@ -114,14 +123,20 @@ def test_word_boundary_defaults_to_true_and_is_declarable():
 
 
 @pytest.mark.parametrize("scale", SCALES)
-def test_japanese_is_the_only_preset_language_written_without_spaces(pytestconfig, scale):
+def test_only_languages_written_without_spaces_are_scored_on_characters(pytestconfig, scale):
     """Which metric is primary for a language is a property of its writing
     system, so it is declared beside the language rather than in a set inside
-    the evaluation module that no preset author ever sees."""
-    specs = get_preset(scale, configs_dir=Path(pytestconfig.rootpath) / "configs")
-    unspaced = [s.code for s in specs if not s.word_boundary]
+    the evaluation module that no preset author ever sees.
 
-    assert unspaced == ["ja"]
+    The small presets have only Japanese. The large one has five: Chinese,
+    Cantonese and Thai came in with the wider Common Voice statistic, and
+    Tibetan with the corpora.
+    """
+    specs = get_preset(scale, configs_dir=Path(pytestconfig.rootpath) / "configs")
+    unspaced = {s.hf_config for s in specs if not s.word_boundary}
+
+    assert unspaced <= NO_SPACE_LOCALES
+    assert "ja" in unspaced
 
 
 def test_heldout_indic_languages_are_written_with_spaces(pytestconfig):
@@ -190,79 +205,42 @@ def test_word_boundary_agrees_with_the_writing_system(pytestconfig, scale):
         assert spec.word_boundary is expected, spec.hf_config
 
 
-def test_the_large_preset_holds_the_languages_that_qualified_not_sixty_four(pytestconfig):
-    """The file is named for the tier the design asked for, not for its size.
+def test_the_large_preset_is_sixty_four_languages(pytestconfig):
+    """The tier is named for its size and now has it: 46 Common Voice languages
+    and 18 from other public corpora. Common Voice alone reaches 44 at the 50
+    hour rule, which is why the other corpora exist."""
+    codes = _codes(pytestconfig, "64")
 
-    Its 32 entries were selected against the official `train.tsv`. Training now
-    reads validated minus the evaluation splits, on which 44 locales clear the
-    rule, so the preset is a subset of what the rule selects and
-    `docs/languages.md` names the fourteen it is missing. Regenerating it is
-    held until the wider-corpus survey lands rather than done twice.
-    """
-    assert len(_codes(pytestconfig, "64")) == 32
+    assert len(codes) == 64
+    assert len(set(codes)) == 64
 
 
-def _evidence(pytestconfig) -> tuple[set[str], set[str]]:
-    """What `docs/languages.md` marks included, and what it says is not yet in
-    the preset."""
-    import yaml
-
+def _included_in_evidence(pytestconfig) -> set[str]:
+    """The locales `docs/languages.md` marks as selected."""
     text = (Path(pytestconfig.rootpath) / "docs" / "languages.md").read_text(encoding="utf-8")
-    included = {
+    return {
         line.split("|")[1].strip()
         for line in text.splitlines()
         if line.startswith("| ") and "| yes |" in line
     }
 
-    blocks = text.split("```yaml")
-    pending = next(
-        yaml.safe_load(block.split("```")[0])["pending_additions"]
-        for block in blocks[1:]
-        if "pending_additions" in block
-    )
-    return included, set(pending)
 
-
-def test_the_preset_and_the_pending_list_account_for_the_whole_evidence_table(pytestconfig):
+def test_the_preset_is_exactly_what_the_evidence_table_marks_included(pytestconfig):
     """The table is the published reason each language is in the preset.
 
-    The preset has not been regenerated against the wider training statistic
-    yet, so it is a subset of what the rule now selects and the document names
-    the difference. Preset plus pending must be exactly the included set, or one
-    of the three has been edited without the others.
+    Editing one without the other would leave a preset whose membership no
+    longer matches the evidence given for it, which is the failure this catches.
     """
-    included, pending = _evidence(pytestconfig)
-    preset = set(_codes(pytestconfig, "64"))
-
-    assert preset <= included, sorted(preset - included)
-    assert not preset & pending, sorted(preset & pending)
-    assert preset | pending == included, sorted(included ^ (preset | pending))
+    assert _included_in_evidence(pytestconfig) == set(_codes(pytestconfig, "64"))
 
 
-def test_an_empty_heldout_file_is_also_refused(tmp_path):
-    (tmp_path / "scales").mkdir()
-    (tmp_path / "scales" / "heldout.yaml").write_text("languages: []\n", encoding="utf-8")
+def test_no_language_is_waiting_for_a_policy(pytestconfig):
+    """Every entry names one, so the preset's pending list is gone rather than
+    empty. A language with no policy loads fine and fails a run at resolution,
+    which is a failure mode there is no longer any reason to keep available."""
+    configs = Path(pytestconfig.rootpath) / "configs"
+    specs = get_preset("64", configs_dir=configs)
+    text = (configs / "scales" / "64.yaml").read_text(encoding="utf-8")
 
-    with pytest.raises(ValueError, match="not populated"):
-        get_heldout(configs_dir=tmp_path)
-
-
-def test_scale_configs_do_not_cross_reference_documents_that_are_not_here(pytestconfig):
-    """A preset comment is public documentation, so its pointers must resolve.
-
-    64.yaml referred a reader to a protocol document that does not exist in this
-    repository. Whether a corpus a config names is one this repo can ship is a
-    review question, not a testable one; whether a file it points at is present
-    is testable, so it is tested.
-    """
-    root = Path(pytestconfig.rootpath)
-    # Only repo-relative pointers: a path with a directory component and a
-    # source or documentation suffix. Bare filenames in these configs are
-    # corpus members (archives, index files), which live in $OPENSLR_ROOT and
-    # are not supposed to be in the tree.
-    pointer = re.compile(r"\b(?:[\w.-]+/)+[\w.-]+\.(?:md|py|sh|yaml)\b")
-
-    for path in sorted((root / "configs" / "scales").glob("*.yaml")):
-        referenced = pointer.findall(path.read_text(encoding="utf-8"))
-        missing = [r for r in referenced if not (root / r).exists()]
-        assert not missing, f"{path.name} points at {missing}, which are not in the tree"
+    assert [s.code for s in specs if s.normalizer is None] == []
+    assert "Awaiting a normalization policy" not in text

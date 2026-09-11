@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<corpus name="nchlt zul">
+  <speaker id="500" age="24" gender="female">
+    <recording audio="nchlt_zul/audio/500/nchlt_zul_500f_0001.wav" md5sum="c1f0a1f4d9b8e77a2c3d4e5f60718293" duration="3.48" pdp_score="-0.5120">
+      <orth>umsebenzi wokuqala uqale</orth>
+    </recording>
+    <recording audio="nchlt_zul/audio/500/nchlt_zul_500f_0004.wav" md5sum="d2e1b2f5eac9f88b3d4e5f6071829304" duration="4.08" pdp_score="-0.6431">
+      <orth>izwe lonke liyabonga</orth>
+    </recording>
+  </speaker>
+  <speaker id="501" age="38" gender="male">
+    <recording audio="nchlt_zul/audio/501/nchlt_zul_501m_0002.wav" md5sum="e3f2c3061fbda99c4e5f607182930415" duration="3.72" pdp_score="-0.7044">
+      <orth>abantwana bafunda esikoleni</orth>
+    </recording>
+    <recording audio="nchlt_zul/audio/501/nchlt_zul_501m_0007.wav" md5sum="f403d417200cebad5f60718293041526" duration="4.56" pdp_score="-0.4988">
+      <orth>ukuhlela imali yonyaka</orth>
+    </recording>
+  </speaker>
+</corpus>

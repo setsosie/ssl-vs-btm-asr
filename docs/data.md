@@ -1,12 +1,16 @@
 # Data
 
-Two public corpora, both read from a local directory. Nothing in this repository
-downloads at load time and nothing goes through the Hugging Face Hub.
+Everything is read from a local directory. Nothing downloads at load time.
 
 | Role | Corpus | Env var | Fetched by |
 |---|---|---|---|
 | Training / in-distribution eval | Common Voice 25 | `CV_ROOT` | you, manually |
+| Training / in-distribution eval | 18 other public corpora | `CORPORA_ROOT` | `scripts/prepare_<corpus>.py` |
 | Held-out transfer | OpenSLR Indic (SLR63, 64, 66, 78) | `OPENSLR_ROOT` | `scripts/fetch_openslr.py` |
+
+Which language comes from which corpus, with hours and licences, is in
+[`languages.md`](languages.md); the corpus records themselves are in
+[`../configs/corpora.yaml`](../configs/corpora.yaml).
 
 Check what is reachable and how big each split is with `python scripts/check_data.py`.
 It reads transcripts and manifests only and never decodes audio.
@@ -108,6 +112,123 @@ tests rather than assumed: `validated_minus_eval` is a **superset** of
 The terms you accept at download time govern your use; confirm them against the
 release you actually downloaded rather than against this file.
 
+## The other corpora (`CORPORA_ROOT`)
+
+Common Voice cannot reach 64 languages at 50 training hours — it reaches 44 — so
+the large tier draws on eighteen more corpora. They ship in about ten different
+shapes: per-utterance XML, JSONL with word-level alignments, Kaldi-ish flat
+directories, STM and VTT, one `.txt` per `.wav`. Ten dataset classes would be
+ten places to get a split wrong.
+
+So each corpus is converted **once**, by a preparer, into one layout that a
+single loader reads:
+
+```
+$CORPORA_ROOT/<corpus id>/<language>/manifest.tsv
+$CORPORA_ROOT/<corpus id>/<language>/<audio, wherever the manifest says>
+```
+
+`manifest.tsv` is tab-separated with a header and exactly five columns:
+
+| Column | Meaning |
+|---|---|
+| `utt_id` | stable, unique within the language; orders the rows, digests the test set, and is the fallback grouping key |
+| `path` | audio path relative to the language directory |
+| `text` | the transcript, already extracted from whatever the corpus shipped |
+| `speaker` | speaker id, or empty |
+| `split` | `train`, `validation`, `test`, or empty |
+
+Two rules make the split describable afterwards. **Either every row carries a
+split or none does** — a manifest that is part shipped and part derived is
+refused, because the resulting partition could not be written down in a results
+file. And **an empty `speaker` on any row** drops that whole language to an
+utterance-level split, because a partition that is speaker-disjoint for most
+rows is not speaker-disjoint. Every run records which policy it got, and a
+digest of the exact test utterance list, the same way the held-out set does.
+
+Where a corpus ships no usable split, `svb.data.splits` derives one — the same
+speaker-disjoint 80/10/10 derivation the held-out four use, now shared rather
+than duplicated. Two corpora ship an incomplete one and re-derive: Kannada has
+no dev split, and Zeroth's shipped test is 1.2 hours, under the 2-hour bar. In
+both cases the published division is not the one a run uses, and a write-up has
+to say so.
+
+### The preparer contract
+
+A preparer fetches what `configs/corpora.yaml` lists and writes the manifest.
+It may do anything to get there; it owns the per-corpus knowledge, which is why
+that knowledge is not in the loader. The shared parts — resumable download,
+integrity checking, zip and tar extraction, and a Hugging Face snapshot path —
+are in `scripts/corpus_fetch.py`, which stays standard library only except on
+the Hub path so a preparer can run on a machine with no project install.
+
+```bash
+export CORPORA_ROOT=/path/to/corpora
+python scripts/prepare_google_crowdsourced.py --root $CORPORA_ROOT   # jv su si ne bn
+python scripts/prepare_nchlt.py --root $CORPORA_ROOT --langs zu
+```
+
+**All ten are implemented. None has been run against a real archive.** Every
+format claim below was established by reading a zip central directory or a tar
+header chain over HTTP Range, or by fetching a repository's own metadata — real
+evidence, but not the same as an ingest. Each has a page in
+[`corpora/`](corpora/) recording what was read and where.
+
+| Preparer | Languages | Split | Notes |
+|---|---|---|---|
+| [`prepare_google_crowdsourced.py`](../scripts/prepare_google_crowdsourced.py) | jv su si ne bn | derived | [`corpora/`](corpora/) — sixteen shards each, one `utt_spk_text.tsv` |
+| [`prepare_nchlt.py`](../scripts/prepare_nchlt.py) | zu xh nso ts ve | test shipped, dev derived | [`nchlt.md`](corpora/nchlt.md) |
+| [`prepare_parlaspeech.py`](../scripts/prepare_parlaspeech.py) | hr | shipped | [`parlaspeech.md`](corpora/parlaspeech.md) |
+| [`prepare_taltech.py`](../scripts/prepare_taltech.py) | et | shipped | [`taltech.md`](corpora/taltech.md) |
+| [`prepare_ksc.py`](../scripts/prepare_ksc.py) | kk | shipped | [`slr102_ksc_kazakh.md`](corpora/slr102_ksc_kazakh.md) |
+| [`prepare_samromur.py`](../scripts/prepare_samromur.py) | is | shipped | [`slr112_samromur.md`](corpora/slr112_samromur.md) |
+| [`prepare_zeroth.py`](../scripts/prepare_zeroth.py) | ko | re-derived | [`slr40_zeroth_korean.md`](corpora/slr40_zeroth_korean.md) |
+| [`prepare_kannada_mile.py`](../scripts/prepare_kannada_mile.py) | kn | re-derived | [`slr126_kannada.md`](corpora/slr126_kannada.md) |
+| [`prepare_tibmd.py`](../scripts/prepare_tibmd.py) | bo | derived | [`slr124_tibetan.md`](corpora/slr124_tibetan.md) |
+| [`prepare_armenian.py`](../scripts/prepare_armenian.py) | hy | derived, utterance level | [`slr160_armenian.md`](corpora/slr160_armenian.md) |
+
+Three of them cost real disk. **TalTech is the expensive one: budget about
+320 GB of peak.** Its 159 GB tar and its extracted tree exist at the same time,
+and its half-hour recordings are then cut at their transcript bounds into
+roughly 600,000 small WAVs — the manifest addresses whole files, so long-form
+audio has to be cut somewhere and it is cut here. ParlaSpeech needs about 116 GB
+of slices plus about the same extracted, and each NCHLT language is a 4.6–5.1 GB
+zip.
+
+### Integrity
+
+**Three corpora publish a checksum and are checked against it:** NCHLT, per
+bitstream from the DSpace API; ParlaSpeech, per file from its METS record; and
+Zeroth, at `resources/40/checksum.md5`. A mismatch stops the fetch — a corrupt
+or substituted archive has no useful handling — and `fetch_manifest.json`
+records the value matched under `checksum_verified`.
+
+Every other corpus publishes nothing. For those, the length is checked against
+`Content-Length` where the server sends one, the archive is read end to end, and
+the recorded SHA-256 is good only for comparing one fetch against another.
+`checksum_verified` is null there, which is the difference between an archive
+that was verified and one that was merely digested.
+
+Three preparers go further and check the corpus rather than the bytes: NCHLT and
+ParlaSpeech and TalTech each re-read the licence field at fetch time and refuse
+to ingest a corpus whose licence has changed, and ParlaSpeech refuses a manifest
+whose segment counts differ from the published 380,836 / 500 / 513 / 22,076. A
+licence copied into a config file is a claim about the past.
+
+### Licences, and a caveat about the mix
+
+Every corpus's verbatim licence name and URL is in `configs/corpora.yaml`, read
+on its own source page. The set mixes CC0, CC BY 2.0, 3.0 and 4.0 and
+CC BY-SA 4.0; ShareAlike over a training corpus is not settled law with respect
+to model weights, and the paper should take a position rather than say nothing.
+Anything behind a gate, a form or an email request is excluded on principle,
+however large; `languages.md` lists what that ruled out.
+
+**The mix is less domain-diverse than 64 languages sounds.** The additions are
+almost entirely read prompts or parliamentary speech. NCHLT's prompts are
+scripted and its published test side is an 8-speaker suite. A result that
+improves on read speech should not be reported as improving on speech.
+
 ## OpenSLR held-out Indic (`OPENSLR_ROOT`)
 
 Four crowdsourced multi-speaker read-speech corpora, held out of every training
@@ -159,7 +280,9 @@ therefore clobber it, so the fetch script writes each archive's index under the
 name the config declares. That is why `archives` and `index_files` in
 `configs/scales/heldout.yaml` are parallel lists.
 
-**Integrity.** openslr.org publishes no checksums for these resources. An
+**Integrity.** openslr.org publishes no checksums for these four resources —
+it does for some others, including Zeroth Korean, so this is a fact about
+SLR63/64/66/78 rather than about the host. An
 archive is accepted when its length matches the server's `Content-Length` — when
 the server sends one — and a full zip CRC pass succeeds; a failing archive is
 deleted rather than extracted. Where there is no `Content-Length` the length

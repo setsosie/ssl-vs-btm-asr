@@ -40,7 +40,7 @@ from ..text.normalize import POLICIES
 # Repo root: src/svb/data/registry.py -> parents[3]
 _CONFIGS = Path(__file__).resolve().parents[3] / "configs"
 
-SOURCES = ("commonvoice", "openslr")
+SOURCES = ("commonvoice", "openslr", "manifest")
 
 
 @dataclass(frozen=True)
@@ -64,6 +64,12 @@ class LangSpec:
     # language rather than being inferred three modules away; left unset, it
     # falls back to the script default in svb.text.registry.
     normalizer: str | None = None
+
+    # manifest: the corpus id in configs/corpora.yaml, which is also the
+    # directory under $CORPORA_ROOT that its preparer wrote. Everything else a
+    # manifest language needs — licence, hours, download, format — lives in that
+    # file rather than being copied onto every preset entry.
+    corpus: str = ""
 
     # commonvoice
     hf_dataset: str = ""  # provenance label for the release, e.g. "common_voice_25"
@@ -94,6 +100,17 @@ class LangSpec:
         if self.source == "commonvoice":
             if not self.hf_config:
                 raise ValueError(f"{self.code}: commonvoice needs hf_config (the CV language code)")
+        elif self.source == "manifest":
+            if not self.corpus:
+                raise ValueError(
+                    f"{self.code}: manifest needs corpus (the id in configs/corpora.yaml, "
+                    "which is also the directory under $CORPORA_ROOT)"
+                )
+            if not self.hf_config:
+                raise ValueError(
+                    f"{self.code}: manifest needs hf_config (the language directory under "
+                    f"$CORPORA_ROOT/{self.corpus}/)"
+                )
         else:
             if self.slr is None:
                 raise ValueError(
