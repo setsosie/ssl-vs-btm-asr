@@ -18,3 +18,9 @@ checkpoints/
 # run outputs (JSON results are reproducible; aggregated tables are committed)
 results/*
 !results/.gitkeep
+
+# Planning notes are kept local, not published. They are working material, not
+# documentation: they go stale between edits and say more about scheduling than
+# about the code. ROADMAP.md is the published statement of what is planned.
+docs/planning/
+scripts/verify/
