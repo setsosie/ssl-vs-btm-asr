@@ -12,9 +12,10 @@ Paired permutation compares two systems on the *same* utterances.
 Tokenization is a parameter, not a constant. Whitespace tokenization of a
 script written without spaces gives one token per sentence, so a word-level
 interval for Japanese would be an interval on a number that can only be 0 or
-100 per utterance. Characters are tokenized including spaces, matching
-``jiwer.cer``, so a bootstrap's point estimate equals the reported metric
-exactly.
+100 per utterance. Both tokenizations reproduce jiwer's default transforms
+step for step, so a bootstrap's point estimate equals the reported metric
+exactly — including on text that ends in a space, which ``whisper-basic``
+leaves behind and jiwer strips before counting characters.
 
 Both statistics work from per-utterance ``(edits, reference length)`` computed
 once. Corpus error rate is a ratio of sums, so a resample is two array sums
@@ -24,6 +25,7 @@ test set finish.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Literal
 
@@ -51,9 +53,22 @@ def aggregate_seeds(per_seed_wer: list[float]) -> SeedAgg:
     return SeedAgg(mean=float(arr.mean()), std=std, n_seeds=arr.size, per_seed=list(arr))
 
 
+_RUNS_OF_WHITESPACE = re.compile(r"\s\s+")
+
+
 def _tokens(text: str, tokenize: Tokenization) -> list[str]:
-    """Word or character tokens. Characters include spaces, as ``jiwer.cer`` does."""
-    return text.split() if tokenize == "word" else list(text)
+    """Exactly the tokens ``jiwer.wer`` and ``jiwer.cer`` count, by construction.
+
+    Their default transforms: words are what is left after collapsing runs of
+    whitespace to one space, stripping the ends and splitting on the plain
+    space character; characters are the stripped string, spaces included. A
+    plain ``str.split()`` would also split on a non-breaking space that jiwer
+    keeps inside a word, and ``list(text)`` would count a trailing space that
+    jiwer strips — and every ``whisper-basic`` reference ends in one.
+    """
+    if tokenize == "word":
+        return [w for w in _RUNS_OF_WHITESPACE.sub(" ", text).strip().split(" ") if w]
+    return list(text.strip())
 
 
 def _edit_counts(
