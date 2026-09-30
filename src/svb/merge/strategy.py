@@ -171,10 +171,11 @@ def dare_ties(
 ) -> StateDict:
     """DARE drop-and-rescale on task vectors, then TIES.
 
-    The drop mask is the method's only stochastic element, so ``seed`` must be
-    the run's seed: pinned at a constant, every seed of a multi-seed study
-    would share one mask and the reported spread would omit the variance DARE
-    itself contributes.
+    The drop mask is the method's only stochastic element, so ``seed`` must
+    differ between runs — the merge stage's seed, derived from the run's:
+    pinned at a constant, every seed of a multi-seed study would share one
+    mask and the reported spread would omit the variance DARE itself
+    contributes.
     """
     if base is None:
         raise ValueError("DARE-TIES requires a base (phase-0) state_dict")

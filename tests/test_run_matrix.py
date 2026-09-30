@@ -65,6 +65,40 @@ def test_every_populated_cell_is_emitted_once(run_matrix: ModuleType, configs: P
     assert lines[0] == "--arm A_ssl --scale 3 --seed 0"
 
 
+def test_the_list_can_be_narrowed_to_one_cell_and_a_seed_prefix(
+    run_matrix: ModuleType, configs: Path
+) -> None:
+    out = io.StringIO()
+
+    run_matrix.main(
+        configs_dir=configs,
+        stdout=out,
+        stderr=io.StringIO(),
+        argv=["--scale", "3", "--arm", "B_btm_ssl", "--n-seeds", "1"],
+    )
+
+    assert out.getvalue().splitlines() == ["--arm B_btm_ssl --scale 3 --seed 0"]
+
+
+def test_a_seed_prefix_longer_than_the_list_is_refused(
+    run_matrix: ModuleType, configs: Path
+) -> None:
+    """Asking for more seeds than were committed must not quietly return fewer."""
+    with pytest.raises(SystemExit, match="holds 2 seed"):
+        run_matrix.main(
+            configs_dir=configs, stdout=io.StringIO(), stderr=io.StringIO(), argv=["--n-seeds", "3"]
+        )
+
+
+def test_naming_an_unpopulated_scale_fails_instead_of_printing_nothing(
+    run_matrix: ModuleType, configs: Path
+) -> None:
+    with pytest.raises(SystemExit, match="scale 64 cannot run"):
+        run_matrix.main(
+            configs_dir=configs, stdout=io.StringIO(), stderr=io.StringIO(), argv=["--scale", "64"]
+        )
+
+
 def test_a_matrix_with_nothing_to_run_fails_rather_than_printing_nothing(
     run_matrix: ModuleType, tmp_path: Path
 ) -> None:

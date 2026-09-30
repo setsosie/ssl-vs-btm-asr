@@ -27,12 +27,12 @@ from typing import Any
 
 from ..config import ExperimentConfig
 from ..data.collate import make_ctc_collate
-from ..data.datasets import load_language, load_texts
+from ..data.datasets import load_split, load_texts
 from ..data.registry import LangSpec
 from ..model.ctc_vocab import CtcVocab, expand_vocab
 from ..model.xeus_ctc import make_model
 from ..text.registry import policy_for_language
-from ..train.trainer import train
+from ..train.trainer import TrainResult, train
 from .evaluate import EvalResult, evaluate
 
 
@@ -55,6 +55,10 @@ class TransferResult:
     #: SHA-1 of the test FileID list: pins the exact held-out set that was
     #: scored, so two runs can be shown to have used the same one.
     test_files_sha1: str | None = None
+    #: The fine-tune behind the number. Transfer is the comparison the central
+    #: claim rests on, so which epoch was selected and what training dropped
+    #: belong in the results as much as they do for the in-distribution stages.
+    training: TrainResult | None = None
 
     def to_record(self) -> dict[str, Any]:
         """The results.json entry for this language."""
@@ -89,6 +93,7 @@ def transfer_one(
     lang: LangSpec,
     out_dir: Path,
     device: str = "cuda",
+    data_seed: int | None = None,
 ) -> TransferResult:
     """Adapt to one held-out language and evaluate.
 
@@ -96,13 +101,19 @@ def transfer_one(
         init_ckpt: Checkpoint to start from. ``None`` means start from the bare
             encoder, which for arm A is the SSL one (``cfg.init``).
         base_vocab: The training vocab whose head rows we preserve.
+        data_seed: Seed for the fine-tune's data order; the stage's own.
     """
     # Same policy the training vocab was built with — expand_vocab refuses
     # anything else — and the same floor, so the held-out language's tail is
     # treated the way the training languages' tails were.
     new_vocab, _, _ = expand_vocab(
         base_vocab,
-        load_texts(lang, "train"),
+        load_texts(
+            lang,
+            "train",
+            train_source=cfg.train.cv_train_source,
+            max_hours=cfg.train.max_hours("train"),
+        ),
         lang.code,
         policy_for_language(lang.code, lang.normalizer),
         min_char_count=cfg.text.min_char_count,
@@ -119,19 +130,27 @@ def transfer_one(
         drop_empty=True,
     )
     eval_collate = make_ctc_collate(new_vocab)
-    train_ds = load_language(lang, "train", cfg.train.max_audio_samples)
-    val_ds = load_language(lang, "validation", cfg.train.max_audio_samples)
+    train_ds = load_split(cfg, lang, "train")
+    val_ds = load_split(cfg, lang, "validation")
     # Load the checkpoint the trainer says it wrote, not a path re-derived here:
     # two sources of truth for one filename is how a stale model gets evaluated.
     result = train(
-        model, cfg, train_ds, val_ds, train_collate, cfg.train.finetune_epochs, out_dir, device
+        model,
+        cfg,
+        train_ds,
+        val_ds,
+        train_collate,
+        cfg.train.finetune_epochs,
+        out_dir,
+        device,
+        data_seed=data_seed,
     )
     model.load(result.checkpoint)
 
     # No truncation at test time: a clipped waveform scored against its full
     # transcript manufactures deletions that the model never had a chance to
     # avoid.
-    test_ds = load_language(lang, "test", None)
+    test_ds = load_split(cfg, lang, "test")
     scored = evaluate(
         model,
         test_ds,
@@ -144,5 +163,9 @@ def transfer_one(
     )
     policy, digest = _split_provenance(test_ds)
     return TransferResult(
-        lang=lang.code, result=scored, split_policy=policy, test_files_sha1=digest
+        lang=lang.code,
+        result=scored,
+        split_policy=policy,
+        test_files_sha1=digest,
+        training=result,
     )

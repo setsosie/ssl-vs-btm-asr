@@ -16,10 +16,9 @@ from pathlib import Path
 from torch import Tensor
 from torch.utils.data import ConcatDataset
 
-from ..config import ExperimentConfig, TextConfig
+from ..config import ExperimentConfig, TextConfig, TrainConfig
 from ..data.collate import make_ctc_collate
-from ..data.commonvoice_local import DEFAULT_TRAIN_SOURCE
-from ..data.datasets import load_language, load_texts
+from ..data.datasets import load_split, load_texts
 from ..data.registry import LangSpec
 from ..merge.strategy import MERGE_STRATEGIES
 from ..model.ctc_vocab import CtcVocab, build_vocab_from_labelled_texts, require_space_token
@@ -31,9 +30,12 @@ from ..train.trainer import TrainResult, train
 def build_training_vocab(
     specs: list[LangSpec],
     text_cfg: TextConfig | None = None,
-    train_source: str = DEFAULT_TRAIN_SOURCE,
+    train_cfg: TrainConfig | None = None,
 ) -> tuple[CtcVocab, dict[str, int]]:
     """Char vocab over all training transcripts across the preset languages.
+
+    Built over exactly the rows the run trains on: ``train_cfg`` carries the
+    training source and the hours cap, and the transcripts are read under both.
 
     Returns the vocab and the ``{character: count}`` map of what the frequency
     floor evicted, which the run records rather than discarding: the floor
@@ -50,10 +52,17 @@ def build_training_vocab(
     while looking merely unconverged.
     """
     text_cfg = text_cfg or TextConfig()
+    train_cfg = train_cfg or TrainConfig()
     policies = policies_for_specs(specs, text_cfg.override)
     items: list[tuple[str, str]] = []
     for spec in specs:
-        items.extend((spec.code, t) for t in load_texts(spec, "train", train_source=train_source))
+        texts = load_texts(
+            spec,
+            "train",
+            train_source=train_cfg.cv_train_source,
+            max_hours=train_cfg.max_hours("train"),
+        )
+        items.extend((spec.code, t) for t in texts)
     vocab, evicted = build_vocab_from_labelled_texts(
         items, policies, min_char_count=text_cfg.min_char_count
     )
@@ -68,6 +77,7 @@ def run_phase0(
     vocab: CtcVocab,
     out_dir: Path,
     device: str = "cuda",
+    data_seed: int | None = None,
 ) -> TrainResult:
     """Joint multilingual CTC training.
 
@@ -79,45 +89,56 @@ def run_phase0(
         vocab, max_audio_samples=cfg.train.max_audio_samples, drop_overlong=True, drop_empty=True
     )
     train_ds: ConcatDataset[tuple[Tensor, str, str]] = ConcatDataset(
-        [
-            load_language(
-                s, "train", cfg.train.max_audio_samples, train_source=cfg.train.cv_train_source
-            )
-            for s in specs
-        ]
+        [load_split(cfg, s, "train") for s in specs]
     )
     val_ds: ConcatDataset[tuple[Tensor, str, str]] = ConcatDataset(
-        [load_language(s, "validation", cfg.train.max_audio_samples) for s in specs]
+        [load_split(cfg, s, "validation") for s in specs]
     )
     model = make_model(cfg, vocab.size)
-    return train(model, cfg, train_ds, val_ds, collate, cfg.train.phase0_epochs, out_dir, device)
+    return train(
+        model,
+        cfg,
+        train_ds,
+        val_ds,
+        collate,
+        cfg.train.phase0_epochs,
+        out_dir,
+        device,
+        data_seed=data_seed,
+    )
 
 
-def train_experts(
+def train_expert(
     cfg: ExperimentConfig,
     phase0_ckpt: Path,
-    specs: list[LangSpec],
+    spec: LangSpec,
     vocab: CtcVocab,
     out_dir: Path,
     device: str = "cuda",
-) -> dict[str, TrainResult]:
-    """Fine-tune one expert per language, each branched from phase 0."""
+    data_seed: int | None = None,
+) -> TrainResult:
+    """Fine-tune one language's expert, branched from phase 0.
+
+    One language per call so the caller can record each expert as it finishes:
+    at sixty-four languages the experts are most of a run, and a run that can
+    only resume from before all of them cannot really resume.
+    """
     collate = make_ctc_collate(
         vocab, max_audio_samples=cfg.train.max_audio_samples, drop_overlong=True, drop_empty=True
     )
-    experts: dict[str, TrainResult] = {}
-    for spec in specs:
-        model = make_model(cfg, vocab.size)
-        model.load(phase0_ckpt)
-        lang_dir = out_dir / f"expert_{spec.code}"
-        train_ds = load_language(
-            spec, "train", cfg.train.max_audio_samples, train_source=cfg.train.cv_train_source
-        )
-        val_ds = load_language(spec, "validation", cfg.train.max_audio_samples)
-        experts[spec.code] = train(
-            model, cfg, train_ds, val_ds, collate, cfg.train.expert_epochs, lang_dir, device
-        )
-    return experts
+    model = make_model(cfg, vocab.size)
+    model.load(phase0_ckpt)
+    return train(
+        model,
+        cfg,
+        load_split(cfg, spec, "train"),
+        load_split(cfg, spec, "validation"),
+        collate,
+        cfg.train.expert_epochs,
+        out_dir / f"expert_{spec.code}",
+        device,
+        data_seed=data_seed,
+    )
 
 
 def merge_experts(
@@ -132,9 +153,10 @@ def merge_experts(
     """Merge expert state_dicts; task-vector methods need ``base_ckpt`` (phase 0).
 
     Args:
-        seed: The run seed. DARE-TIES draws its drop mask from it, so leaving it
-            at the default would give every seed of a multi-seed study the same
-            mask and understate the DARE arm's variance.
+        seed: The merge stage's seed, derived from the run's. DARE-TIES draws
+            its drop mask from it, so leaving it at the default would give
+            every seed of a multi-seed study the same mask and understate the
+            DARE arm's variance.
         merge_head: Whether the CTC head is merged along with the encoder. See
             the merge module docstring — this is a protocol choice.
     """

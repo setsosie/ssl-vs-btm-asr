@@ -3,7 +3,7 @@
 ARM   ?= A_ssl
 SCALE ?= 3
 DEVICE ?= cuda
-SEEDS ?= 0 1 2 3 4
+CONFIG ?= configs/base.yaml
 
 # --frozen: install exactly what uv.lock pins and fail if it has drifted from
 # pyproject.toml, rather than silently re-resolving. Reproducibility is the
@@ -21,12 +21,19 @@ fetch:
 data:
 	python scripts/check_data.py
 
-# Run all seeds for one (arm, scale). Sequential here; use scripts/run_matrix.py
-# + your scheduler to parallelize across GPUs.
+# Run every committed seed for one (arm, scale). Sequential here; use
+# scripts/run_matrix.py + your scheduler to parallelize across GPUs. The seeds
+# come from configs/seeds.yaml through run_matrix.py, never from a list here.
+# N=3 takes the first three. A failed seed stops the loop rather than letting
+# the next one scroll the error away, and the cell list is captured before the
+# loop rather than piped into it: a pipeline's status is its last command's, so
+# a failing run_matrix.py would otherwise leave make reporting success after
+# running nothing.
 exp:
-	@for s in $(SEEDS); do \
-		echo "=== $(ARM) scale=$(SCALE) seed=$$s ==="; \
-		uv run svb run --arm $(ARM) --scale $(SCALE) --seed $$s --config configs/base.yaml --device $(DEVICE); \
+	@cells=$$(uv run python scripts/run_matrix.py --arm $(ARM) --scale $(SCALE) $(if $(N),--n-seeds $(N),)) || exit 1; \
+	printf '%s\n' "$$cells" | while read -r cell; do \
+		echo "=== $$cell ==="; \
+		uv run svb run $$cell --config $(CONFIG) --device $(DEVICE) || exit 1; \
 	done
 
 aggregate:

@@ -1,8 +1,9 @@
-"""Command-line entry point: ``svb run|aggregate|analyze``.
+"""Command-line entry point: ``svb run|aggregate|analyze|data-stats``.
 
 ``run`` executes one (arm, scale, seed) end to end and writes a single
 ``results.json`` plus ``resolved_config.yaml``, ``env.json``,
-``text_stats.json`` and a per-language predictions sidecar.
+``text_stats.json`` and a per-language predictions sidecar. It records each
+stage in ``stages.json`` as it finishes, and ``--resume`` continues from there.
 
 ``aggregate`` reads every seed's results for an (arm, scale) and reports WER,
 CER and the per-language primary metric as mean ± std across seeds.
@@ -22,12 +23,24 @@ import argparse
 import json
 import os
 import warnings
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from .config import ExperimentConfig, TextConfig, dump_config, load_config
+import yaml
+
+from .config import (
+    RESOLVED_CONFIG,
+    ExperimentConfig,
+    TextConfig,
+    TrainConfig,
+    config_differences,
+    dump_config,
+    load_config,
+    resolved_config,
+)
 from .data.commonvoice_local import DEFAULT_TRAIN_SOURCE, TRAIN_SOURCES
-from .provenance import dump_run_meta
+from .provenance import dump_run_meta, file_sha256
 from .seeding import set_all_seeds
 from .text.normalize import policy_name
 from .text.registry import policies_for_specs
@@ -35,7 +48,10 @@ from .text.stats import TextStats, collect_text_stats
 
 if TYPE_CHECKING:
     from .data.registry import LangSpec
+    from .eval.evaluate import EvalResult
     from .model.ctc_vocab import CtcVocab
+    from .model.xeus_ctc import XeusCTC
+    from .stages import StageLedger, StageOutput
     from .train.trainer import TrainResult
 
 DEFAULT_RESULTS_ROOT = Path("results")
@@ -148,7 +164,7 @@ def write_text_stats(
     text_cfg: TextConfig,
     vocab: CtcVocab,
     evicted: dict[str, int],
-    train_source: str = DEFAULT_TRAIN_SOURCE,
+    train_cfg: TrainConfig | None = None,
 ) -> Path:
     """Write the per-language evidence for the normalization policy.
 
@@ -162,10 +178,24 @@ def write_text_stats(
     ``transfer_one``; it is deterministic and reads only text, and scoring
     Telugu against an all-Latin training vocab would report an unknown rate near
     1.0 and bury the number the transfer experiment depends on.
+
+    ``train_cfg`` says which rows each split is — the Common Voice training
+    source and the hours caps — so the statistics describe the transcripts the
+    run trained and validated on rather than the splits they were cut from.
     """
     from .data.datasets import load_texts
     from .model.ctc_vocab import expand_vocab
     from .text.registry import policy_for_language
+
+    train_cfg = train_cfg or TrainConfig()
+
+    def texts(spec: LangSpec, split: str) -> list[str]:
+        return load_texts(
+            spec,
+            split,
+            train_source=train_cfg.cv_train_source,
+            max_hours=train_cfg.max_hours(split),
+        )
 
     languages: dict[str, Any] = {}
     for spec in [*specs, *heldout]:
@@ -176,16 +206,14 @@ def write_text_stats(
         if is_heldout:
             lang_vocab, _, lang_evicted = expand_vocab(
                 vocab,
-                load_texts(spec, "train", train_source=train_source),
+                texts(spec, "train"),
                 spec.code,
                 policy,
                 min_char_count=text_cfg.min_char_count,
             )
         splits: dict[str, Any] = {}
         for split in SPLITS:
-            stats = collect_text_stats(
-                load_texts(spec, split, train_source=train_source), policy, lang_vocab
-            )
+            stats = collect_text_stats(texts(spec, split), policy, lang_vocab)
             if split == "train":
                 stats.evicted_by_floor = lang_evicted
             _warn_on_unknown_characters(spec.code, split, stats)
@@ -202,7 +230,9 @@ def write_text_stats(
         }
 
     payload = {
-        "cv_train_source": train_source,
+        "cv_train_source": train_cfg.cv_train_source,
+        "max_train_hours": train_cfg.max_train_hours,
+        "max_val_hours": train_cfg.max_val_hours,
         "override": text_cfg.override,
         "min_char_count": text_cfg.min_char_count,
         "training_vocab_evicted": evicted,
@@ -213,22 +243,97 @@ def write_text_stats(
     return path
 
 
-def cmd_run(args: argparse.Namespace) -> None:
-    import torch
+def hours_cap_records(cfg: ExperimentConfig, specs: list[LangSpec]) -> dict[str, Any]:
+    """What the hours caps kept of each language's training and validation audio.
 
-    from .btm.pipeline import (
-        build_training_vocab,
-        merge_experts,
-        run_phase0,
-        train_experts,
-    )
-    from .data.collate import make_ctc_collate
-    from .data.datasets import load_language
+    A capped run trained on a subset, and "ten hours of English" does not say
+    which ten. The digest does: two runs that record the same one read the same
+    utterances, which is what lets a reader confirm that every arm and every
+    seed of a study was given the same data.
+    """
+    from .data.datasets import hours_cap_selection
+
+    languages: dict[str, Any] = {}
+    for spec in specs:
+        for split in ("train", "validation"):
+            cap = cfg.train.max_hours(split)
+            if cap is None:
+                continue
+            selection = hours_cap_selection(spec, split, cap, cfg.train.cv_train_source)
+            languages.setdefault(spec.code, {})[split] = selection.to_record()
+    return {
+        "max_train_hours": cfg.train.max_train_hours,
+        "max_val_hours": cfg.train.max_val_hours,
+        "languages": languages,
+    }
+
+
+def metrics_record(result: EvalResult) -> dict[str, Any]:
+    """One language's scored evaluation, for ``results.json``."""
+    return {
+        "wer": result.wer,
+        "cer": result.cer,
+        "n": result.n,
+        "n_empty_refs": result.n_empty_refs,
+    }
+
+
+def _require_same_config(out: Path, cfg: ExperimentConfig, specs: list[LangSpec]) -> None:
+    """Refuse to resume a run that was started under a different configuration.
+
+    Reusing a phase 0 trained at one learning rate under experts trained at
+    another produces a results file that describes neither. The check reads the
+    config the earlier invocation wrote, so it is a comparison between what ran
+    and what is about to, not between two files someone edited.
+    """
+    from .stages import finished_stages
+
+    recorded_path = out / RESOLVED_CONFIG
+    # Nothing finished means nothing will be reused, so there is nothing for a
+    # changed setting to be inconsistent with: a job that died in its first
+    # stage can be resubmitted under a corrected config.
+    if not recorded_path.exists() or not finished_stages(out):
+        return
+    recorded = yaml.safe_load(recorded_path.read_text(encoding="utf-8")) or {}
+    # Round-tripped through YAML so the comparison is between two things that
+    # have both been through the same serializer.
+    current = yaml.safe_load(yaml.safe_dump(resolved_config(cfg, specs)))
+    differences = config_differences(recorded, current)
+    if differences:
+        raise SystemExit(
+            f"[svb] cannot resume {out}: it was started under a different configuration "
+            f"({', '.join(differences)}). Finish it with the settings in its "
+            f"{RESOLVED_CONFIG}, or start it again without --resume."
+        )
+
+
+def _consistent_on_resume(ledger: StageLedger, key: str, value: Any, check: bool) -> Any:
+    """Record ``value`` under ``key``, or refuse if a resume finds it changed.
+
+    Only when finished stages are being reused: a fresh start records and
+    moves on, and a resume that reuses nothing has nothing to be consistent
+    with.
+    """
+    recorded = ledger.recall(key)
+    if check and recorded is not None and recorded != value:
+        raise SystemExit(
+            f"[svb] cannot resume {ledger.run_dir}: {key} is not what its finished stages were "
+            f"produced with. The data or the checkpoint under this run have changed since; "
+            "start it again with --restart."
+        )
+    ledger.remember(key, value)
+    return value
+
+
+def _invocation(env_path: Path) -> dict[str, Any]:
+    """What identifies this process in the stage ledger, read back from env.json."""
+    meta = json.loads(env_path.read_text(encoding="utf-8"))
+    return {key: meta.get(key) for key in ("timestamp_utc", "git_sha", "git_dirty")}
+
+
+def cmd_run(args: argparse.Namespace) -> None:
     from .data.registry import get_heldout, get_preset
-    from .eval.evaluate import evaluate
-    from .eval.transfer import transfer_one
-    from .model.xeus_ctc import make_model
-    from .train.trainer import train
+    from .stages import RunLockedError, run_lock
 
     # Only flags the caller actually passed become overrides, so an unset flag
     # cannot outrank the YAML with the parser's default.
@@ -243,7 +348,6 @@ def cmd_run(args: argparse.Namespace) -> None:
     cfg = load_config(
         args.arm, args.scale, args.seed, yaml_path=args.config, overrides=overrides or None
     )
-    device = args.device
 
     # Resolve the languages before anything is written. An unpopulated preset
     # raises, and raising after the run directory exists leaves behind the two
@@ -257,23 +361,99 @@ def cmd_run(args: argparse.Namespace) -> None:
         raise SystemExit(f"[svb] {exc}") from exc
 
     out = _run_dir(results_root(args.results_root), cfg.arm, cfg.scale, cfg.seed)
-    out.mkdir(parents=True, exist_ok=True)
+    # The lock comes before everything else that touches the directory. A second
+    # job on the same cell has to find out it is the second before it has
+    # replaced the first one's config, environment record or ledger.
+    try:
+        with run_lock(out):
+            _execute_run(
+                cfg, specs, heldout, out, args.device, resume=args.resume, restart=args.restart
+            )
+    except RunLockedError as exc:
+        raise SystemExit(f"[svb] {exc}") from exc
+
+
+def _execute_run(
+    cfg: ExperimentConfig,
+    specs: list[LangSpec],
+    heldout: list[LangSpec],
+    out: Path,
+    device: str,
+    resume: bool,
+    restart: bool,
+) -> None:
+    """One (arm, scale, seed), with the run directory already held."""
+    import torch
+
+    from .btm.pipeline import build_training_vocab, merge_experts, run_phase0, train_expert
+    from .data.collate import make_ctc_collate
+    from .data.datasets import load_split
+    from .eval.evaluate import evaluate
+    from .eval.transfer import transfer_one
+    from .model.ctc_vocab import CtcVocab
+    from .model.xeus_ctc import make_model
+    from .stages import StageLedger, StageOutput, finished_stages
+    from .train.trainer import train
+
+    finished = finished_stages(out)
+    if finished and not (resume or restart):
+        # Hours of training are behind those stages. Starting over is a decision
+        # and has to be said, not the default meaning of running a command twice.
+        raise SystemExit(
+            f"[svb] {out} already holds {len(finished)} finished stage(s) "
+            f"({', '.join(finished)}). Pass --resume to continue from them, or --restart "
+            "to discard them and start again."
+        )
+    if resume:
+        _require_same_config(out, cfg, [*specs, *heldout])
     dump_config(cfg, out, [*specs, *heldout])
-    dump_run_meta(out, policies=policies_for_specs([*specs, *heldout], cfg.text.override))
+    env_path = dump_run_meta(
+        out, policies=policies_for_specs([*specs, *heldout], cfg.text.override)
+    )
+    ledger = StageLedger(out, cfg.seed, resume=resume, invocation=_invocation(env_path))
+    # Covers what happens between stages. Each stage reseeds itself from the run
+    # seed and its own name, so nothing it draws depends on this call.
     set_all_seeds(cfg.seed)
 
-    vocab, evicted = build_training_vocab(specs, cfg.text, cfg.train.cv_train_source)
+    vocab, evicted = build_training_vocab(specs, cfg.text, cfg.train)
+    if resume and finished and (out / "vocab.json").exists():
+        # The config check cannot see the data. If the corpus under $CV_ROOT has
+        # changed since the finished stages ran, the vocabulary built now maps
+        # ids to different characters than the one their checkpoints were
+        # trained with — and at the same size that would load without a word.
+        recorded = CtcVocab.load(out / "vocab.json")
+        if recorded.id_to_char != vocab.id_to_char:
+            raise SystemExit(
+                f"[svb] cannot resume {out}: the training vocabulary built from the data now "
+                f"({vocab.size} entries) is not the one its finished stages were trained with "
+                f"({recorded.size} entries). The corpora have changed since; start the run "
+                "again with --restart."
+            )
     vocab.save(out / "vocab.json")
-    write_text_stats(
-        out / "text_stats.json",
-        specs,
-        heldout,
-        cfg.text,
-        vocab,
-        evicted,
-        cfg.train.cv_train_source,
-    )
+    write_text_stats(out / "text_stats.json", specs, heldout, cfg.text, vocab, evicted, cfg.train)
     results = run_manifest(cfg, specs, heldout)
+    # Two more things the config cannot see, remembered in the ledger and
+    # checked on resume: which utterances the caps kept, and which checkpoint
+    # file — by digest, since a path can name a different file tomorrow.
+    results["data"] = _consistent_on_resume(
+        ledger, "data", hours_cap_records(cfg, [*specs, *heldout]), resume and bool(finished)
+    )
+    _consistent_on_resume(
+        ledger,
+        "xeus_checkpoint_sha256",
+        # Arm C never reads it; hashing gigabytes to refuse a resume over a file
+        # the run did not use would be a refusal about nothing.
+        file_sha256(cfg.model.xeus_checkpoint)
+        if cfg.init == "ssl" and cfg.model.xeus_checkpoint
+        else None,
+        resume and bool(finished),
+    )
+    # results.json is what marks a seed as finished, and it is rewritten when
+    # this invocation finishes. Left in place, one from an earlier attempt would
+    # let a run that is halfway through being redone be aggregated as complete.
+    # Removed only now, after every check that could still refuse: a finished
+    # run that is refused a resume keeps its result.
+    (out / "results.json").unlink(missing_ok=True)
     # Two collates: training truncates long audio and drops the transcripts that
     # no longer fit, evaluation does neither — a truncated test utterance scored
     # against its full reference is a fabricated error rate.
@@ -282,89 +462,147 @@ def cmd_run(args: argparse.Namespace) -> None:
     )
     eval_collate = make_ctc_collate(vocab)
 
+    def trained(result: TrainResult) -> StageOutput:
+        """A finished training stage: its record, and the checkpoint it names.
+
+        The checkpoint path is stored as the trainer returned it, relative to
+        the run, and later stages read it back from the record — not from a
+        path re-derived here, which would be a second source of truth for it.
+        """
+        record = {**training_record(result), "checkpoint": os.path.relpath(result.checkpoint, out)}
+        return StageOutput(result=record, artifacts=[result.checkpoint])
+
+    def scored(model: XeusCTC, spec: LangSpec) -> StageOutput:
+        sidecar = _predictions_path(out, spec.code)
+        result = evaluate(
+            model,
+            load_split(cfg, spec, "test"),
+            vocab,
+            eval_collate,
+            device,
+            cfg.optim.batch_size,
+            save_predictions=sidecar,
+            spec=spec,
+        )
+        return StageOutput(result=metrics_record(result), artifacts=[sidecar])
+
     results["training"] = {}
     if cfg.uses_btm:
-        phase0_result = run_phase0(cfg, specs, vocab, out / "phase0", device)
-        phase0 = phase0_result.checkpoint
-        results["training"]["phase0"] = training_record(phase0_result)
-        expert_results = train_experts(cfg, phase0, specs, vocab, out / "experts", device)
-        for code, expert in expert_results.items():
-            results["training"][f"expert_{code}"] = training_record(expert)
-        experts = {code: expert.checkpoint for code, expert in expert_results.items()}
-        merged_path = merge_experts(
-            experts,
-            cfg.merge_strategy,
-            out / "merged",
-            base_ckpt=phase0,
-            seed=cfg.seed,
-            merge_head=cfg.merge_head,
+        phase0 = ledger.run(
+            "phase0",
+            lambda seed: trained(
+                run_phase0(cfg, specs, vocab, out / "phase0", device, data_seed=seed)
+            ),
         )
-        # Evaluate the merged model in-distribution on every language's test split.
-        merged_model = make_model(cfg, vocab.size)
-        merged_model.load_state_dict(torch.load(merged_path, map_location=device))
+        results["training"]["phase0"] = phase0
+        phase0_ckpt = out / phase0["checkpoint"]
+
+        experts: dict[str, Path] = {}
         for spec in specs:
-            test_ds = load_language(spec, "test", None)
-            r = evaluate(
-                merged_model,
-                test_ds,
-                vocab,
-                eval_collate,
-                device,
-                cfg.optim.batch_size,
-                save_predictions=_predictions_path(out, spec.code),
-                spec=spec,
+
+            def expert(spec: LangSpec, seed: int) -> StageOutput:
+                return trained(
+                    train_expert(
+                        cfg, phase0_ckpt, spec, vocab, out / "experts", device, data_seed=seed
+                    )
+                )
+
+            record = ledger.run(f"expert_{spec.code}", partial(expert, spec))
+            results["training"][f"expert_{spec.code}"] = record
+            experts[spec.code] = out / record["checkpoint"]
+
+        def merge(seed: int) -> StageOutput:
+            path = merge_experts(
+                experts,
+                cfg.merge_strategy,
+                out / "merged",
+                base_ckpt=phase0_ckpt,
+                seed=seed,
+                merge_head=cfg.merge_head,
             )
-            results["in_distribution"][spec.code] = {
-                "wer": r.wer,
-                "cer": r.cer,
-                "n": r.n,
-                "n_empty_refs": r.n_empty_refs,
-            }
+            return StageOutput(result={"checkpoint": os.path.relpath(path, out)}, artifacts=[path])
+
+        merged_path = out / ledger.run("merge", merge)["checkpoint"]
+
+        # Evaluate the merged model in-distribution on every language's test
+        # split. Built once and only if some evaluation still has to run: a
+        # resume that has them all should not load the encoder to do nothing.
+        merged_models: list[XeusCTC] = []
+
+        def score_merged(spec: LangSpec, seed: int) -> StageOutput:
+            if not merged_models:
+                model = make_model(cfg, vocab.size)
+                model.load_state_dict(torch.load(merged_path, map_location=device))
+                merged_models.append(model)
+            return scored(merged_models[0], spec)
+
+        for spec in specs:
+            results["in_distribution"][spec.code] = ledger.run(
+                f"eval_{spec.code}", partial(score_merged, spec)
+            )
+        merged_models.clear()
         transfer_init: Path | None = merged_path
     else:
         # Arm A: independent per-language fine-tune from the SSL encoder.
         for spec in specs:
-            model = make_model(cfg, vocab.size)
-            lang_dir = out / "finetune" / spec.code
-            tr = load_language(
-                spec, "train", cfg.train.max_audio_samples, train_source=cfg.train.cv_train_source
+
+            def finetune(spec: LangSpec, seed: int) -> StageOutput:
+                return trained(
+                    train(
+                        make_model(cfg, vocab.size),
+                        cfg,
+                        load_split(cfg, spec, "train"),
+                        load_split(cfg, spec, "validation"),
+                        train_collate,
+                        cfg.train.finetune_epochs,
+                        out / "finetune" / spec.code,
+                        device,
+                        data_seed=seed,
+                    )
+                )
+
+            record = ledger.run(f"finetune_{spec.code}", partial(finetune, spec))
+            results["training"][f"finetune_{spec.code}"] = record
+
+            def score_finetuned(spec: LangSpec, checkpoint: Path, seed: int) -> StageOutput:
+                model = make_model(cfg, vocab.size)
+                model.load(checkpoint)
+                return scored(model, spec)
+
+            results["in_distribution"][spec.code] = ledger.run(
+                f"eval_{spec.code}", partial(score_finetuned, spec, out / record["checkpoint"])
             )
-            va = load_language(spec, "validation", cfg.train.max_audio_samples)
-            res = train(
-                model, cfg, tr, va, train_collate, cfg.train.finetune_epochs, lang_dir, device
-            )
-            results["training"][f"finetune_{spec.code}"] = training_record(res)
-            model.load(res.checkpoint)
-            test_ds = load_language(spec, "test", None)
-            r = evaluate(
-                model,
-                test_ds,
-                vocab,
-                eval_collate,
-                device,
-                cfg.optim.batch_size,
-                save_predictions=_predictions_path(out, spec.code),
-                spec=spec,
-            )
-            results["in_distribution"][spec.code] = {
-                "wer": r.wer,
-                "cer": r.cer,
-                "n": r.n,
-                "n_empty_refs": r.n_empty_refs,
-            }
         transfer_init = None  # arm A transfers from the bare SSL encoder
 
     # Held-out transfer (all arms).
     results["transfer"] = {}
     for held in heldout:
-        transferred = transfer_one(
-            cfg, transfer_init, vocab, held, out / "transfer" / held.code, device
-        )
-        # to_record carries the derived split's policy and test-set digest
-        # alongside the metrics: the held-out corpora ship no partition, so
-        # which utterances were scored is part of the number.
-        results["transfer"][held.code] = transferred.to_record()
 
+        def transfer(held: LangSpec, seed: int) -> StageOutput:
+            transfer_dir = out / "transfer" / held.code
+            transferred = transfer_one(
+                cfg, transfer_init, vocab, held, transfer_dir, device, data_seed=seed
+            )
+            artifacts = [transfer_dir / "predictions.json"]
+            training: dict[str, Any] = {}
+            if transferred.training is not None:
+                training = trained(transferred.training).result
+                artifacts.append(transferred.training.checkpoint)
+            # to_record carries the derived split's policy and test-set digest
+            # alongside the metrics: the held-out corpora ship no partition, so
+            # which utterances were scored is part of the number.
+            return StageOutput(
+                result={"metrics": transferred.to_record(), "training": training},
+                artifacts=artifacts,
+            )
+
+        record = ledger.run(f"transfer_{held.code}", partial(transfer, held))
+        results["transfer"][held.code] = record["metrics"]
+        results["training"][f"transfer_{held.code}"] = record["training"]
+
+    # Which stages ran in which invocation, what each cost in wall-clock time,
+    # and the code version of every invocation that contributed.
+    results.update(ledger.summary())
     (out / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=2))
     print(f"[svb] wrote {out / 'results.json'}")
 
@@ -493,7 +731,27 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--arm", required=True, choices=ARMS)
     r.add_argument("--scale", required=True, choices=SCALES)
     r.add_argument("--seed", type=int, required=True)
-    r.add_argument("--config", default=None, help="optional base YAML")
+    r.add_argument(
+        "--config",
+        action="append",
+        default=None,
+        help="YAML of settings; repeatable, each layered over the last "
+        "(e.g. --config configs/base.yaml --config configs/studies/small.yaml)",
+    )
+    # Both opt-in. A run directory with finished stages is neither reused nor
+    # discarded unless the caller says which: reusing by accident mixes two
+    # attempts, and discarding by accident throws away GPU-days.
+    again = r.add_mutually_exclusive_group()
+    again.add_argument(
+        "--resume",
+        action="store_true",
+        help="continue a run from the stages it already finished (see stages.json)",
+    )
+    again.add_argument(
+        "--restart",
+        action="store_true",
+        help="discard the stages a run already finished and start it again",
+    )
     r.add_argument(
         "--merge-strategy",
         dest="merge_strategy",

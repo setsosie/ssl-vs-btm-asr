@@ -348,6 +348,46 @@ class ScriptedLossCTC(XeusCTC):
         return {"loss": anchor.detach() + self.val_losses[index]}
 
 
+#: Samples per output frame of :class:`TinyCTC`, matching the real encoder's
+#: 20 ms hop so the collate's frame budget means the same thing for both.
+TINY_FRAME = 320
+
+
+class _TinyEncoder(nn.Module):
+    """One linear layer over 20 ms frames, behind the real encoder's ``encode``."""
+
+    def __init__(self, hidden_size: int) -> None:
+        super().__init__()
+        self.proj = nn.Linear(TINY_FRAME, hidden_size)
+        self.gradient_checkpointing = False
+
+    def encode(
+        self, wavs: torch.Tensor, lengths: torch.Tensor, use_final_output: bool = True
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        bsz, n_samples = wavs.shape
+        frames = n_samples // TINY_FRAME
+        framed = wavs[:, : frames * TINY_FRAME].reshape(bsz, frames, TINY_FRAME)
+        return torch.tanh(self.proj(framed)), torch.div(lengths, TINY_FRAME, rounding_mode="floor")
+
+
+class TinyCTC(XeusCTC):
+    """A model that really trains, a few hundred parameters wide.
+
+    Only the encoder is replaced. ``forward``, the CTC loss, ``expand_head``,
+    ``save`` and ``load`` are the real ``XeusCTC`` ones, so a run driven with
+    this exercises every line of the pipeline that is not the 577M-parameter
+    encoder itself: training, checkpoint selection, merging state dicts,
+    growing the head for a held-out language, decoding and scoring.
+    """
+
+    def __init__(self, vocab_size: int, hidden_size: int = 8) -> None:
+        nn.Module.__init__(self)
+        self.encoder = _TinyEncoder(hidden_size)  # type: ignore[assignment]
+        self.hidden_size = hidden_size
+        self.ctc_norm = nn.LayerNorm(hidden_size)
+        self.ctc_proj = nn.Linear(hidden_size, vocab_size)
+
+
 def wav_for(vocab: CtcVocab, text: str) -> torch.Tensor:
     """Waveform that makes :class:`FakeXeusCTC` emit ``text`` verbatim."""
     return torch.tensor([float(i) for i in vocab.encode(text)], dtype=torch.float32)

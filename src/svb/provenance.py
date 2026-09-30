@@ -82,6 +82,15 @@ def _versions() -> dict[str, str]:
     return versions
 
 
+def file_sha256(path: str | Path) -> str:
+    """SHA-256 of a file, streamed — checkpoints are gigabytes."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _uv_lock_sha256(root: Path) -> str | None:
     """Hash of the resolved dependency set, when the project pins one.
 

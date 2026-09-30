@@ -18,20 +18,17 @@ counted in ``n_missing`` and left out of the total instead of being guessed at.
 
 from __future__ import annotations
 
-import csv
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from ..data.audio import audio_seconds
-from ..data.commonvoice_local import DEFAULT_TRAIN_SOURCE
+from ..data.commonvoice_local import CLIP_DURATIONS, DEFAULT_TRAIN_SOURCE, read_clip_durations
 from ..data.registry import LangSpec
 from .tables import fmt_value, render_table
 
 SPLITS = ("train", "validation", "test")
-#: Common Voice's own per-clip duration manifest, shipped since release 16.1.
-CLIP_DURATIONS = "clip_durations.tsv"
 # How a language's durations were obtained, recorded per row so a reader can see
 # which numbers are the release's own and which were measured from files.
 _HEADERS = "audio headers"
@@ -107,37 +104,12 @@ class LanguageDuration:
         return train.hours if train else 0.0
 
 
-def _read_clip_durations(path: Path) -> dict[str, float]:
-    """``clip`` → seconds, from Common Voice's own manifest.
-
-    The release documents ``clip`` as the clip filename and the split tsvs'
-    ``path`` as the relative path of the audio file. In every release checked
-    those are the same bare filename, which is what makes the join below work.
-    The tests here validate against a fixture written from that documentation
-    rather than against a real release, so a release that put a directory prefix
-    in ``path`` would miss every lookup — reported as ``n_missing`` and as an
-    "undercount" line in the table, not silently absorbed into the totals.
-    """
-    durations: dict[str, float] = {}
-    with open(path, encoding="utf-8", newline="") as handle:
-        for row in csv.DictReader(handle, delimiter="\t", quoting=csv.QUOTE_NONE):
-            clip = (row.get("clip") or "").strip()
-            raw = (row.get("duration[ms]") or "").strip()
-            if not clip or not raw:
-                continue
-            try:
-                durations[clip] = float(raw) / 1000.0
-            except ValueError:
-                continue
-    return durations
-
-
 def _commonvoice(spec: LangSpec, train_source: str) -> LanguageDuration:
     from ..data.commonvoice_local import cv_split_dir, load_cv_rows, select_train_rows
 
     base = cv_split_dir(spec.hf_config)
     manifest = base / CLIP_DURATIONS
-    declared = _read_clip_durations(manifest) if manifest.exists() else {}
+    declared = read_clip_durations(manifest) if manifest.exists() else {}
     # Only worth reporting when the language is actually there. If the whole
     # directory is missing, the manifest is the least of it and the read below
     # raises with a message that says so.

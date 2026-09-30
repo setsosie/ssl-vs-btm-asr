@@ -11,13 +11,20 @@
 # would drift from the results themselves whenever SVB_RESULTS_ROOT is set.
 # Redirect with `sbatch --output=...` if the logs belong somewhere else.
 #SBATCH --output=slurm-svb-%j.out
-# Single (arm, scale, seed) run on one GPU. Args are forwarded to `svb run`:
-#   sbatch scripts/slurm/run_one.sbatch --arm A_ssl --scale 3 --seed 0
+# Single (arm, scale, seed) run on one GPU. Args are forwarded to `svb run`;
+# the cells come from scripts/run_matrix.py, which is where the seeds live:
+#   python scripts/run_matrix.py --scale 3 | while read -r cell; do
+#       STUDY=small sbatch scripts/slurm/run_one.sbatch $cell
+#   done
 # Independent jobs run in parallel across GPUs (no DDP within a job).
 #
-# NOTE: --cpus-per-task above must exceed train.num_workers in the config.
-# They are currently both 8, which leaves the main process sharing a core with
-# a loader worker. Either raise --cpus-per-task to 9 or lower num_workers to 7.
+# STUDY names an overlay in configs/studies/ laid over configs/base.yaml.
+#
+# A run rarely fits in one job under a wall-clock limit, so every job resumes:
+# submitting the same cell again continues from the last finished stage, and on
+# a fresh run directory --resume is a no-op. Pass --restart to discard a run's
+# finished stages instead; the two exclude each other and only one is added.
+# Submit from the repository root.
 set -euo pipefail
 
 : "${XEUS_CHECKPOINT:?set XEUS_CHECKPOINT to the espnet/xeus checkpoint path}"
@@ -30,11 +37,13 @@ set -euo pipefail
 # --merge-strategy only means something for the BTM arms, so read the arm out
 # of the forwarded arguments rather than passing a strategy to arm A.
 arm=""
+again=(--resume)
 args=("$@")
 for i in "${!args[@]}"; do
     case "${args[i]}" in
         --arm) arm="${args[i + 1]:-}" ;;
         --arm=*) arm="${args[i]#--arm=}" ;;
+        --restart) again=() ;;
     esac
 done
 
@@ -43,10 +52,18 @@ case "$arm" in
     B_btm_ssl | C_btm_scratch) merge_args=(--merge-strategy "${MERGE_STRATEGY:-average}") ;;
 esac
 
+config_args=(--config configs/base.yaml)
+if [[ -n "${STUDY:-}" ]]; then
+    overlay="configs/studies/${STUDY}.yaml"
+    [[ -f "$overlay" ]] || { echo "STUDY=${STUDY}: no such overlay ${overlay}" >&2; exit 2; }
+    config_args+=(--config "$overlay")
+fi
+
 # "$@" goes last: argparse takes the last occurrence of an option, so a caller
 # passing --device cpu must be able to override the default below.
 uv run svb run \
-    --config configs/base.yaml \
+    "${config_args[@]}" \
     --device cuda \
+    ${again[@]+"${again[@]}"} \
     ${merge_args[@]+"${merge_args[@]}"} \
     "$@"

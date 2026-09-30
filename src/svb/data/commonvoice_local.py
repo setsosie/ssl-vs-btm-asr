@@ -71,13 +71,15 @@ from typing import Literal
 import torch
 from torch.utils.data import Dataset
 
-from .audio import load_waveform
+from .audio import audio_seconds, load_waveform
 
 _SPLIT_FILE = {"train": "train.tsv", "validation": "dev.tsv", "test": "test.tsv"}
 #: Every clip with two or more validations and more up-votes than down-votes.
 VALIDATED_FILE = "validated.tsv"
 #: The split files a training clip must be kept clear of, by path and by speaker.
 _EVAL_FILES = ("dev.tsv", "test.tsv")
+#: Common Voice's own per-clip duration manifest, shipped since release 16.1.
+CLIP_DURATIONS = "clip_durations.tsv"
 
 TrainSource = Literal["train", "validated_minus_eval"]
 TRAIN_SOURCES: tuple[TrainSource, ...] = ("train", "validated_minus_eval")
@@ -124,6 +126,31 @@ def _read_full_rows(tsv: Path, text_column: str) -> list[CvRow]:
                     CvRow(path=path, text=text, client_id=(record.get("client_id") or "").strip())
                 )
     return rows
+
+
+def read_clip_durations(path: Path) -> dict[str, float]:
+    """``clip`` → seconds, from Common Voice's own manifest.
+
+    The release documents ``clip`` as the clip filename and the split tsvs'
+    ``path`` as the relative path of the audio file. In every release checked
+    those are the same bare filename, which is what makes a join on it work.
+    That has been validated against a fixture written from the documentation
+    rather than against a real release, so a release that put a directory prefix
+    in ``path`` would miss every lookup — which the callers report as a missing
+    duration rather than absorb into a total.
+    """
+    durations: dict[str, float] = {}
+    with open(path, encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle, delimiter="\t", quoting=csv.QUOTE_NONE):
+            clip = (row.get("clip") or "").strip()
+            raw = (row.get("duration[ms]") or "").strip()
+            if not clip or not raw:
+                continue
+            try:
+                durations[clip] = float(raw) / 1000.0
+            except ValueError:
+                continue
+    return durations
 
 
 def _read_rows(tsv: Path, text_column: str) -> list[tuple[str, str]]:
@@ -282,6 +309,19 @@ class CommonVoiceLocal(Dataset):
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, str, str]:
         fname, text = self._rows[idx]
         return load_waveform(self._clips / fname, self._max), text, self.lang
+
+    def utterance_seconds(self) -> list[tuple[str, float | None]]:
+        """``(clip filename, seconds)`` per row, in row order, with no decode.
+
+        From the release's own duration manifest when it ships one; otherwise
+        from the audio headers, which is one file open per clip and slow over a
+        large language.
+        """
+        manifest = self._clips.parent / CLIP_DURATIONS
+        declared = read_clip_durations(manifest) if manifest.exists() else {}
+        if declared:
+            return [(fname, declared.get(fname)) for fname, _ in self._rows]
+        return [(fname, audio_seconds(self._clips / fname)) for fname, _ in self._rows]
 
 
 def load_cv_texts(

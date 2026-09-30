@@ -10,7 +10,8 @@ results/<arm>/<scale>/seed<N>/
     env.json                 git SHA, library and Unicode versions, GPU
     text_stats.json          what normalization did, per language and split
     vocab.json               the character vocabulary and its policy
-    results.json             the metrics
+    stages.json              which stages have finished, for --resume
+    results.json             the metrics; written last, so it marks a finished run
     predictions/<lang>.json  per-utterance references and hypotheses
     transfer/<lang>/
         predictions.json     the same, for a held-out language
@@ -44,13 +45,78 @@ the code when the tree was dirty, which is why the flag sits beside it.
 were scored is part of the number, and the digest pins it.
 
 It also holds a `training` section, one entry per stage — `phase0`,
-`expert_<lang>` for the BTM arms, `finetune_<lang>` for arm A. Each records the
+`expert_<lang>` for the BTM arms, `finetune_<lang>` for arm A, and
+`transfer_<lang>` for every arm's held-out fine-tunes. Each records the
 best validation loss and the epoch it came from, how many epochs actually ran,
-and two counts that separate the split from what the model saw:
+the checkpoint it selected, and two counts that separate the split from what the
+model saw:
 `n_dropped_unalignable` (pairs whose transcript is longer than the encoder's
 frame budget, which CTC cannot align) and `n_at_audio_guard` (utterances the
 training-time truncation guard clipped). Both are counted over the first epoch,
 which is the size of the effect on the split.
+
+`data` records what an hours cap kept of each language's training and validation
+audio — rows and hours available and selected, and a digest of the selection —
+or says that no cap was set. See `data.md`.
+
+`stages` lists every stage in the order it ran, with the seed it was given, its
+wall-clock time, and which invocation ran it. `invocations` lists every process
+that contributed to the run, with its git SHA and dirty flag. A run that was
+never interrupted has one; a run resumed across a code change has two SHAs, and
+that is visible here rather than only in a scheduler log.
+
+## Stages and resuming
+
+A run is a fixed sequence of stages, and `stages.json` records each as it
+finishes:
+
+| Arm | Stages, in order |
+|---|---|
+| A | `finetune_<lang>`, `eval_<lang>` per training language; then `transfer_<lang>` per held-out language |
+| B, C | `phase0`; `expert_<lang>` per language; `merge`; `eval_<lang>` per language; then `transfer_<lang>` per held-out language |
+
+`svb run --resume` skips the stages already recorded and continues;
+`svb run --restart` discards them and starts clean. A run directory that holds
+finished stages refuses to run without one or the other, because reusing them by
+accident mixes two attempts and discarding them by accident throws away
+GPU-days. Four rules keep a resumed run honest:
+
+- A stage is reused only if the files it wrote — its checkpoint, its predictions
+  — are still there.
+- Once any stage has been run again, every later stage is too. They were
+  computed from the version that was replaced. Arm A's per-language stages
+  are independent of one another, and the rule still applies to them: losing
+  the first language's checkpoint re-runs every language after it. That is the
+  price of one rule that is right for the BTM arms, where the dependency is
+  real, and it is a re-run, not a fault.
+- A record is withdrawn from the ledger before its stage is run again. The
+  trainer writes a checkpoint as soon as it starts, so a re-run killed partway
+  leaves a file where the old record says a finished one is.
+- A run is not resumed under a different configuration, over data that no
+  longer builds the same vocabulary or the same capped subset, or from a
+  different checkpoint. The first check compares against the
+  `resolved_config.yaml` the earlier invocation wrote and names the settings
+  that differ; `train.num_workers` is exempt, since it changes how fast a run
+  goes and not what it computes, and so is the checkpoint *path*, because the
+  checkpoint is identified by its digest instead. The rest are facts the first
+  invocation recorded in `stages.json` — the vocabulary in `vocab.json`, the
+  cap's per-language subset digests, the checkpoint's SHA-256 — and a resume
+  refuses when what it finds now differs.
+
+A run directory belongs to one process at a time: `svb run` holds a lock on it
+(`.lock`, an advisory `flock`, released by the kernel when the process dies) and
+a second process is refused before it has written anything. Two jobs on one
+cell would train the same stages into the same files.
+
+Each stage is seeded from the run seed and its own name, so a stage draws the
+same random stream whether the stages before it ran in this process or were read
+back. A resumed run is therefore equivalent in distribution to an uninterrupted
+one. It is not bit-identical to it, and neither are two uninterrupted runs.
+
+`results.json` is removed when a run starts and written when it finishes, so its
+presence means the run is complete. The reporting commands count a seed only if
+it has one.
+
 **`text_stats.json`** is the evidence for the normalization policy, per language
 and split: utterance and character counts before and after, how many utterances
 normalized to nothing, the median whitespace tokens per utterance beside the

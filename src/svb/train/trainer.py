@@ -23,6 +23,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from ..config import ExperimentConfig
 from ..model.xeus_ctc import XeusCTC
+from ..seeding import derive_seed
 
 
 @dataclass
@@ -47,12 +48,16 @@ def make_worker_init_fn(seed: int) -> Callable[[int], None]:
     Workers are forked after the parent has been seeded, so without this they
     all inherit the same Python and NumPy state. Torch reseeds its own
     generator per worker; ``random`` and ``numpy`` are the two it leaves alone.
+
+    The worker seed is hashed from the run seed and the worker id, not their
+    sum: with ``seed + worker_id``, worker 1 of one run and worker 0 of the run
+    seeded one higher would share a stream.
     """
 
     def init(worker_id: int) -> None:
-        worker_seed = seed + worker_id
+        worker_seed = derive_seed(seed, "worker", worker_id)
         random.seed(worker_seed)
-        np.random.seed(worker_seed % (2**32))
+        np.random.seed(worker_seed)
 
     return init
 
@@ -81,8 +86,14 @@ def train(
     max_epochs: int,
     out_dir: Path,
     device: str = "cuda",
+    data_seed: int | None = None,
 ) -> TrainResult:
     """Train ``model`` on ``train_ds``, selecting the best-val checkpoint.
+
+    ``data_seed`` seeds the shuffle order and the loader workers; it defaults
+    to the run seed, and a run passes each stage its own so that data order,
+    like everything else a stage draws, is a function of the run seed and the
+    stage's name alone.
 
     Selection is on validation loss, not WER; with CTC the two can diverge, so
     the choice is part of the reported protocol. An epoch-0 checkpoint is always
@@ -112,6 +123,7 @@ def train(
             f">= max_epochs={max_epochs}"
         )
 
+    seed = cfg.seed if data_seed is None else data_seed
     train_loader = DataLoader(
         train_ds,
         batch_size=cfg.optim.batch_size,
@@ -122,8 +134,8 @@ def train(
         # A split smaller than one batch would otherwise yield no batches at
         # all, collapsing the LR schedule and training on nothing.
         drop_last=n_train >= cfg.optim.batch_size,
-        generator=torch.Generator().manual_seed(cfg.seed),
-        worker_init_fn=make_worker_init_fn(cfg.seed),
+        generator=torch.Generator().manual_seed(seed),
+        worker_init_fn=make_worker_init_fn(seed),
     )
     val_loader = DataLoader(
         val_ds,
@@ -131,7 +143,7 @@ def train(
         shuffle=False,
         num_workers=cfg.train.num_workers,
         collate_fn=collate,
-        worker_init_fn=make_worker_init_fn(cfg.seed),
+        worker_init_fn=make_worker_init_fn(seed),
     )
 
     opt = torch.optim.AdamW(
