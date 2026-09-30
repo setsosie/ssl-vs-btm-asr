@@ -9,6 +9,12 @@ Two distinct variance sources are reported, never conflated:
 
 Paired permutation compares two systems on the *same* utterances.
 
+A claim that one *arm* beats another is a claim about both at once: it has to
+survive retraining and it has to survive a different draw of test utterances.
+``multibootstrap`` is the statistic for that claim. It resamples the seeds of
+each arm and the utterances of each language in the same draw, so its interval
+carries both sources, which neither of the two above does alone.
+
 Tokenization is a parameter, not a constant. Whitespace tokenization of a
 script written without spaces gives one token per sentence, so a word-level
 interval for Japanese would be an interval on a number that can only be 0 or
@@ -26,6 +32,7 @@ test set finish.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -89,6 +96,17 @@ def _edit_counts(
         edits[i] = Levenshtein.distance(ref_tokens, _tokens(h, tokenize))
         lengths[i] = len(ref_tokens)
     return edits, lengths
+
+
+def edit_counts(
+    refs: list[str], hyps: list[str], tokenize: Tokenization = "word"
+) -> tuple[np.ndarray, np.ndarray]:
+    """Per-utterance ``(edit distance, reference length)`` as two arrays.
+
+    What every statistic here is computed from. Public because a comparison
+    across many runs wants to align each run once and resample the counts.
+    """
+    return _edit_counts(refs, hyps, tokenize)
 
 
 def corpus_error_rate(refs: list[str], hyps: list[str], tokenize: Tokenization = "word") -> float:
@@ -177,3 +195,122 @@ def paired_permutation(
         count += int(((signs * diff).sum(axis=1) <= observed).sum())
         done += size
     return (count + 1) / (n + 1)
+
+
+@dataclass(frozen=True)
+class LanguageEdits:
+    """One language's per-utterance edit counts, for every run of two arms.
+
+    Row ``i`` of ``edits_a`` is run ``i`` of arm A, and must be the same run in
+    every language handed to :func:`multibootstrap` together: a seed is one
+    training run covering all of its languages, so resampling seeds means
+    resampling whole runs.
+    """
+
+    lengths: np.ndarray  # (n_utts,) reference lengths, shared by every run
+    edits_a: np.ndarray  # (n_runs_a, n_utts)
+    edits_b: np.ndarray  # (n_runs_b, n_utts)
+
+
+@dataclass(frozen=True)
+class Contrast:
+    """Arm A minus arm B, in percentage points. Negative means A is better."""
+
+    delta: float
+    lo: float
+    hi: float
+    #: Two-sided: twice the smaller share of bootstrap draws on either side of
+    #: zero. A reading of the interval, not an independent test.
+    p_value: float
+
+
+def _mean_rates(edits: np.ndarray, lengths: np.ndarray) -> float:
+    """Mean over runs of the corpus error rate (%)."""
+    return float((100.0 * edits.sum(axis=1) / max(1.0, float(lengths.sum()))).mean())
+
+
+def _contrast(point: float, draws: np.ndarray, ci: float) -> Contrast:
+    n = draws.size
+    below = (int((draws <= 0).sum()) + 1) / (n + 1)
+    above = (int((draws >= 0).sum()) + 1) / (n + 1)
+    return Contrast(
+        delta=point,
+        lo=float(np.percentile(draws, 100 * (1 - ci) / 2)),
+        hi=float(np.percentile(draws, 100 * (1 + ci) / 2)),
+        p_value=min(1.0, 2.0 * min(below, above)),
+    )
+
+
+def multibootstrap(
+    languages: Sequence[LanguageEdits],
+    n: int = 10_000,
+    ci: float = 0.95,
+    seed: int = 42,
+) -> tuple[list[Contrast], Contrast]:
+    """Arm A minus arm B per language, and macro-averaged, with joint intervals.
+
+    Each draw resamples, with replacement, the runs of arm A, the runs of arm B,
+    and the test utterances of every language, then recomputes each arm's mean
+    error rate. This is the Multi-Bootstrap of Sellam et al. (2022, "The
+    MultiBERTs") in its unpaired-seeds, paired-examples form: the two arms
+    share a test set, so one utterance draw serves both, but seed 3 of one arm
+    has nothing to do with seed 3 of the other, so runs are drawn separately.
+
+    Within a draw the run sample is shared across languages and the utterance
+    sample is not. A run is one model evaluated on every language, so its
+    languages move together; the test sets of two languages are different
+    utterances and do not.
+
+    With few runs the interval is approximate and tends to be too narrow —
+    resampling five runs cannot represent more spread than those five show. It
+    is still the honest version of the comparison, because the alternatives
+    each leave one of the two sources of variation out entirely.
+
+    Returns:
+        One contrast per language, in the order given, and the contrast of the
+        unweighted macro-average across them.
+
+    Raises:
+        ValueError: If no language is given, or the languages do not all carry
+            the same number of runs for each arm.
+    """
+    if not languages:
+        raise ValueError("no languages to compare")
+    runs_a = {lang.edits_a.shape[0] for lang in languages}
+    runs_b = {lang.edits_b.shape[0] for lang in languages}
+    if len(runs_a) != 1 or len(runs_b) != 1:
+        raise ValueError(
+            "every language must carry the same runs of each arm; resampling seeds means "
+            "resampling whole runs, and a run missing from one language cannot be drawn"
+        )
+    k_a, k_b = runs_a.pop(), runs_b.pop()
+
+    points = [
+        _mean_rates(lang.edits_a, lang.lengths) - _mean_rates(lang.edits_b, lang.lengths)
+        for lang in languages
+    ]
+    rng = np.random.default_rng(seed)
+    draws = np.empty((len(languages), n), dtype=float)
+    widest = max(lang.lengths.shape[0] for lang in languages)
+    done = 0
+    while done < n:
+        size = _chunk_size(widest, n - done)
+        pick_a = rng.integers(0, k_a, size=(size, k_a))
+        pick_b = rng.integers(0, k_b, size=(size, k_b))
+        for row, lang in enumerate(languages):
+            m = lang.lengths.shape[0]
+            # How many times each utterance was drawn. Equivalent to an index
+            # matrix, and turns every run's resampled edit total into one
+            # matrix product instead of a gather per run.
+            counts = rng.multinomial(m, np.full(m, 1.0 / m), size=size).astype(float)
+            denominator = np.maximum(1.0, counts @ lang.lengths)[:, None]
+            rates_a = 100.0 * (counts @ lang.edits_a.T) / denominator  # (size, k_a)
+            rates_b = 100.0 * (counts @ lang.edits_b.T) / denominator
+            mean_a = np.take_along_axis(rates_a, pick_a, axis=1).mean(axis=1)
+            mean_b = np.take_along_axis(rates_b, pick_b, axis=1).mean(axis=1)
+            draws[row, done : done + size] = mean_a - mean_b
+        done += size
+
+    per_language = [_contrast(points[row], draws[row], ci) for row in range(len(languages))]
+    macro = _contrast(float(np.mean(points)), draws.mean(axis=0), ci)
+    return per_language, macro

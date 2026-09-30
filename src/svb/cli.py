@@ -1,4 +1,4 @@
-"""Command-line entry point: ``svb run|aggregate|analyze|data-stats``.
+"""Command-line entry point: ``svb run|aggregate|analyze|compare|data-stats``.
 
 ``run`` executes one (arm, scale, seed) end to end and writes a single
 ``results.json`` plus ``resolved_config.yaml``, ``env.json``,
@@ -15,6 +15,9 @@ tests between two arms at the same seed. It writes ``tables/``.
 The split between the last two is the point. Seed spread and test-set sampling
 uncertainty are different quantities, and a five-seed standard deviation is not
 a confidence interval.
+
+``compare`` puts the arms side by side and contrasts each pair, with an interval
+that carries both of those quantities at once. It is the table the study is for.
 """
 
 from __future__ import annotations
@@ -661,6 +664,20 @@ def cmd_analyze(args: argparse.Namespace) -> None:
         print(f"[svb] wrote {path}")
 
 
+def cmd_compare(args: argparse.Namespace) -> None:
+    from .report.compare import write_tables
+
+    written = write_tables(
+        results_root(args.results_root),
+        args.scale,
+        args.arms or list(ARMS),
+        Path(args.tables_dir),
+        n_resamples=args.resamples,
+    )
+    for path in written:
+        print(f"[svb] wrote {path}")
+
+
 SCOPES = (*SCALES, "heldout", "all")
 
 
@@ -819,6 +836,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_results_root(n)
     n.set_defaults(func=cmd_analyze)
+
+    c = sub.add_parser(
+        "compare", help="the arms side by side with seed-and-utterance intervals, into tables/"
+    )
+    c.add_argument("--scale", required=True, choices=SCALES)
+    c.add_argument(
+        "--arm",
+        dest="arms",
+        action="append",
+        default=[],
+        choices=ARMS,
+        help="restrict to this arm; repeatable. Default: every arm with finished runs.",
+    )
+    c.add_argument("--tables-dir", dest="tables_dir", default="tables")
+    c.add_argument("--resamples", type=int, default=10_000, help="bootstrap draws (default: 10000)")
+    _add_results_root(c)
+    c.set_defaults(func=cmd_compare)
 
     d = sub.add_parser(
         "data-stats", help="per-language audio hours and utterance counts, into tables/"
