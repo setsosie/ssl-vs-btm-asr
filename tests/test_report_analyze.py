@@ -170,6 +170,7 @@ def test_render_writes_one_markdown_and_one_json_per_metric(
 ):
     out = tmp_path / "tables"
     written = render_metric_tables(
+        arm="A_ssl",
         scale="3",
         runs=[run_with_sidecars / "A_ssl" / "3" / "seed0"],
         comparisons=[],
@@ -177,18 +178,18 @@ def test_render_writes_one_markdown_and_one_json_per_metric(
         n_resamples=200,
     )
 
-    assert (out / "3_wer.md").exists()
-    assert (out / "3_wer.json").exists()
-    assert (out / "3_cer.md").exists()
+    assert (out / "3_A_ssl_wer.md").exists()
+    assert (out / "3_A_ssl_wer.json").exists()
+    assert (out / "3_A_ssl_cer.md").exists()
     assert set(written) == {
-        out / "3_wer.md",
-        out / "3_wer.json",
-        out / "3_cer.md",
-        out / "3_cer.json",
+        out / "3_A_ssl_wer.md",
+        out / "3_A_ssl_wer.json",
+        out / "3_A_ssl_cer.md",
+        out / "3_A_ssl_cer.json",
     }
-    body = (out / "3_wer.md").read_text(encoding="utf-8")
+    body = (out / "3_A_ssl_wer.md").read_text(encoding="utf-8")
     assert "95%" in body and "en" in body
-    payload = json.loads((out / "3_wer.json").read_text(encoding="utf-8"))
+    payload = json.loads((out / "3_A_ssl_wer.json").read_text(encoding="utf-8"))
     assert payload["metric"] == "wer"
     assert payload["scale"] == "3"
 

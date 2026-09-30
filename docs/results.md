@@ -157,7 +157,9 @@ seed to seed. In the JSON, `std_is` records which quantity `std` is,
 `svb analyze` reads the sidecars and reports what the test set leaves uncertain:
 a bootstrap percentile interval per language, and, with `--compare-to`, a
 one-sided paired permutation test against another arm at the same seed. It
-writes `tables/<scale>_wer.{md,json}` and `tables/<scale>_cer.{md,json}`.
+writes `tables/<scale>_<arm>_wer.{md,json}` and `tables/<scale>_<arm>_cer.{md,json}`,
+or `tables/<scale>_<arm>_vs_<other>_…` when comparing, so no arm's tables and no
+comparison's replace another's.
 
 These are different quantities and the split is deliberate. Seed spread measures
 what retraining moves; a bootstrap interval measures what the particular test

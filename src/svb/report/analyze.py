@@ -276,14 +276,22 @@ def _label(run_dir: Path) -> str:
 
 
 def render_metric_tables(
+    arm: str,
     scale: str,
     runs: list[Path],
     comparisons: list[tuple[Path, Path]],
     out_dir: Path,
     n_resamples: int = 10_000,
     seed: int = 42,
+    compare_to: str | None = None,
 ) -> list[Path]:
-    """Write ``<scale>_<metric>.md`` and ``.json`` for each metric.
+    """Write ``<scale>_<arm>[_vs_<other>]_<metric>.md`` and ``.json`` per metric.
+
+    The arm is in the file name because the tables are per arm. Named by scale
+    and metric alone, analysing a second arm replaced the first arm's tables,
+    and a study of three arms could only ever have one of them on disk. The arm
+    compared against is in the name for the same reason: A against B and A
+    against C are two tables.
 
     Returns every path written, so a caller can report exactly what it produced
     rather than describing what it intended to.
@@ -293,6 +301,7 @@ def render_metric_tables(
 
     for metric in METRICS:
         payload: dict[str, Any] = {
+            "arm": arm,
             "scale": scale,
             "metric": metric,
             "tokenization": METRIC_TOKENIZE[metric],
@@ -302,7 +311,7 @@ def render_metric_tables(
             "comparisons": [],
         }
         body = [
-            f"# scale {scale} — {_METRIC_LABEL[metric]}",
+            f"# {arm} — scale {scale} — {_METRIC_LABEL[metric]}",
             "",
             f"Utterance-level bootstrap percentile intervals, {n_resamples} resamples, "
             f"{METRIC_TOKENIZE[metric]}-level tokenization. This is test-set sampling "
@@ -366,8 +375,9 @@ def render_metric_tables(
                 "",
             ]
 
-        md_path = out_dir / f"{scale}_{metric}.md"
-        json_path = out_dir / f"{scale}_{metric}.json"
+        stem = f"{scale}_{arm}_vs_{compare_to}" if compare_to else f"{scale}_{arm}"
+        md_path = out_dir / f"{stem}_{metric}.md"
+        json_path = out_dir / f"{stem}_{metric}.json"
         md_path.write_text("\n".join(body).rstrip() + "\n", encoding="utf-8")
         json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         written += [md_path, json_path]

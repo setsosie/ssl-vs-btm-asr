@@ -649,9 +649,11 @@ def cmd_analyze(args: argparse.Namespace) -> None:
             require_same_policies(left, right)
 
     written = render_metric_tables(
+        arm=args.arm,
         scale=args.scale,
         runs=runs,
         comparisons=comparisons,
+        compare_to=args.compare_to,
         out_dir=Path(args.tables_dir),
         n_resamples=args.resamples,
     )
