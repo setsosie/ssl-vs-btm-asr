@@ -48,7 +48,7 @@ from pathlib import Path
 import torch
 from torch.utils.data import Dataset
 
-from .audio import load_waveform
+from .audio import audio_seconds, load_waveform
 from .registry import LangSpec
 from .splits import SPLITS
 from .splits import derive_splits as _derive_splits
@@ -183,6 +183,10 @@ class ManifestLocal(Dataset):
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, str, str]:
         row = self.rows[idx]
         return load_waveform(self.base / row.path, self._max), row.text, self.spec.code
+
+    def utterance_seconds(self) -> list[tuple[str, float | None]]:
+        """``(utt_id, seconds)`` per row, in row order, read from audio headers."""
+        return [(row.utt_id, audio_seconds(self.base / row.path)) for row in self.rows]
 
 
 def load_manifest_texts(spec: LangSpec, split: str, root: str | None = None) -> list[str]:

@@ -14,11 +14,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from torch import Tensor
-from torch.utils.data import ConcatDataset
+from torch.utils.data import ConcatDataset, Dataset
 
-from ..config import ExperimentConfig, TextConfig
+from ..config import ExperimentConfig, TextConfig, TrainConfig
 from ..data.collate import make_ctc_collate
-from ..data.commonvoice_local import DEFAULT_TRAIN_SOURCE
 from ..data.datasets import load_language, load_texts
 from ..data.registry import LangSpec
 from ..merge.strategy import MERGE_STRATEGIES
@@ -28,12 +27,31 @@ from ..text.registry import policies_for_specs
 from ..train.trainer import TrainResult, train
 
 
+def load_split(cfg: ExperimentConfig, spec: LangSpec, split: str) -> Dataset:
+    """One language's training or validation split, as this run reads it.
+
+    The training source and the hours cap are both part of which rows a run
+    trains on, so every stage takes them from the config through here rather
+    than spelling them out at each call.
+    """
+    return load_language(
+        spec,
+        split,
+        cfg.train.max_audio_samples,
+        train_source=cfg.train.cv_train_source,
+        max_hours=cfg.train.max_hours(split),
+    )
+
+
 def build_training_vocab(
     specs: list[LangSpec],
     text_cfg: TextConfig | None = None,
-    train_source: str = DEFAULT_TRAIN_SOURCE,
+    train_cfg: TrainConfig | None = None,
 ) -> tuple[CtcVocab, dict[str, int]]:
     """Char vocab over all training transcripts across the preset languages.
+
+    Built over exactly the rows the run trains on: ``train_cfg`` carries the
+    training source and the hours cap, and the transcripts are read under both.
 
     Returns the vocab and the ``{character: count}`` map of what the frequency
     floor evicted, which the run records rather than discarding: the floor
@@ -50,10 +68,17 @@ def build_training_vocab(
     while looking merely unconverged.
     """
     text_cfg = text_cfg or TextConfig()
+    train_cfg = train_cfg or TrainConfig()
     policies = policies_for_specs(specs, text_cfg.override)
     items: list[tuple[str, str]] = []
     for spec in specs:
-        items.extend((spec.code, t) for t in load_texts(spec, "train", train_source=train_source))
+        texts = load_texts(
+            spec,
+            "train",
+            train_source=train_cfg.cv_train_source,
+            max_hours=train_cfg.max_hours("train"),
+        )
+        items.extend((spec.code, t) for t in texts)
     vocab, evicted = build_vocab_from_labelled_texts(
         items, policies, min_char_count=text_cfg.min_char_count
     )
@@ -79,15 +104,10 @@ def run_phase0(
         vocab, max_audio_samples=cfg.train.max_audio_samples, drop_overlong=True, drop_empty=True
     )
     train_ds: ConcatDataset[tuple[Tensor, str, str]] = ConcatDataset(
-        [
-            load_language(
-                s, "train", cfg.train.max_audio_samples, train_source=cfg.train.cv_train_source
-            )
-            for s in specs
-        ]
+        [load_split(cfg, s, "train") for s in specs]
     )
     val_ds: ConcatDataset[tuple[Tensor, str, str]] = ConcatDataset(
-        [load_language(s, "validation", cfg.train.max_audio_samples) for s in specs]
+        [load_split(cfg, s, "validation") for s in specs]
     )
     model = make_model(cfg, vocab.size)
     return train(model, cfg, train_ds, val_ds, collate, cfg.train.phase0_epochs, out_dir, device)
@@ -110,10 +130,8 @@ def train_experts(
         model = make_model(cfg, vocab.size)
         model.load(phase0_ckpt)
         lang_dir = out_dir / f"expert_{spec.code}"
-        train_ds = load_language(
-            spec, "train", cfg.train.max_audio_samples, train_source=cfg.train.cv_train_source
-        )
-        val_ds = load_language(spec, "validation", cfg.train.max_audio_samples)
+        train_ds = load_split(cfg, spec, "train")
+        val_ds = load_split(cfg, spec, "validation")
         experts[spec.code] = train(
             model, cfg, train_ds, val_ds, collate, cfg.train.expert_epochs, lang_dir, device
         )

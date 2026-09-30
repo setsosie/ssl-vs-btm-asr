@@ -68,8 +68,8 @@ def test_transfer_loads_the_checkpoint_the_trainer_returned(monkeypatch, tmp_pat
         def expand_head(self, size: int, seed: int = 0) -> None:
             pass
 
-    monkeypatch.setattr(mod, "load_texts", lambda lang, split: ["ab"])
-    monkeypatch.setattr(mod, "load_language", lambda lang, split, max_samples: [])
+    monkeypatch.setattr(mod, "load_texts", lambda lang, split, **rows: ["ab"])
+    monkeypatch.setattr(mod, "load_language", lambda lang, split, max_samples, **rows: [])
     monkeypatch.setattr(mod, "make_model", lambda cfg, vocab_size: _Model())
     monkeypatch.setattr(
         mod,

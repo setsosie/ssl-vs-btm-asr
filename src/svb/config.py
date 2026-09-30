@@ -67,6 +67,20 @@ class TrainConfig:
     # standard recipe and roughly three times the audio. It changes the training
     # set of every Common Voice language, so it is dumped with the config.
     cv_train_source: Literal["train", "validated_minus_eval"] = "validated_minus_eval"
+    # Hours of audio each language contributes to training, and to the
+    # validation pass that runs after every epoch. None reads the whole split.
+    # The subset is drawn by hash, identically for every arm and seed; see
+    # svb.data.hours. The test split is never capped.
+    max_train_hours: float | None = None
+    max_val_hours: float | None = None
+
+    def max_hours(self, split: str) -> float | None:
+        """The cap that applies to ``split``, if any."""
+        if split == "train":
+            return self.max_train_hours
+        if split == "validation":
+            return self.max_val_hours
+        return None
 
 
 @dataclass(frozen=True)

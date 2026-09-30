@@ -28,6 +28,28 @@ Its Common Voice training hours follow `--cv-train-source`, so the audit prices
 the rows a run will actually read rather than a split it may not use. Under the
 default it also reports what the speaker guard removed, per language.
 
+## Capping a split in hours
+
+`train.max_train_hours` and `train.max_val_hours` limit how much audio each
+language contributes to training and to the validation pass that follows every
+epoch. Both are unset in `configs/base.yaml`, which reads whole splits; a study
+sets them in an overlay, as [`configs/studies/small.yaml`](../configs/studies/small.yaml)
+does. The test split is never capped.
+
+Rows are ranked by a SHA-1 of the language code and the row's id — the clip
+filename for Common Voice, the FileID for OpenSLR, `utt_id` for a prepared
+corpus — and taken in that order until the next one would cross the cap. So the
+subset is the same for every arm and every seed, a smaller cap selects a prefix
+of a larger one, and nothing depends on row order or on a library's shuffle.
+Durations come from the same metadata `svb data-stats` reads; a row with no
+readable duration is left out of a capped split and counted.
+
+The cap applies to the transcripts as well as the audio, so the vocabulary and
+`text_stats.json` describe the rows the run trained on. Each run records what
+the cap kept per language and split under `data` in `results.json`: rows and
+hours available and selected, and `subset_sha1`, a digest of the selection. Two
+runs with the same digest trained on the same utterances.
+
 ## Common Voice 25 (`CV_ROOT`)
 
 Since October 2025 Common Voice is distributed only through

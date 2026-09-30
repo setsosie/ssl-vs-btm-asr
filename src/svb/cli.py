@@ -25,7 +25,7 @@ import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from .config import ExperimentConfig, TextConfig, dump_config, load_config
+from .config import ExperimentConfig, TextConfig, TrainConfig, dump_config, load_config
 from .data.commonvoice_local import DEFAULT_TRAIN_SOURCE, TRAIN_SOURCES
 from .provenance import dump_run_meta
 from .seeding import set_all_seeds
@@ -148,7 +148,7 @@ def write_text_stats(
     text_cfg: TextConfig,
     vocab: CtcVocab,
     evicted: dict[str, int],
-    train_source: str = DEFAULT_TRAIN_SOURCE,
+    train_cfg: TrainConfig | None = None,
 ) -> Path:
     """Write the per-language evidence for the normalization policy.
 
@@ -162,10 +162,24 @@ def write_text_stats(
     ``transfer_one``; it is deterministic and reads only text, and scoring
     Telugu against an all-Latin training vocab would report an unknown rate near
     1.0 and bury the number the transfer experiment depends on.
+
+    ``train_cfg`` says which rows each split is — the Common Voice training
+    source and the hours caps — so the statistics describe the transcripts the
+    run trained and validated on rather than the splits they were cut from.
     """
     from .data.datasets import load_texts
     from .model.ctc_vocab import expand_vocab
     from .text.registry import policy_for_language
+
+    train_cfg = train_cfg or TrainConfig()
+
+    def texts(spec: LangSpec, split: str) -> list[str]:
+        return load_texts(
+            spec,
+            split,
+            train_source=train_cfg.cv_train_source,
+            max_hours=train_cfg.max_hours(split),
+        )
 
     languages: dict[str, Any] = {}
     for spec in [*specs, *heldout]:
@@ -176,16 +190,14 @@ def write_text_stats(
         if is_heldout:
             lang_vocab, _, lang_evicted = expand_vocab(
                 vocab,
-                load_texts(spec, "train", train_source=train_source),
+                texts(spec, "train"),
                 spec.code,
                 policy,
                 min_char_count=text_cfg.min_char_count,
             )
         splits: dict[str, Any] = {}
         for split in SPLITS:
-            stats = collect_text_stats(
-                load_texts(spec, split, train_source=train_source), policy, lang_vocab
-            )
+            stats = collect_text_stats(texts(spec, split), policy, lang_vocab)
             if split == "train":
                 stats.evicted_by_floor = lang_evicted
             _warn_on_unknown_characters(spec.code, split, stats)
@@ -202,7 +214,9 @@ def write_text_stats(
         }
 
     payload = {
-        "cv_train_source": train_source,
+        "cv_train_source": train_cfg.cv_train_source,
+        "max_train_hours": train_cfg.max_train_hours,
+        "max_val_hours": train_cfg.max_val_hours,
         "override": text_cfg.override,
         "min_char_count": text_cfg.min_char_count,
         "training_vocab_evicted": evicted,
@@ -213,11 +227,37 @@ def write_text_stats(
     return path
 
 
+def hours_cap_records(cfg: ExperimentConfig, specs: list[LangSpec]) -> dict[str, Any]:
+    """What the hours caps kept of each language's training and validation audio.
+
+    A capped run trained on a subset, and "ten hours of English" does not say
+    which ten. The digest does: two runs that record the same one read the same
+    utterances, which is what lets a reader confirm that every arm and every
+    seed of a study was given the same data.
+    """
+    from .data.datasets import hours_cap_selection
+
+    languages: dict[str, Any] = {}
+    for spec in specs:
+        for split in ("train", "validation"):
+            cap = cfg.train.max_hours(split)
+            if cap is None:
+                continue
+            selection = hours_cap_selection(spec, split, cap, cfg.train.cv_train_source)
+            languages.setdefault(spec.code, {})[split] = selection.to_record()
+    return {
+        "max_train_hours": cfg.train.max_train_hours,
+        "max_val_hours": cfg.train.max_val_hours,
+        "languages": languages,
+    }
+
+
 def cmd_run(args: argparse.Namespace) -> None:
     import torch
 
     from .btm.pipeline import (
         build_training_vocab,
+        load_split,
         merge_experts,
         run_phase0,
         train_experts,
@@ -262,18 +302,11 @@ def cmd_run(args: argparse.Namespace) -> None:
     dump_run_meta(out, policies=policies_for_specs([*specs, *heldout], cfg.text.override))
     set_all_seeds(cfg.seed)
 
-    vocab, evicted = build_training_vocab(specs, cfg.text, cfg.train.cv_train_source)
+    vocab, evicted = build_training_vocab(specs, cfg.text, cfg.train)
     vocab.save(out / "vocab.json")
-    write_text_stats(
-        out / "text_stats.json",
-        specs,
-        heldout,
-        cfg.text,
-        vocab,
-        evicted,
-        cfg.train.cv_train_source,
-    )
+    write_text_stats(out / "text_stats.json", specs, heldout, cfg.text, vocab, evicted, cfg.train)
     results = run_manifest(cfg, specs, heldout)
+    results["data"] = hours_cap_records(cfg, [*specs, *heldout])
     # Two collates: training truncates long audio and drops the transcripts that
     # no longer fit, evaluation does neither — a truncated test utterance scored
     # against its full reference is a fabricated error rate.
@@ -326,10 +359,8 @@ def cmd_run(args: argparse.Namespace) -> None:
         for spec in specs:
             model = make_model(cfg, vocab.size)
             lang_dir = out / "finetune" / spec.code
-            tr = load_language(
-                spec, "train", cfg.train.max_audio_samples, train_source=cfg.train.cv_train_source
-            )
-            va = load_language(spec, "validation", cfg.train.max_audio_samples)
+            tr = load_split(cfg, spec, "train")
+            va = load_split(cfg, spec, "validation")
             res = train(
                 model, cfg, tr, va, train_collate, cfg.train.finetune_epochs, lang_dir, device
             )

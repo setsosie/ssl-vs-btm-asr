@@ -64,7 +64,7 @@ from pathlib import Path
 import torch
 from torch.utils.data import Dataset
 
-from .audio import load_waveform
+from .audio import audio_seconds, load_waveform
 from .registry import LangSpec
 from .splits import SPLITS
 from .splits import derive_splits as _derive_splits
@@ -169,6 +169,10 @@ class OpenSLRLocal(Dataset):
         file_id, text = self.rows[idx]
         wav = load_waveform(self.base / f"{file_id}.wav", self._max)
         return wav, text, self.spec.code
+
+    def utterance_seconds(self) -> list[tuple[str, float | None]]:
+        """``(FileID, seconds)`` per row, in row order, read from WAV headers."""
+        return [(file_id, audio_seconds(self.base / f"{file_id}.wav")) for file_id, _ in self.rows]
 
 
 def load_openslr_texts(spec: LangSpec, split: str, root: str | None = None) -> list[str]:

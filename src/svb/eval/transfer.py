@@ -102,7 +102,12 @@ def transfer_one(
     # treated the way the training languages' tails were.
     new_vocab, _, _ = expand_vocab(
         base_vocab,
-        load_texts(lang, "train"),
+        load_texts(
+            lang,
+            "train",
+            train_source=cfg.train.cv_train_source,
+            max_hours=cfg.train.max_hours("train"),
+        ),
         lang.code,
         policy_for_language(lang.code, lang.normalizer),
         min_char_count=cfg.text.min_char_count,
@@ -119,8 +124,16 @@ def transfer_one(
         drop_empty=True,
     )
     eval_collate = make_ctc_collate(new_vocab)
-    train_ds = load_language(lang, "train", cfg.train.max_audio_samples)
-    val_ds = load_language(lang, "validation", cfg.train.max_audio_samples)
+    train_ds, val_ds = (
+        load_language(
+            lang,
+            split,
+            cfg.train.max_audio_samples,
+            train_source=cfg.train.cv_train_source,
+            max_hours=cfg.train.max_hours(split),
+        )
+        for split in ("train", "validation")
+    )
     # Load the checkpoint the trainer says it wrote, not a path re-derived here:
     # two sources of truth for one filename is how a stale model gets evaluated.
     result = train(
