@@ -125,6 +125,88 @@ def test_a_language_one_run_did_not_evaluate_is_left_out_and_named(root: Path) -
     assert transfer.excluded == ["telugu"]
 
 
+def test_a_language_reported_but_scored_nowhere_is_named_not_dropped(root: Path) -> None:
+    """The arm macros include it and the contrast cannot, and the table has to
+    say so rather than print two macros that are not over the same set."""
+    for arm in ("A_ssl", "B_btm_ssl"):
+        for seed in (11, 22, 33):
+            (root / arm / "3" / f"seed{seed}" / "transfer" / "telugu" / "predictions.json").unlink()
+
+    arms = load_arms(root, "3", ["A_ssl", "B_btm_ssl"])
+    transfer = next(c for c in compare_arms(arms, n_resamples=50) if c.section == "transfer")
+
+    assert transfer.rows == []
+    assert transfer.excluded == ["telugu"]
+
+
+def test_a_sidecar_for_a_language_the_run_did_not_report_is_not_contrasted(root: Path) -> None:
+    """A --restart after a language was dropped from a preset leaves its old
+    sidecar behind; the run's results.json is what says what was scored."""
+    for arm in ("A_ssl", "B_btm_ssl"):
+        for seed in (11, 22, 33):
+            write_sidecar(
+                root / arm / "3" / f"seed{seed}", "stale", [("a b", "a b")] * 4, transfer=False
+            )
+
+    arms = load_arms(root, "3", ["A_ssl", "B_btm_ssl"])
+    in_dist = next(c for c in compare_arms(arms, n_resamples=50) if c.section == "in_distribution")
+
+    assert [row.code for row in in_dist.rows] == ["en"]
+    assert "stale" not in in_dist.excluded
+
+
+def test_an_arm_that_records_no_policies_is_refused(root: Path) -> None:
+    for seed in (11, 22, 33):
+        (root / "B_btm_ssl" / "3" / f"seed{seed}" / "text_stats.json").unlink()
+
+    arms = load_arms(root, "3", ["A_ssl", "B_btm_ssl"])
+    with pytest.raises(ValueError, match="records no per-language policies"):
+        compare_arms(arms, n_resamples=50)
+
+
+def test_every_pair_of_arms_is_checked_for_policy_agreement(tmp_path: Path) -> None:
+    """Checking each arm against the first would let B and C disagree unseen:
+    here A shares no language with either, and only B and C differ."""
+    for arm, code, policy in (
+        ("A_ssl", "de", "whisper-basic"),
+        ("B_btm_ssl", "en", "whisper-basic"),
+        ("C_btm_scratch", "en", "latin-marks"),
+    ):
+        write_run(
+            tmp_path,
+            arm,
+            "3",
+            11,
+            in_dist={code: metrics(1.0, 1.0)},
+            word_boundary={code: True},
+            policies={code: policy},
+        )
+
+    arms = load_arms(tmp_path, "3", ["A_ssl", "B_btm_ssl", "C_btm_scratch"])
+    with pytest.raises(ValueError, match="B_btm_ssl and C_btm_scratch normalized"):
+        compare_arms(arms, n_resamples=50)
+
+
+def test_arms_that_disagree_on_a_primary_metric_say_so_in_the_table(
+    root: Path, tmp_path: Path
+) -> None:
+    """One arm scored Telugu by characters. Its cell is a CER beside a WER, and
+    the row must not carry one arm's label for both."""
+    for seed in (11, 22, 33):
+        run = root / "B_btm_ssl" / "3" / f"seed{seed}"
+        stats = json.loads((run / "text_stats.json").read_text(encoding="utf-8"))
+        stats["languages"]["telugu"]["word_boundary"] = False
+        (run / "text_stats.json").write_text(json.dumps(stats), encoding="utf-8")
+        (run / "transfer" / "telugu" / "predictions.json").unlink()
+
+    out = tmp_path / "tables"
+    write_tables(root, "3", ["A_ssl", "B_btm_ssl"], out, n_resamples=50)
+
+    body = (out / "3_arms.md").read_text(encoding="utf-8")
+    assert "| telugu | CER/WER (arms disagree) |" in body
+    assert "different primary metrics for telugu" in body
+
+
 def test_no_finished_runs_is_an_error_not_an_empty_table(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="no finished runs"):
         load_arms(tmp_path, "3", ["A_ssl"])
@@ -199,6 +281,84 @@ def test_the_macro_is_the_unweighted_mean_over_languages() -> None:
     _, macro = multibootstrap([big, small], n=200)
 
     assert macro.delta == pytest.approx(0.0)
+
+
+def _noisy(rng: np.random.Generator, n_utts: int = 400, rate: float = 0.2) -> np.ndarray:
+    """One run whose per-utterance edit counts vary, so utterances matter."""
+    return rng.binomial(10, rate, size=(1, n_utts)).astype(float)
+
+
+# The four structural claims of the statistic, each pinned by a case that only
+# holds if the claim does. Together they fail under: no utterance resampling,
+# a run pick drawn per language, a separate utterance draw per arm, and a macro
+# taken from one language's draws.
+
+
+def test_utterances_are_resampled() -> None:
+    """One run per arm, so seeds contribute nothing: the interval's width is
+    the utterance draw's, and without one it would be a point."""
+    rng = np.random.default_rng(1)
+    language = LanguageEdits(np.full(400, 10.0), _noisy(rng), _noisy(rng, rate=0.3))
+
+    (contrast,), _ = multibootstrap([language], n=300)
+
+    assert contrast.hi - contrast.lo > 0.5
+
+
+def test_one_utterance_draw_serves_both_arms() -> None:
+    """Two identical arms differ by exactly nothing in every draw — which is
+    only so if the same utterances are drawn for both."""
+    rng = np.random.default_rng(2)
+    edits = _noisy(rng)
+    language = LanguageEdits(np.full(400, 10.0), edits, edits.copy())
+
+    (contrast,), macro = multibootstrap([language], n=300)
+
+    assert (contrast.lo, contrast.hi) == (0.0, 0.0)
+    assert (macro.lo, macro.hi) == (0.0, 0.0)
+
+
+def test_runs_are_drawn_once_for_every_language() -> None:
+    """Two languages with the same per-run rates and no utterance noise give
+    the same draws only if each draw picks the same runs for both."""
+    first = _language([0.30, 0.50, 0.40], [0.20, 0.25, 0.45], n_utts=100)
+    second = _language([0.30, 0.50, 0.40], [0.20, 0.25, 0.45], n_utts=100)
+
+    (one, two), _ = multibootstrap([first, second], n=300)
+
+    assert (one.lo, one.hi) == (two.lo, two.hi)
+
+
+def test_utterance_draws_differ_between_languages() -> None:
+    """Two languages holding the same noisy edits are still different test
+    sets, and their draws must not move together."""
+    rng = np.random.default_rng(3)
+    edits = _noisy(rng)
+    zeros = np.zeros_like(edits)
+    twins = [LanguageEdits(np.full(400, 10.0), edits, zeros) for _ in range(2)]
+
+    (one, two), _ = multibootstrap(twins, n=300)
+
+    assert (one.lo, one.hi) != (two.lo, two.hi)
+
+
+def test_the_macro_draws_are_the_mean_of_the_languages_draws() -> None:
+    """Two languages whose contrasts cancel exactly, with nothing to resample,
+    give a macro of exactly zero — not the first language's interval."""
+    up = _language([0.30], [0.10], n_utts=100)
+    down = _language([0.10], [0.30], n_utts=100)
+
+    (first, _), macro = multibootstrap([up, down], n=200)
+
+    assert (first.lo, first.hi) == pytest.approx((20.0, 20.0))
+    assert (macro.lo, macro.hi) == pytest.approx((0.0, 0.0))
+
+
+def test_a_language_with_no_utterances_is_refused() -> None:
+    empty = LanguageEdits(np.zeros(0), np.zeros((1, 0)), np.zeros((1, 0)))
+
+    with pytest.raises(ValueError, match="no utterances"):
+        multibootstrap([empty], n=10)
 
 
 def test_languages_must_carry_the_same_runs() -> None:

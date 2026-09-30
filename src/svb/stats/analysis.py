@@ -284,6 +284,12 @@ def multibootstrap(
             "resampling whole runs, and a run missing from one language cannot be drawn"
         )
     k_a, k_b = runs_a.pop(), runs_b.pop()
+    empty = [i for i, lang in enumerate(languages) if lang.lengths.shape[0] == 0]
+    if empty:
+        raise ValueError(
+            f"language(s) at position(s) {empty} have no utterances; a sidecar with no "
+            "pairs is not a scored language"
+        )
 
     points = [
         _mean_rates(lang.edits_a, lang.lengths) - _mean_rates(lang.edits_b, lang.lengths)
@@ -299,10 +305,13 @@ def multibootstrap(
         pick_b = rng.integers(0, k_b, size=(size, k_b))
         for row, lang in enumerate(languages):
             m = lang.lengths.shape[0]
-            # How many times each utterance was drawn. Equivalent to an index
-            # matrix, and turns every run's resampled edit total into one
-            # matrix product instead of a gather per run.
-            counts = rng.multinomial(m, np.full(m, 1.0 / m), size=size).astype(float)
+            # One utterance draw per language, used for both arms and every
+            # run. Drawn as indices and counted, which is the same multinomial
+            # as ``rng.multinomial`` draws one category at a time; the count
+            # matrix then turns every run's resampled total into one matrix
+            # product instead of a gather per run.
+            idx = rng.integers(0, m, size=(size, m))
+            counts = np.stack([np.bincount(draw, minlength=m) for draw in idx]).astype(float)
             denominator = np.maximum(1.0, counts @ lang.lengths)[:, None]
             rates_a = 100.0 * (counts @ lang.edits_a.T) / denominator  # (size, k_a)
             rates_b = 100.0 * (counts @ lang.edits_b.T) / denominator

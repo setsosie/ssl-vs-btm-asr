@@ -108,9 +108,21 @@ def load_arms(root: Path, scale: str, arms: list[str]) -> list[ArmRuns]:
 
 
 def _require_same_policies(arms: list[ArmRuns]) -> None:
-    """Every arm must have normalized each shared language under the same rules."""
-    first = arms[0]
-    for other in arms[1:]:
+    """Every arm must have normalized each shared language under the same rules.
+
+    Every pair is checked, and an arm that records no policies at all is
+    refused rather than passed over: silence is not agreement, as ``svb
+    analyze`` puts it, and a run written before policies were recorded cannot
+    be shown to have used the same rules as one written after.
+    """
+    for arm in arms:
+        if not arm.aggregate.policies:
+            raise ValueError(
+                f"{arm.arm} records no per-language policies (no text_stats.json in its "
+                "runs), so it cannot be shown to have used the same normalization rules "
+                "as the other arms; re-run it or compare arms that all record them"
+            )
+    for first, other in combinations(arms, 2):
         shared = set(first.aggregate.policies) & set(other.aggregate.policies)
         differing = sorted(
             code
@@ -194,12 +206,23 @@ def contrast_arms(
     n_resamples: int = 10_000,
     seed: int = 42,
 ) -> ArmContrast:
-    """Arm ``a`` minus arm ``b`` for every language both evaluated in every run."""
+    """Arm ``a`` minus arm ``b`` for every language both evaluated in every run.
+
+    A language counts as evaluated by a run when its ``results.json`` reports
+    it *and* its prediction sidecar is on disk. The sidecar alone would let a
+    file left over from a language since dropped from the preset be contrasted
+    as if the run had scored it; the results alone would let a run whose
+    sidecar is missing be excluded without anyone being told which.
+    """
     edits = edits or _Edits()
-    runs = [run.path for run in (*a.runs, *b.runs)]
-    per_run = [{code for sec, code in edits.sidecars(run) if sec == section} for run in runs]
+    per_run = [
+        {code for sec, code in edits.sidecars(run.path) if sec == section}
+        & set(run.results.get(section, {}))
+        for run in (*a.runs, *b.runs)
+    ]
+    reported = set.union(*(set(run.results.get(section, {})) for run in (*a.runs, *b.runs)))
     everywhere = sorted(set.intersection(*per_run))
-    excluded = sorted(set.union(*per_run) - set(everywhere))
+    excluded = sorted(reported - set(everywhere))
     if not everywhere:
         return ArmContrast(
             a=a.arm, b=b.arm, section=section, rows=[], macro=None, excluded=excluded
@@ -257,11 +280,22 @@ def _cell(arm: ArmRuns, section: str, code: str) -> str:
 
 
 def _metric_of(arms: list[ArmRuns], section: str, code: str) -> str:
-    for arm in arms:
-        for row in arm.aggregate.languages:
-            if (row.section, row.code) == (section, code):
-                return _METRIC_LABEL[row.primary_kind]
-    return MISSING
+    """The metric the arms' cells for this language are on — or, when the arms
+    recorded different primary metrics for it, a label that says so rather
+    than the first arm's, so a WER is never printed beside a CER unmarked."""
+    kinds = sorted(
+        {
+            row.primary_kind
+            for arm in arms
+            for row in arm.aggregate.languages
+            if (row.section, row.code) == (section, code)
+        }
+    )
+    if not kinds:
+        return MISSING
+    if len(kinds) == 1:
+        return _METRIC_LABEL[kinds[0]]
+    return "/".join(_METRIC_LABEL[k] for k in kinds) + " (arms disagree)"
 
 
 def _fmt_p(p_value: float, n_resamples: int) -> str:
@@ -325,6 +359,14 @@ def to_markdown(scale: str, arms: list[ArmRuns], contrasts: list[ArmContrast], n
                 aligns=["left", "left", *("right" for _ in arms)],
             )
         )
+        disagreeing = [code for code in codes if "disagree" in _metric_of(arms, section, code)]
+        if disagreeing:
+            lines += [
+                "",
+                "The arms recorded different primary metrics for "
+                f"{', '.join(disagreeing)}: each cell is on its own arm's metric and the "
+                "row is not a comparison.",
+            ]
         lines += [
             "",
             "Macro rows average each arm's languages within a seed and then across seeds: "
@@ -348,8 +390,9 @@ def to_markdown(scale: str, arms: list[ArmRuns], contrasts: list[ArmContrast], n
             lines += [f"### {contrast.a} − {contrast.b}", ""]
             if contrast.macro is None:
                 lines += [
-                    "No language was evaluated by every run of both arms — some run is "
-                    f"missing a prediction sidecar for: {', '.join(contrast.excluded)}.",
+                    "No language was evaluated by every run of both arms — some run "
+                    "reports no result or has no prediction sidecar for: "
+                    f"{', '.join(contrast.excluded)}.",
                     "",
                 ]
                 continue
@@ -363,9 +406,10 @@ def to_markdown(scale: str, arms: list[ArmRuns], contrasts: list[ArmContrast], n
             lines.append("")
             if contrast.excluded:
                 lines += [
-                    "Not contrasted, because some run of one of the two arms did not "
-                    f"evaluate them: {', '.join(contrast.excluded)}. The macro Δ is over "
-                    f"the {len(contrast.rows)} language(s) above and is therefore not the "
+                    "Not contrasted, because some run of one of the two arms reports no "
+                    "result or has no prediction sidecar for them: "
+                    f"{', '.join(contrast.excluded)}. The macro Δ is over the "
+                    f"{len(contrast.rows)} language(s) above and is therefore not the "
                     "difference of the two arm macros in the first table.",
                     "",
                 ]
