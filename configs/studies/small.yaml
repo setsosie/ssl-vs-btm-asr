@@ -1,0 +1,19 @@
+# The small study: the 3-language preset, all three arms, every committed seed,
+# with each language's audio capped so that it finishes. Protocol and the
+# reasoning behind these two numbers: docs/small-study.md.
+#
+# Holds only what differs from the shared defaults, and is layered over them:
+#
+#   svb run ... --config configs/base.yaml --config configs/studies/small.yaml
+#
+# Uncapped, the preset is not runnable: Common Voice 25 has about 2,700
+# trainable hours of English, and arm A alone would pass them through the
+# encoder fifty times per seed.
+train:
+  # Hours of training audio per language. English and Japanese are cut to this;
+  # Hindi has 7.0 trainable hours and the held-out languages fewer, so they are
+  # used whole and the cap does not bind.
+  max_train_hours: 10
+  # Hours of validation audio per language, scored after every epoch. Uncapped,
+  # English validation (24 h) would cost more per epoch than English training.
+  max_val_hours: 1

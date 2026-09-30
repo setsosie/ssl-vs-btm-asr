@@ -1,9 +1,21 @@
-.PHONY: install fetch data exp aggregate tables compare test lint check precommit
+.PHONY: install fetch data exp study aggregate tables compare test lint check precommit
 
 ARM   ?= A_ssl
 SCALE ?= 3
 DEVICE ?= cuda
-CONFIG ?= configs/base.yaml
+# STUDY names an overlay in configs/studies/, laid over configs/base.yaml:
+# `make study STUDY=small` is the small study. RESUME=1 continues runs from the
+# stages they already finished instead of starting them again.
+STUDY ?=
+# A misspelt study fails here, naming the file, rather than fifteen cells later
+# inside svb run with a bare FileNotFoundError.
+ifneq ($(STUDY),)
+ifeq ($(wildcard configs/studies/$(STUDY).yaml),)
+$(error STUDY=$(STUDY): no such overlay configs/studies/$(STUDY).yaml)
+endif
+endif
+CONFIGS = --config configs/base.yaml $(if $(STUDY),--config configs/studies/$(STUDY).yaml,)
+RUN_FLAGS = $(CONFIGS) --device $(DEVICE) $(if $(filter 1,$(RESUME)),--resume,)
 
 # --frozen: install exactly what uv.lock pins and fail if it has drifted from
 # pyproject.toml, rather than silently re-resolving. Reproducibility is the
@@ -19,21 +31,33 @@ fetch:
 
 # Report split sizes for every configured language, from metadata only.
 data:
-	python scripts/check_data.py
+	uv run python scripts/check_data.py
 
 # Run every committed seed for one (arm, scale). Sequential here; use
 # scripts/run_matrix.py + your scheduler to parallelize across GPUs. The seeds
 # come from configs/seeds.yaml through run_matrix.py, never from a list here.
 # N=3 takes the first three. A failed seed stops the loop rather than letting
-# the next one scroll the error away, and the cell list is captured before the
-# loop rather than piped into it: a pipeline's status is its last command's, so
-# a failing run_matrix.py would otherwise leave make reporting success after
-# running nothing.
+# the next one scroll the error away.
+# The cell list is captured before the loop, not piped into it: a pipeline's
+# status is its last command's, so a failing run_matrix.py would otherwise
+# leave make reporting success after running nothing.
 exp:
 	@cells=$$(uv run python scripts/run_matrix.py --arm $(ARM) --scale $(SCALE) $(if $(N),--n-seeds $(N),)) || exit 1; \
 	printf '%s\n' "$$cells" | while read -r cell; do \
 		echo "=== $$cell ==="; \
-		uv run svb run $$cell --config $(CONFIG) --device $(DEVICE) || exit 1; \
+		uv run svb run $$cell $(RUN_FLAGS) || exit 1; \
+	done
+
+# Every arm and every seed of one scale, in the matrix's order. The same loop as
+# `exp` without the arm filter; on one GPU this is days, so expect to use
+# RESUME=1, or the scheduler route in docs/runbooks/small-study.md. Without
+# RESUME=1 a cell that already has finished stages refuses to run: `svb run`
+# needs --resume or --restart to touch one, and only the first is offered here.
+study:
+	@cells=$$(uv run python scripts/run_matrix.py --scale $(SCALE) $(if $(N),--n-seeds $(N),)) || exit 1; \
+	printf '%s\n' "$$cells" | while read -r cell; do \
+		echo "=== $$cell ==="; \
+		uv run svb run $$cell $(RUN_FLAGS) || exit 1; \
 	done
 
 aggregate:
@@ -50,6 +74,7 @@ tables:
 # and test utterances together. Reads every arm that has finished runs.
 compare:
 	uv run svb compare --scale $(SCALE)
+
 test:
 	uv run pytest
 
