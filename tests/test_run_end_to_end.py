@@ -275,12 +275,15 @@ def test_a_run_is_not_resumed_when_the_data_behind_its_vocabulary_changed(
     """The config check cannot see the corpus. A vocabulary of the same size
     with different characters would load into the finished checkpoints and
     quietly relabel every head row."""
-    run("A_ssl")
+    run_dir = run("A_ssl")
     english = tmp_path / "cv" / "en" / "validated.tsv"
     english.write_text(english.read_text(encoding="utf-8").replace("cat", "qzx"), encoding="utf-8")
 
     with pytest.raises(SystemExit, match="vocabulary built from the data now"):
         run("A_ssl", 7, "--resume")
+
+    # A refusal is not a result thrown away: the finished run keeps its file.
+    assert (run_dir / "results.json").exists()
 
 
 # Three clips cannot spell a test set, and the run says so. That warning is the
@@ -393,6 +396,21 @@ def test_the_starting_checkpoint_is_identified_by_content_not_by_path(
     second.write_bytes(b"weights v2")
     with pytest.raises(SystemExit, match="xeus_checkpoint_sha256 is not what"):
         run("A_ssl", 7, "--resume", model={"xeus_checkpoint": str(second)})
+
+
+def test_the_scratch_arm_does_not_answer_for_a_checkpoint_it_never_reads(
+    run: Callable[..., Path], tmp_path: Path
+) -> None:
+    checkpoint = tmp_path / "xeus.pth"
+    checkpoint.write_bytes(b"weights v1")
+    run("C_btm_scratch", 7, model={"xeus_checkpoint": str(checkpoint)})
+    checkpoint.write_bytes(b"weights v2")
+
+    results = _results(
+        run("C_btm_scratch", 7, "--resume", model={"xeus_checkpoint": str(checkpoint)})
+    )
+
+    assert [entry["resumed"] for entry in results["invocations"]] == [False, True]
 
 
 def test_each_stage_orders_its_data_by_its_own_seed(

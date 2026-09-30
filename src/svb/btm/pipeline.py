@@ -153,9 +153,10 @@ def merge_experts(
     """Merge expert state_dicts; task-vector methods need ``base_ckpt`` (phase 0).
 
     Args:
-        seed: The run seed. DARE-TIES draws its drop mask from it, so leaving it
-            at the default would give every seed of a multi-seed study the same
-            mask and understate the DARE arm's variance.
+        seed: The merge stage's seed, derived from the run's. DARE-TIES draws
+            its drop mask from it, so leaving it at the default would give
+            every seed of a multi-seed study the same mask and understate the
+            DARE arm's variance.
         merge_head: Whether the CTC head is merged along with the encoder. See
             the merge module docstring — this is a protocol choice.
     """

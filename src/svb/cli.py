@@ -411,10 +411,6 @@ def _execute_run(
         out, policies=policies_for_specs([*specs, *heldout], cfg.text.override)
     )
     ledger = StageLedger(out, cfg.seed, resume=resume, invocation=_invocation(env_path))
-    # results.json is what marks a seed as finished, and it is rewritten when
-    # this invocation finishes. Left in place, one from an earlier attempt would
-    # let a run that is halfway through being redone be aggregated as complete.
-    (out / "results.json").unlink(missing_ok=True)
     # Covers what happens between stages. Each stage reseeds itself from the run
     # seed and its own name, so nothing it draws depends on this call.
     set_all_seeds(cfg.seed)
@@ -445,9 +441,19 @@ def _execute_run(
     _consistent_on_resume(
         ledger,
         "xeus_checkpoint_sha256",
-        file_sha256(cfg.model.xeus_checkpoint) if cfg.model.xeus_checkpoint else None,
+        # Arm C never reads it; hashing gigabytes to refuse a resume over a file
+        # the run did not use would be a refusal about nothing.
+        file_sha256(cfg.model.xeus_checkpoint)
+        if cfg.init == "ssl" and cfg.model.xeus_checkpoint
+        else None,
         resume and bool(finished),
     )
+    # results.json is what marks a seed as finished, and it is rewritten when
+    # this invocation finishes. Left in place, one from an earlier attempt would
+    # let a run that is halfway through being redone be aggregated as complete.
+    # Removed only now, after every check that could still refuse: a finished
+    # run that is refused a resume keeps its result.
+    (out / "results.json").unlink(missing_ok=True)
     # Two collates: training truncates long audio and drops the transcripts that
     # no longer fit, evaluation does neither — a truncated test utterance scored
     # against its full reference is a fabricated error rate.
