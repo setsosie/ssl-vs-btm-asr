@@ -119,8 +119,8 @@ def _read_clip_durations(path: Path) -> dict[str, float]:
     "undercount" line in the table, not silently absorbed into the totals.
     """
     durations: dict[str, float] = {}
-    with open(path, encoding="utf-8") as handle:
-        for row in csv.DictReader(handle, delimiter="\t"):
+    with open(path, encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle, delimiter="\t", quoting=csv.QUOTE_NONE):
             clip = (row.get("clip") or "").strip()
             raw = (row.get("duration[ms]") or "").strip()
             if not clip or not raw:

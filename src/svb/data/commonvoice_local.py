@@ -104,10 +104,19 @@ class CvRow:
 
 
 def _read_full_rows(tsv: Path, text_column: str) -> list[CvRow]:
-    """Rows of a CV tsv, dropping any with no transcript or no clip path."""
+    """Rows of a CV tsv, dropping any with no transcript or no clip path.
+
+    Read with quoting off. Common Voice's split files are plain tab-separated
+    text, not quoted CSV, and sentences contain quotation marks: under the
+    ``csv`` module's default dialect a sentence that opens with ``"`` and never
+    closes it swallows every following row up to the next quotation mark, so
+    several utterances become one with a transcript that spans lines. In a test
+    split that silently removes utterances and scores the rest against a wrong
+    reference.
+    """
     rows: list[CvRow] = []
-    with open(tsv, encoding="utf-8") as handle:
-        for record in csv.DictReader(handle, delimiter="\t"):
+    with open(tsv, encoding="utf-8", newline="") as handle:
+        for record in csv.DictReader(handle, delimiter="\t", quoting=csv.QUOTE_NONE):
             text = (record.get(text_column) or "").strip()
             path = (record.get("path") or "").strip()
             if text and path:

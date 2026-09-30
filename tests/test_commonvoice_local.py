@@ -188,6 +188,29 @@ def test_the_dataset_reads_the_rows_the_selection_chose(
     assert len(CommonVoiceLocal("en", "train", train_source="validated_minus_eval")) == 3
 
 
+def test_a_sentence_that_opens_a_quotation_does_not_swallow_the_rows_after_it(
+    make_cv_lang: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Common Voice split files are plain tab-separated text, and sentences
+    contain quotation marks. Read as quoted CSV, a sentence beginning with `"`
+    runs on to the next `"` in the file, several rows later, and the utterances
+    in between vanish from the split — silently, in a test set."""
+    from .conftest import CvClip
+
+    rows = [
+        CvClip("q1.mp3", "s_test", '"Quoted at the start', "test"),
+        CvClip("q2.mp3", "s_test", "a plain sentence", "test"),
+        CvClip("q3.mp3", "s_test", 'closing "quote" here', "test"),
+    ]
+    monkeypatch.setenv("CV_ROOT", str(make_cv_lang("en", rows)))
+
+    assert load_cv_texts("en", "test") == [
+        '"Quoted at the start',
+        "a plain sentence",
+        'closing "quote" here',
+    ]
+
+
 def test_a_row_the_wider_source_added_still_carries_its_language_code(
     make_cv_lang: Callable[..., Path], monkeypatch
 ) -> None:
