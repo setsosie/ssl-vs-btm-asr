@@ -127,3 +127,23 @@ def test_an_empty_evaluation_does_not_divide_by_zero():
     from svb.stats.analysis import corpus_error_rate
 
     assert corpus_error_rate([], []) == 0.0
+
+
+def test_word_and_character_tokens_are_exactly_what_jiwer_counts() -> None:
+    """The statistics resample edit counts that must add up to the reported
+    metric. A non-breaking space stays inside a word for jiwer, and a trailing
+    space — which every `whisper-basic` reference carries — is stripped by it
+    before characters are counted."""
+    import jiwer
+
+    from svb.stats.analysis import corpus_error_rate
+
+    cases = [
+        (["a b\xa0c d"], ["a b c d"]),
+        (["hello world "], ["hello world"]),
+        (["  two   spaces "], ["two spaces"]),
+        (["今日は "], ["今日は"]),
+    ]
+    for refs, hyps in cases:
+        assert corpus_error_rate(refs, hyps, "word") == pytest.approx(100 * jiwer.wer(refs, hyps))
+        assert corpus_error_rate(refs, hyps, "char") == pytest.approx(100 * jiwer.cer(refs, hyps))

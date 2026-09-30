@@ -57,13 +57,13 @@ def test_writes_a_markdown_and_json_table_per_metric(root: Path, tmp_path: Path,
     )
 
     assert sorted(p.name for p in out.iterdir()) == [
-        "3_cer.json",
-        "3_cer.md",
-        "3_wer.json",
-        "3_wer.md",
+        "3_A_ssl_cer.json",
+        "3_A_ssl_cer.md",
+        "3_A_ssl_wer.json",
+        "3_A_ssl_wer.md",
     ]
     # The command names what it produced rather than describing an intention.
-    assert "3_wer.md" in capsys.readouterr().out
+    assert "3_A_ssl_wer.md" in capsys.readouterr().out
 
 
 def test_all_seeds_are_analyzed_when_none_are_named(root: Path, tmp_path: Path) -> None:
@@ -84,7 +84,7 @@ def test_all_seeds_are_analyzed_when_none_are_named(root: Path, tmp_path: Path) 
         ],
     )
 
-    payload = json.loads((out / "3_wer.json").read_text(encoding="utf-8"))
+    payload = json.loads((out / "3_A_ssl_wer.json").read_text(encoding="utf-8"))
     assert set(payload["runs"]) == {"A_ssl/3/seed0", "A_ssl/3/seed1"}
 
 
@@ -108,7 +108,7 @@ def test_a_named_seed_narrows_the_analysis(root: Path, tmp_path: Path) -> None:
         ],
     )
 
-    payload = json.loads((out / "3_wer.json").read_text(encoding="utf-8"))
+    payload = json.loads((out / "3_A_ssl_wer.json").read_text(encoding="utf-8"))
     assert set(payload["runs"]) == {"A_ssl/3/seed1"}
 
 
@@ -132,7 +132,7 @@ def test_compare_to_pairs_the_same_seed_of_two_arms(root: Path, tmp_path: Path) 
         ],
     )
 
-    payload = json.loads((out / "3_wer.json").read_text(encoding="utf-8"))
+    payload = json.loads((out / "3_A_ssl_vs_B_btm_ssl_wer.json").read_text(encoding="utf-8"))
     # Only seed 0 exists for both arms, so only seed 0 can be paired.
     assert [c["a"] for c in payload["comparisons"]] == ["A_ssl/3/seed0"]
     assert payload["comparisons"][0]["b"] == "B_btm_ssl/3/seed0"
@@ -156,3 +156,29 @@ def test_missing_runs_are_reported_rather_than_producing_an_empty_table(tmp_path
                 str(tmp_path / "out"),
             ],
         )
+
+
+def test_comparing_against_a_second_arm_does_not_replace_the_first_comparison(
+    root: Path, tmp_path: Path
+) -> None:
+    make_run(root, "C_btm_scratch", 0, "a b q z")
+    out = tmp_path / "out"
+    for other in ("B_btm_ssl", "C_btm_scratch"):
+        argv = ["analyze", "--arm", "A_ssl", "--scale", "3", "--results-root", str(root)]
+        argv += ["--compare-to", other, "--tables-dir", str(out), "--resamples", "50"]
+        run_cli(argv)
+
+    assert {p.name for p in out.glob("*_wer.md")} == {
+        "3_A_ssl_vs_B_btm_ssl_wer.md",
+        "3_A_ssl_vs_C_btm_scratch_wer.md",
+    }
+
+
+def test_analysing_a_second_arm_does_not_replace_the_first(root: Path, tmp_path: Path) -> None:
+    """The tables are per arm, so the arm has to be in the file name."""
+    out = tmp_path / "out"
+    for arm in ("A_ssl", "B_btm_ssl"):
+        argv = ["analyze", "--arm", arm, "--scale", "3", "--results-root", str(root)]
+        run_cli([*argv, "--tables-dir", str(out), "--resamples", "50"])
+
+    assert {p.name for p in out.glob("*_wer.md")} == {"3_A_ssl_wer.md", "3_B_btm_ssl_wer.md"}

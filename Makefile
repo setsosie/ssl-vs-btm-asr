@@ -1,4 +1,4 @@
-.PHONY: install fetch data exp aggregate tables test lint check precommit
+.PHONY: install fetch data exp aggregate tables compare test lint check precommit
 
 ARM   ?= A_ssl
 SCALE ?= 3
@@ -45,6 +45,11 @@ aggregate:
 #   make tables SCALE=3 ARM=A_ssl COMPARE_TO=B_btm_ssl
 tables:
 	uv run svb analyze --arm $(ARM) --scale $(SCALE) $(if $(COMPARE_TO),--compare-to $(COMPARE_TO),)
+
+# The arms side by side, with intervals on the differences that resample seeds
+# and test utterances together. Reads every arm that has finished runs.
+compare:
+	uv run svb compare --scale $(SCALE)
 test:
 	uv run pytest
 

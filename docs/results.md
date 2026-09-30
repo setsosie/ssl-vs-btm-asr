@@ -157,11 +157,27 @@ seed to seed. In the JSON, `std_is` records which quantity `std` is,
 `svb analyze` reads the sidecars and reports what the test set leaves uncertain:
 a bootstrap percentile interval per language, and, with `--compare-to`, a
 one-sided paired permutation test against another arm at the same seed. It
-writes `tables/<scale>_wer.{md,json}` and `tables/<scale>_cer.{md,json}`.
+writes `tables/<scale>_<arm>_wer.{md,json}` and `tables/<scale>_<arm>_cer.{md,json}`,
+or `tables/<scale>_<arm>_vs_<other>_…` when comparing, so no arm's tables and no
+comparison's replace another's.
 
 These are different quantities and the split is deliberate. Seed spread measures
 what retraining moves; a bootstrap interval measures what the particular test
 set contributes. A five-seed standard deviation is not a confidence interval.
+
+`svb compare` is the one that puts the arms side by side. It writes
+`tables/<scale>_arms.{md,json}`: every arm's mean ± standard deviation per
+language on that language's primary metric, and for each pair of arms the
+difference with a 95% interval. The interval comes from a bootstrap that
+resamples each arm's seeds and each language's test utterances in the same draw
+(the Multi-Bootstrap of Sellam et al., 2022), so it carries both of the
+quantities above at once — which is what a claim that one arm beats another
+needs, and what neither of the other two commands can give. Seeds are resampled
+separately per arm, because seed 3 of one arm has nothing to do with seed 3 of
+another; utterances are resampled once for both, because the arms share a test
+set. A language is contrasted only where every run of both arms evaluated it,
+and the command refuses arms that were scored on different references. With few
+seeds the intervals are approximate and tend to be too narrow.
 
 The paired test checks that both runs hold identical references before comparing
 them, and refuses otherwise. Two runs under different normalization policies
@@ -174,7 +190,7 @@ audio hours per language and split, into `tables/data_durations.{md,json}`. See
 
 ## tables/
 
-Generated, never hand-typed. `make tables` regenerates the analysis tables and
-`svb data-stats` the data ones. Every number in `tables/` traces to a file under
+Generated, never hand-typed. `make tables` regenerates the per-arm analysis
+tables, `make compare` the cross-arm one, and `svb data-stats` the data ones. Every number in `tables/` traces to a file under
 `results/` or to a corpus on disk, which is the property that makes a write-up
 checkable rather than trusted.

@@ -274,6 +274,11 @@ def select_languages(pytestconfig: pytest.Config) -> ModuleType:
     return _load_script(Path(pytestconfig.rootpath), "select_languages")
 
 
+@pytest.fixture
+def interval_coverage(pytestconfig: pytest.Config) -> ModuleType:
+    return _load_script(Path(pytestconfig.rootpath), "interval_coverage")
+
+
 # --------------------------------------------------------------------------- #
 # Model double
 # --------------------------------------------------------------------------- #

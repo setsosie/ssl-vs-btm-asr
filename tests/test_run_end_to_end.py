@@ -184,7 +184,12 @@ def test_the_reporting_commands_read_what_a_run_wrote(
     runs = load_runs(tmp_path / "results", "B_btm_ssl", "3")
     agg = aggregate_runs(runs)
     written = render_metric_tables(
-        scale="3", runs=[run_dir], comparisons=[], out_dir=tmp_path / "tables", n_resamples=50
+        arm="B_btm_ssl",
+        scale="3",
+        runs=[run_dir],
+        comparisons=[],
+        out_dir=tmp_path / "tables",
+        n_resamples=50,
     )
 
     assert {(row.section, row.code) for row in agg.languages} == {
