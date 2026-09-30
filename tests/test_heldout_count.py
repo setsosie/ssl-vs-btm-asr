@@ -24,7 +24,9 @@ from svb.data.corpora import HELD_OUT_LANGUAGES
 from svb.data.registry import get_heldout
 
 _WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
-_NUMBER = rf"(?<![\w/.-])({'|'.join(_WORDS)}|\d+)(?![\w/.-])"
+# A count may sit in emphasis or code (`**four**`), and may end the sentence;
+# it may not be part of a decimal, a fraction, a hyphenated numeral or a word.
+_NUMBER = rf"(?<![\w/.-])(?:\*\*|`)?({'|'.join(_WORDS)}|\d+)(?:\*\*|`)?(?![\w/-]|\.\d)"
 # A count within three words on either side of "held-out": "four held-out
 # languages", "the held-out set is four languages", "the held-out four",
 # "four OpenSLR held-out sets". Words are separated by spaces or a line break
@@ -34,7 +36,7 @@ _NUMBER = rf"(?<![\w/.-])({'|'.join(_WORDS)}|\d+)(?![\w/.-])"
 _NEAR = r"(?:[ \n]+[\w*'’-]+){0,3}[ \n]+"
 _COUNT = re.compile(rf"{_NUMBER}{_NEAR}held[- ]out\b|\bheld[- ]out{_NEAR}{_NUMBER}", re.IGNORECASE)
 # "one held-out language" is how a docstring speaks of each of them, not a size.
-_DISTRIBUTIVE = {"one"}
+_DISTRIBUTIVE = {"one", "1"}
 
 
 def _surfaces(root: Path) -> list[Path]:
@@ -93,6 +95,9 @@ def test_the_check_reaches_the_file_that_was_wrong(pytestconfig: pytest.Config) 
         ("**The held-out set is four languages.**", "four"),
         ("the four OpenSLR held-out sets", "four"),
         ("the held-out four", "four"),
+        ("the held-out set is **four** languages", "four"),
+        ("The held-out set is four.", "four"),
+        ("scored on `4` held-out languages", "4"),
     ],
 )
 def test_the_check_would_catch_the_phrasings_the_docs_use(text: str, count: str) -> None:
@@ -105,6 +110,9 @@ def test_the_check_would_catch_the_phrasings_the_docs_use(text: str, count: str)
         "the held-out set is small",
         "adapt to one held-out language and evaluate",
         "twenty-four held-out utterances",  # a compound numeral is not "four"
+        "| 1 | 18.9 | no | held-out transfer language |",  # a table cell
+        "80/10/10 derivation the held-out corpora ship",  # a fraction
+        "2.4 h held out",  # a decimal
     ],
 )
 def test_the_check_leaves_alone_what_is_not_a_set_size(text: str) -> None:
