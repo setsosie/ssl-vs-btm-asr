@@ -13,7 +13,6 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-import torch
 
 from svb.data.commonvoice_local import (
     CommonVoiceLocal,
@@ -200,10 +199,7 @@ def test_a_row_the_wider_source_added_still_carries_its_language_code(
     other, and `v3` — a row only the wider source selects — is where that would
     show.
     """
-    import torchaudio
-
-    monkeypatch.setenv("CV_ROOT", str(make_cv_lang()))
-    monkeypatch.setattr(torchaudio, "load", lambda path: (torch.zeros(1, 160), 16000))
+    monkeypatch.setenv("CV_ROOT", str(make_cv_lang(clip_seconds=0.1)))
 
     dataset = CommonVoiceLocal("en", "train", train_source="validated_minus_eval")
     items = [dataset[i] for i in range(len(dataset))]
@@ -223,13 +219,10 @@ def test_an_item_carries_the_preset_code_not_the_locale_directory(
     collate would resolve the policy by it, and a code that differs from its
     locale would be normalized under the wrong policy without any error.
     """
-    import torchaudio
-
     from svb.data.datasets import load_language
     from svb.data.registry import LangSpec
 
-    monkeypatch.setenv("CV_ROOT", str(make_cv_lang(lang="en")))
-    monkeypatch.setattr(torchaudio, "load", lambda path: (torch.zeros(1, 160), 16000))
+    monkeypatch.setenv("CV_ROOT", str(make_cv_lang(lang="en", clip_seconds=0.1)))
 
     spec = LangSpec(
         code="en-preset",

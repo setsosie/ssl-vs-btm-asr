@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..data.audio import audio_seconds
 from ..data.commonvoice_local import DEFAULT_TRAIN_SOURCE
 from ..data.registry import LangSpec
 from .tables import fmt_value, render_table
@@ -106,18 +107,6 @@ class LanguageDuration:
         return train.hours if train else 0.0
 
 
-def _audio_seconds(path: Path) -> float | None:
-    """Duration from the file header, or None if it cannot be read."""
-    import soundfile as sf
-
-    try:
-        info = sf.info(str(path))
-    except Exception:
-        # One unreadable clip must not end the sweep; it is counted as missing.
-        return None
-    return float(info.frames) / float(info.samplerate) if info.samplerate else None
-
-
 def _read_clip_durations(path: Path) -> dict[str, float]:
     """``clip`` → seconds, from Common Voice's own manifest.
 
@@ -165,7 +154,7 @@ def _commonvoice(spec: LangSpec, train_source: str) -> LanguageDuration:
         seconds = 0.0
         missing = 0
         for clip in clips:
-            value = declared.get(clip) if declared else _audio_seconds(base / "clips" / clip)
+            value = declared.get(clip) if declared else audio_seconds(base / "clips" / clip)
             if value is None:
                 missing += 1
             else:
@@ -218,7 +207,7 @@ def _openslr(spec: LangSpec) -> LanguageDuration:
         seconds = 0.0
         missing = 0
         for file_id, _ in dataset.rows:
-            value = _audio_seconds(dataset.base / f"{file_id}.wav")
+            value = audio_seconds(dataset.base / f"{file_id}.wav")
             if value is None:
                 missing += 1
             else:

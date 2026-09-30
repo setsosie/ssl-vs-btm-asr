@@ -10,8 +10,8 @@ the standard release layout after you download and extract it:
             validated.tsv                  (every validated clip)
             clips/<file>.mp3
 
-Set ``CV_ROOT`` (or pass ``root``). mp3 decoding uses torchaudio's ffmpeg
-backend — install ffmpeg if clips fail to load.
+Set ``CV_ROOT`` (or pass ``root``). Clips are decoded by ``soundfile``, whose
+bundled libsndfile reads mp3; see :mod:`svb.data.audio`.
 
 Two training sources
 ====================
@@ -71,7 +71,8 @@ from typing import Literal
 import torch
 from torch.utils.data import Dataset
 
-TARGET_SR = 16000
+from .audio import load_waveform
+
 _SPLIT_FILE = {"train": "train.tsv", "validation": "dev.tsv", "test": "test.tsv"}
 #: Every clip with two or more validations and more up-votes than down-votes.
 VALIDATED_FILE = "validated.tsv"
@@ -270,16 +271,8 @@ class CommonVoiceLocal(Dataset):
         return len(self._rows)
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, str, str]:
-        import torchaudio
-
         fname, text = self._rows[idx]
-        wav, sr = torchaudio.load(str(self._clips / fname))  # (channels, time)
-        wav = wav.mean(dim=0)  # mono
-        if sr != TARGET_SR:
-            wav = torchaudio.functional.resample(wav, sr, TARGET_SR)
-        if self._max is not None and wav.shape[0] > self._max:
-            wav = wav[: self._max]
-        return wav.float(), text, self.lang
+        return load_waveform(self._clips / fname, self._max), text, self.lang
 
 
 def load_cv_texts(
