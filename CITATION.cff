@@ -5,7 +5,7 @@ abstract: >-
   Is it self-supervised pretraining or the Branch-Train-Merge pipeline that
   carries low-resource multilingual ASR? A clean, multi-seed ablation on the
   XEUS encoder across three training conditions, three language scales, and
-  five held-out Indic transfer languages.
+  four held-out Indic transfer languages.
 type: software
 version: "0.1.0"
 date-released: "2026-09-04"
