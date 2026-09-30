@@ -16,15 +16,27 @@ output vocabulary, though present in XEUS's self-supervised pretraining data:
 | **B. BTM-on-SSL** | XEUS SSL | phase 0 → experts → merge | does BTM add anything on top of SSL? |
 | **C. BTM-from-scratch** | random | phase 0 → experts → merge | does BTM work *without* SSL? |
 
-Each cell is run over the seeds in `configs/seeds.yaml` and reported as mean ±
-standard deviation, with utterance-level bootstrap intervals and paired
-permutation tests available from the per-utterance predictions every run writes.
+Each cell is run over the seeds in `configs/seeds.yaml` — drawn at random and
+committed before any run — and reported as mean ± standard deviation, with
+utterance-level bootstrap intervals and paired permutation tests available from
+the per-utterance predictions every run writes. Differences between arms carry
+an interval that resamples seeds and test utterances together.
 
 ## Status
 
 **No GPU run has been executed against this code.** Everything below is
-implemented and covered by 1042 CPU tests; none of it has yet produced a number
-from real audio. Three other gaps are open by design rather than by oversight:
+implemented and covered by 1167 CPU tests, which include `svb run` end to end
+for all three arms against a stand-in encoder, reading real audio files in the
+corpora's layouts. None of it has yet produced a number from the real encoder.
+
+**The first experiment is the small study**: the 3-language preset, all three
+arms, five seeds, ten hours of training audio per language. Its protocol is
+fixed in [`docs/small-study.md`](docs/small-study.md) and the commands to run it
+are in [`docs/runbooks/small-study.md`](docs/runbooks/small-study.md). It needs
+only Common Voice English, Japanese and Hindi and the four held-out corpora —
+none of the gaps below stands in its way except the encoder check.
+
+Three other gaps are open by design rather than by oversight:
 
 - **The 64-language tier is populated and every preparer is written, but none
   has been run against a real archive.** 46 languages come from Common Voice 25
@@ -76,17 +88,34 @@ make fetch                                # download + extract them (~5 GB)
 export CV_ROOT=/path/to/common_voice_25   # you download this one yourself
 make data                                 # what is reachable, and how big
 export XEUS_CHECKPOINT=/path/to/xeus_checkpoint.pth
-svb run --arm A_ssl --scale 3 --seed 0 --config configs/base.yaml
+make study STUDY=small RESUME=1           # every arm and seed of the small study
 ```
+
+That last line is fifteen runs in sequence, which on one GPU is days. With a
+scheduler, submit them in parallel instead — the runbook has the loop. One cell
+by hand:
+
+```bash
+python scripts/run_matrix.py --scale 3    # the cells: --arm … --scale 3 --seed …
+svb run --arm A_ssl --scale 3 --seed 1143266318 --resume \
+    --config configs/base.yaml --config configs/studies/small.yaml
+```
+
+`--config` layers: a study is a small file of what it changes, laid over the
+shared defaults. `--resume` continues from the last finished stage, so a run cut
+off by a time limit is resubmitted with the same command; `--restart` discards
+the finished stages instead, and a run with finished stages refuses to proceed
+without one or the other.
 
 Then read the results back:
 
 ```bash
+svb compare --scale 3                          # the arms side by side, with intervals
 svb aggregate --arm A_ssl --scale 3            # WER, CER and primary, mean ± std
 svb aggregate --arm A_ssl --scale 3 --json     # the same, machine-readable
 svb analyze --arm A_ssl --scale 3 --compare-to B_btm_ssl   # intervals + paired test
 svb data-stats --scope all --min-train-hours 50            # audio hours per language
-make exp ARM=A_ssl SCALE=3                     # every seed for one cell
+make exp ARM=A_ssl SCALE=3 STUDY=small         # every seed for one arm
 make tables SCALE=3 ARM=A_ssl COMPARE_TO=B_btm_ssl
 ```
 
@@ -218,6 +247,12 @@ different quantities; a five-seed standard deviation is not a confidence
 interval. The paired test verifies both runs hold identical references and
 refuses otherwise.
 
+`svb compare` reports the difference between arms, which is what the study is
+for, with an interval that carries both quantities: each draw resamples the
+seeds of each arm and the test utterances of each language together. With five
+seeds that interval is approximate and tends to be too narrow, and the table
+says so.
+
 The macro-average is computed within each seed and then across seeds, so its `±`
 is run-to-run spread like every per-language row's. How far apart the languages
 themselves are is reported separately, under its own name, never as an error bar.
@@ -276,6 +311,15 @@ Things a reader should know before quoting a number:
   deterministic CUDA kernel — requesting one raises rather than selecting one —
   so a fixed seed does not give a fixed result. That is why the study reports
   several seeds and a spread rather than a single number.
+- **The seeds were drawn, not chosen**, from the operating system's entropy
+  source, and committed before any run. `configs/seeds.yaml` is the only copy;
+  a reduced study takes a prefix of it. Each stage of a run is seeded from the
+  run seed and the stage's name, so a resumed run draws what an uninterrupted
+  one would have.
+- **A study may cap hours per language**, and the small study does. The subset
+  is chosen by hash and is the same for every arm and seed; each run records a
+  digest of it. A capped result is a statement about that much data, not about
+  the corpus it was cut from.
 - **Effective batch size is 16** with the shipped config (8 × 2 accumulation
   steps) on a single GPU. Any comparison to numbers produced at a different
   effective batch should say so.
@@ -294,13 +338,21 @@ Things a reader should know before quoting a number:
 src/svb/
     model/    XEUS encoder + CTC head, character vocabulary
     text/     the svb-norm-1 normalizer and its per-corpus statistics
-    data/     Common Voice and OpenSLR local loaders, collation
+    data/     local loaders, audio decoding, the hours cap, collation
     train/    the CTC trainer
     btm/      phase 0, expert branching, merging
     merge/    average, TIES, DARE-TIES
     eval/     greedy decode, scoring, held-out transfer
-    stats/    seed aggregation, bootstrap, paired permutation
-    report/   the aggregate / analyze / data-stats commands
+    stats/    seed aggregation, bootstrap, paired permutation, arm contrasts
+    report/   the aggregate / analyze / compare / data-stats commands
+    stages.py the stage ledger behind `svb run --resume`
+configs/
+    seeds.yaml          the seeds, drawn once
+    scales/             language presets and the held-out set
+    studies/            overlays: what one study changes from base.yaml
+docs/
+    small-study.md      the first experiment's protocol
+    runbooks/           exact commands, in order
 ```
 
 ## Development
