@@ -1,7 +1,11 @@
 """Emit the full (arm, scale, seed) job list in the paper's run order.
 
 Smallest-scale-first, cheapest-arm-first, so partial completion still yields
-complete lower scales (graceful degradation). Pipe into your scheduler:
+complete lower scales (graceful degradation). The BTM arms come before arm A:
+they share one budget — phase 0 plus an expert per language — and arm A
+fine-tunes every language for more epochs than the two together under the
+shipped config, so it is the most expensive arm and goes last. Pipe into your
+scheduler:
 
     python scripts/run_matrix.py | while read cmd; do sbatch scripts/slurm/run_one.sbatch $cmd; done
 
@@ -32,7 +36,7 @@ import yaml
 from svb.data.registry import get_preset
 
 SCALES = ["3", "16", "64"]
-ARMS = ["A_ssl", "B_btm_ssl", "C_btm_scratch"]  # A<B<C by cost
+ARMS = ["B_btm_ssl", "C_btm_scratch", "A_ssl"]  # by cost under configs/base.yaml
 
 
 def default_configs_dir() -> Path:
