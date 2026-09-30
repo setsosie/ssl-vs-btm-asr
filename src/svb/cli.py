@@ -40,7 +40,7 @@ from .config import (
     resolved_config,
 )
 from .data.commonvoice_local import DEFAULT_TRAIN_SOURCE, TRAIN_SOURCES
-from .provenance import dump_run_meta
+from .provenance import dump_run_meta, file_sha256
 from .seeding import set_all_seeds
 from .text.normalize import policy_name
 from .text.registry import policies_for_specs
@@ -51,7 +51,7 @@ if TYPE_CHECKING:
     from .eval.evaluate import EvalResult
     from .model.ctc_vocab import CtcVocab
     from .model.xeus_ctc import XeusCTC
-    from .stages import StageOutput
+    from .stages import StageLedger, StageOutput
     from .train.trainer import TrainResult
 
 DEFAULT_RESULTS_ROOT = Path("results")
@@ -307,6 +307,24 @@ def _require_same_config(out: Path, cfg: ExperimentConfig, specs: list[LangSpec]
         )
 
 
+def _consistent_on_resume(ledger: StageLedger, key: str, value: Any, check: bool) -> Any:
+    """Record ``value`` under ``key``, or refuse if a resume finds it changed.
+
+    Only when finished stages are being reused: a fresh start records and
+    moves on, and a resume that reuses nothing has nothing to be consistent
+    with.
+    """
+    recorded = ledger.recall(key)
+    if check and recorded is not None and recorded != value:
+        raise SystemExit(
+            f"[svb] cannot resume {ledger.run_dir}: {key} is not what its finished stages were "
+            f"produced with. The data or the checkpoint under this run have changed since; "
+            "start it again with --restart."
+        )
+    ledger.remember(key, value)
+    return value
+
+
 def _invocation(env_path: Path) -> dict[str, Any]:
     """What identifies this process in the stage ledger, read back from env.json."""
     meta = json.loads(env_path.read_text(encoding="utf-8"))
@@ -367,15 +385,9 @@ def _execute_run(
     """One (arm, scale, seed), with the run directory already held."""
     import torch
 
-    from .btm.pipeline import (
-        build_training_vocab,
-        load_split,
-        merge_experts,
-        run_phase0,
-        train_expert,
-    )
+    from .btm.pipeline import build_training_vocab, merge_experts, run_phase0, train_expert
     from .data.collate import make_ctc_collate
-    from .data.datasets import load_language
+    from .data.datasets import load_split
     from .eval.evaluate import evaluate
     from .eval.transfer import transfer_one
     from .model.ctc_vocab import CtcVocab
@@ -424,7 +436,18 @@ def _execute_run(
     vocab.save(out / "vocab.json")
     write_text_stats(out / "text_stats.json", specs, heldout, cfg.text, vocab, evicted, cfg.train)
     results = run_manifest(cfg, specs, heldout)
-    results["data"] = hours_cap_records(cfg, [*specs, *heldout])
+    # Two more things the config cannot see, remembered in the ledger and
+    # checked on resume: which utterances the caps kept, and which checkpoint
+    # file — by digest, since a path can name a different file tomorrow.
+    results["data"] = _consistent_on_resume(
+        ledger, "data", hours_cap_records(cfg, [*specs, *heldout]), resume and bool(finished)
+    )
+    _consistent_on_resume(
+        ledger,
+        "xeus_checkpoint_sha256",
+        file_sha256(cfg.model.xeus_checkpoint) if cfg.model.xeus_checkpoint else None,
+        resume and bool(finished),
+    )
     # Two collates: training truncates long audio and drops the transcripts that
     # no longer fit, evaluation does neither — a truncated test utterance scored
     # against its full reference is a fabricated error rate.
@@ -447,7 +470,7 @@ def _execute_run(
         sidecar = _predictions_path(out, spec.code)
         result = evaluate(
             model,
-            load_language(spec, "test", None),
+            load_split(cfg, spec, "test"),
             vocab,
             eval_collate,
             device,
@@ -460,7 +483,10 @@ def _execute_run(
     results["training"] = {}
     if cfg.uses_btm:
         phase0 = ledger.run(
-            "phase0", lambda: trained(run_phase0(cfg, specs, vocab, out / "phase0", device))
+            "phase0",
+            lambda seed: trained(
+                run_phase0(cfg, specs, vocab, out / "phase0", device, data_seed=seed)
+            ),
         )
         results["training"]["phase0"] = phase0
         phase0_ckpt = out / phase0["checkpoint"]
@@ -468,20 +494,24 @@ def _execute_run(
         experts: dict[str, Path] = {}
         for spec in specs:
 
-            def expert(spec: LangSpec) -> StageOutput:
-                return trained(train_expert(cfg, phase0_ckpt, spec, vocab, out / "experts", device))
+            def expert(spec: LangSpec, seed: int) -> StageOutput:
+                return trained(
+                    train_expert(
+                        cfg, phase0_ckpt, spec, vocab, out / "experts", device, data_seed=seed
+                    )
+                )
 
             record = ledger.run(f"expert_{spec.code}", partial(expert, spec))
             results["training"][f"expert_{spec.code}"] = record
             experts[spec.code] = out / record["checkpoint"]
 
-        def merge() -> StageOutput:
+        def merge(seed: int) -> StageOutput:
             path = merge_experts(
                 experts,
                 cfg.merge_strategy,
                 out / "merged",
                 base_ckpt=phase0_ckpt,
-                seed=cfg.seed,
+                seed=seed,
                 merge_head=cfg.merge_head,
             )
             return StageOutput(result={"checkpoint": os.path.relpath(path, out)}, artifacts=[path])
@@ -493,7 +523,7 @@ def _execute_run(
         # resume that has them all should not load the encoder to do nothing.
         merged_models: list[XeusCTC] = []
 
-        def score_merged(spec: LangSpec) -> StageOutput:
+        def score_merged(spec: LangSpec, seed: int) -> StageOutput:
             if not merged_models:
                 model = make_model(cfg, vocab.size)
                 model.load_state_dict(torch.load(merged_path, map_location=device))
@@ -510,7 +540,7 @@ def _execute_run(
         # Arm A: independent per-language fine-tune from the SSL encoder.
         for spec in specs:
 
-            def finetune(spec: LangSpec) -> StageOutput:
+            def finetune(spec: LangSpec, seed: int) -> StageOutput:
                 return trained(
                     train(
                         make_model(cfg, vocab.size),
@@ -521,13 +551,14 @@ def _execute_run(
                         cfg.train.finetune_epochs,
                         out / "finetune" / spec.code,
                         device,
+                        data_seed=seed,
                     )
                 )
 
             record = ledger.run(f"finetune_{spec.code}", partial(finetune, spec))
             results["training"][f"finetune_{spec.code}"] = record
 
-            def score_finetuned(spec: LangSpec, checkpoint: Path) -> StageOutput:
+            def score_finetuned(spec: LangSpec, checkpoint: Path, seed: int) -> StageOutput:
                 model = make_model(cfg, vocab.size)
                 model.load(checkpoint)
                 return scored(model, spec)
@@ -541,9 +572,11 @@ def _execute_run(
     results["transfer"] = {}
     for held in heldout:
 
-        def transfer(held: LangSpec) -> StageOutput:
+        def transfer(held: LangSpec, seed: int) -> StageOutput:
             transfer_dir = out / "transfer" / held.code
-            transferred = transfer_one(cfg, transfer_init, vocab, held, transfer_dir, device)
+            transferred = transfer_one(
+                cfg, transfer_init, vocab, held, transfer_dir, device, data_seed=seed
+            )
             artifacts = [transfer_dir / "predictions.json"]
             training: dict[str, Any] = {}
             if transferred.training is not None:

@@ -144,17 +144,23 @@ class StageLedger:
         self.path = run_dir / LEDGER
         self._records: dict[str, dict[str, Any]] = {}
         self._invocations: list[dict[str, Any]] = []
+        self._facts: dict[str, Any] = {}
         self._visited: list[str] = []
         self._ran_a_stage = False
         if resume and self.path.exists():
             payload = json.loads(self.path.read_text(encoding="utf-8"))
             self._records = payload.get("stages", {})
             self._invocations = payload.get("invocations", [])
+            self._facts = payload.get("facts", {})
         self._invocations.append({**(invocation or {}), "resumed": bool(self._records)})
         self._write()
 
-    def run(self, name: str, stage: Callable[[], StageOutput]) -> dict[str, Any]:
+    def run(self, name: str, stage: Callable[[int], StageOutput]) -> dict[str, Any]:
         """Run ``stage`` unless a finished, intact record of it can be reused.
+
+        The stage is handed its seed — the one everything has just been seeded
+        with — so that what it passes on to a loader or a merge is the same
+        stream, and not the run seed shared by every stage.
 
         Returns the stage's result either way, so the caller does not need to
         know which happened.
@@ -180,7 +186,7 @@ class StageLedger:
 
         stage_seed = seed_stage(self.seed, name)
         started = time.monotonic()
-        output = stage()
+        output = stage(stage_seed)
         self._records[name] = {
             "result": output.result,
             "artifacts": [self._relative(path) for path in output.artifacts],
@@ -191,6 +197,20 @@ class StageLedger:
         }
         self._write()
         return dict(output.result)
+
+    def recall(self, key: str) -> Any:
+        """A fact an earlier invocation recorded, or None."""
+        return self._facts.get(key)
+
+    def remember(self, key: str, value: Any) -> None:
+        """Record a fact about the run — what data it read, which checkpoint it
+        started from — so a resume can check it against what it finds now.
+
+        results.json cannot serve: it is written last and removed when a run
+        starts, so nothing in it survives to be compared.
+        """
+        self._facts[key] = value
+        self._write()
 
     def summary(self) -> dict[str, Any]:
         """The run's stages and invocations, for ``results.json``."""
@@ -220,7 +240,7 @@ class StageLedger:
         with it.
         """
         self.run_dir.mkdir(parents=True, exist_ok=True)
-        payload = {"invocations": self._invocations, "stages": self._records}
+        payload = {"invocations": self._invocations, "facts": self._facts, "stages": self._records}
         scratch = self.path.with_suffix(".json.tmp")
         scratch.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         os.replace(scratch, self.path)

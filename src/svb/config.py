@@ -246,8 +246,10 @@ def dump_config(cfg: ExperimentConfig, out_dir: str | Path, specs: Iterable[Any]
 
 # Settings that decide how fast a run goes and not what it computes. A resumed
 # job may land on a node with a different core count; that is not a different
-# experiment.
-_OPERATIONAL_KEYS = (("train", "num_workers"),)
+# experiment. The checkpoint path is exempt too, in the other direction: a
+# different mount of the same file is the same experiment and a different file
+# at the same path is not, so the run compares the file's digest instead.
+_OPERATIONAL_KEYS = (("train", "num_workers"), ("model", "xeus_checkpoint"))
 
 
 def config_differences(recorded: dict[str, Any], current: dict[str, Any]) -> list[str]:

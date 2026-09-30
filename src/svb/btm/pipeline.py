@@ -14,33 +14,17 @@ from __future__ import annotations
 from pathlib import Path
 
 from torch import Tensor
-from torch.utils.data import ConcatDataset, Dataset
+from torch.utils.data import ConcatDataset
 
 from ..config import ExperimentConfig, TextConfig, TrainConfig
 from ..data.collate import make_ctc_collate
-from ..data.datasets import load_language, load_texts
+from ..data.datasets import load_split, load_texts
 from ..data.registry import LangSpec
 from ..merge.strategy import MERGE_STRATEGIES
 from ..model.ctc_vocab import CtcVocab, build_vocab_from_labelled_texts, require_space_token
 from ..model.xeus_ctc import make_model
 from ..text.registry import policies_for_specs
 from ..train.trainer import TrainResult, train
-
-
-def load_split(cfg: ExperimentConfig, spec: LangSpec, split: str) -> Dataset:
-    """One language's training or validation split, as this run reads it.
-
-    The training source and the hours cap are both part of which rows a run
-    trains on, so every stage takes them from the config through here rather
-    than spelling them out at each call.
-    """
-    return load_language(
-        spec,
-        split,
-        cfg.train.max_audio_samples,
-        train_source=cfg.train.cv_train_source,
-        max_hours=cfg.train.max_hours(split),
-    )
 
 
 def build_training_vocab(
@@ -93,6 +77,7 @@ def run_phase0(
     vocab: CtcVocab,
     out_dir: Path,
     device: str = "cuda",
+    data_seed: int | None = None,
 ) -> TrainResult:
     """Joint multilingual CTC training.
 
@@ -110,7 +95,17 @@ def run_phase0(
         [load_split(cfg, s, "validation") for s in specs]
     )
     model = make_model(cfg, vocab.size)
-    return train(model, cfg, train_ds, val_ds, collate, cfg.train.phase0_epochs, out_dir, device)
+    return train(
+        model,
+        cfg,
+        train_ds,
+        val_ds,
+        collate,
+        cfg.train.phase0_epochs,
+        out_dir,
+        device,
+        data_seed=data_seed,
+    )
 
 
 def train_expert(
@@ -120,6 +115,7 @@ def train_expert(
     vocab: CtcVocab,
     out_dir: Path,
     device: str = "cuda",
+    data_seed: int | None = None,
 ) -> TrainResult:
     """Fine-tune one language's expert, branched from phase 0.
 
@@ -141,6 +137,7 @@ def train_expert(
         cfg.train.expert_epochs,
         out_dir / f"expert_{spec.code}",
         device,
+        data_seed=data_seed,
     )
 
 

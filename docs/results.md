@@ -84,16 +84,24 @@ GPU-days. Four rules keep a resumed run honest:
 - A stage is reused only if the files it wrote — its checkpoint, its predictions
   — are still there.
 - Once any stage has been run again, every later stage is too. They were
-  computed from the version that was replaced.
+  computed from the version that was replaced. Arm A's per-language stages
+  are independent of one another, and the rule still applies to them: losing
+  the first language's checkpoint re-runs every language after it. That is the
+  price of one rule that is right for the BTM arms, where the dependency is
+  real, and it is a re-run, not a fault.
 - A record is withdrawn from the ledger before its stage is run again. The
   trainer writes a checkpoint as soon as it starts, so a re-run killed partway
   leaves a file where the old record says a finished one is.
-- A run is not resumed under a different configuration, or over data that no
-  longer builds the same vocabulary. The first check compares against the
+- A run is not resumed under a different configuration, over data that no
+  longer builds the same vocabulary or the same capped subset, or from a
+  different checkpoint. The first check compares against the
   `resolved_config.yaml` the earlier invocation wrote and names the settings
   that differ; `train.num_workers` is exempt, since it changes how fast a run
-  goes and not what it computes. The second compares the vocabulary built now
-  with `vocab.json`, because the config cannot see the corpus.
+  goes and not what it computes, and so is the checkpoint *path*, because the
+  checkpoint is identified by its digest instead. The rest are facts the first
+  invocation recorded in `stages.json` — the vocabulary in `vocab.json`, the
+  cap's per-language subset digests, the checkpoint's SHA-256 — and a resume
+  refuses when what it finds now differs.
 
 A run directory belongs to one process at a time: `svb run` holds a lock on it
 (`.lock`, an advisory `flock`, released by the kernel when the process dies) and

@@ -86,8 +86,14 @@ def train(
     max_epochs: int,
     out_dir: Path,
     device: str = "cuda",
+    data_seed: int | None = None,
 ) -> TrainResult:
     """Train ``model`` on ``train_ds``, selecting the best-val checkpoint.
+
+    ``data_seed`` seeds the shuffle order and the loader workers; it defaults
+    to the run seed, and a run passes each stage its own so that data order,
+    like everything else a stage draws, is a function of the run seed and the
+    stage's name alone.
 
     Selection is on validation loss, not WER; with CTC the two can diverge, so
     the choice is part of the reported protocol. An epoch-0 checkpoint is always
@@ -117,6 +123,7 @@ def train(
             f">= max_epochs={max_epochs}"
         )
 
+    seed = cfg.seed if data_seed is None else data_seed
     train_loader = DataLoader(
         train_ds,
         batch_size=cfg.optim.batch_size,
@@ -127,8 +134,8 @@ def train(
         # A split smaller than one batch would otherwise yield no batches at
         # all, collapsing the LR schedule and training on nothing.
         drop_last=n_train >= cfg.optim.batch_size,
-        generator=torch.Generator().manual_seed(cfg.seed),
-        worker_init_fn=make_worker_init_fn(cfg.seed),
+        generator=torch.Generator().manual_seed(seed),
+        worker_init_fn=make_worker_init_fn(seed),
     )
     val_loader = DataLoader(
         val_ds,
@@ -136,7 +143,7 @@ def train(
         shuffle=False,
         num_workers=cfg.train.num_workers,
         collate_fn=collate,
-        worker_init_fn=make_worker_init_fn(cfg.seed),
+        worker_init_fn=make_worker_init_fn(seed),
     )
 
     opt = torch.optim.AdamW(

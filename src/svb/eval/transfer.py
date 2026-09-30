@@ -27,7 +27,7 @@ from typing import Any
 
 from ..config import ExperimentConfig
 from ..data.collate import make_ctc_collate
-from ..data.datasets import load_language, load_texts
+from ..data.datasets import load_split, load_texts
 from ..data.registry import LangSpec
 from ..model.ctc_vocab import CtcVocab, expand_vocab
 from ..model.xeus_ctc import make_model
@@ -93,6 +93,7 @@ def transfer_one(
     lang: LangSpec,
     out_dir: Path,
     device: str = "cuda",
+    data_seed: int | None = None,
 ) -> TransferResult:
     """Adapt to one held-out language and evaluate.
 
@@ -100,6 +101,7 @@ def transfer_one(
         init_ckpt: Checkpoint to start from. ``None`` means start from the bare
             encoder, which for arm A is the SSL one (``cfg.init``).
         base_vocab: The training vocab whose head rows we preserve.
+        data_seed: Seed for the fine-tune's data order; the stage's own.
     """
     # Same policy the training vocab was built with — expand_vocab refuses
     # anything else — and the same floor, so the held-out language's tail is
@@ -128,27 +130,27 @@ def transfer_one(
         drop_empty=True,
     )
     eval_collate = make_ctc_collate(new_vocab)
-    train_ds, val_ds = (
-        load_language(
-            lang,
-            split,
-            cfg.train.max_audio_samples,
-            train_source=cfg.train.cv_train_source,
-            max_hours=cfg.train.max_hours(split),
-        )
-        for split in ("train", "validation")
-    )
+    train_ds = load_split(cfg, lang, "train")
+    val_ds = load_split(cfg, lang, "validation")
     # Load the checkpoint the trainer says it wrote, not a path re-derived here:
     # two sources of truth for one filename is how a stale model gets evaluated.
     result = train(
-        model, cfg, train_ds, val_ds, train_collate, cfg.train.finetune_epochs, out_dir, device
+        model,
+        cfg,
+        train_ds,
+        val_ds,
+        train_collate,
+        cfg.train.finetune_epochs,
+        out_dir,
+        device,
+        data_seed=data_seed,
     )
     model.load(result.checkpoint)
 
     # No truncation at test time: a clipped waveform scored against its full
     # transcript manufactures deletions that the model never had a chance to
     # avoid.
-    test_ds = load_language(lang, "test", None)
+    test_ds = load_split(cfg, lang, "test")
     scored = evaluate(
         model,
         test_ds,

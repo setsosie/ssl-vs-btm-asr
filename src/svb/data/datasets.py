@@ -33,13 +33,38 @@ rows the model never trains on describes a different run.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from torch.utils.data import Dataset, Subset
 
 from .commonvoice_local import DEFAULT_TRAIN_SOURCE
 from .hours import CapSelection, select_within_hours
 from .registry import LangSpec
 
+if TYPE_CHECKING:
+    from ..config import ExperimentConfig
+
 TARGET_SR = 16000
+
+
+def load_split(cfg: ExperimentConfig, spec: LangSpec, split: str) -> Dataset:
+    """One language's split, as this run reads it.
+
+    The training source, the hours cap and the truncation guard are all part
+    of which audio a run trains on, so every stage takes them from the config
+    through here rather than spelling them out at each call. The test split
+    gets none of them: a clipped waveform scored against its full transcript
+    manufactures deletions, and a number scored on part of a test set is a
+    number about that part.
+    """
+    evaluating = split == "test"
+    return load_language(
+        spec,
+        split,
+        None if evaluating else cfg.train.max_audio_samples,
+        train_source=cfg.train.cv_train_source,
+        max_hours=None if evaluating else cfg.train.max_hours(split),
+    )
 
 
 def load_language(

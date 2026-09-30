@@ -91,8 +91,11 @@ def corpora(
 def run(tmp_path: Path, corpora: None) -> Callable[..., Path]:
     """Invoke `svb run` through its own parser; returns the run directory."""
 
-    def invoke(arm: str, seed: int = 7, *flags: str, **train: Any) -> Path:
+    def invoke(
+        arm: str, seed: int = 7, *flags: str, model: dict[str, Any] | None = None, **train: Any
+    ) -> Path:
         settings = {
+            "model": model or {},
             "optim": {"batch_size": 2, "accum_steps": 1},
             "train": {
                 "phase0_epochs": 1,
@@ -217,6 +220,8 @@ def test_a_resumed_run_picks_up_where_the_last_one_died(
     assert [entry["resumed"] for entry in results["invocations"]] == [False, True]
     by_invocation = {name: stage["invocation"] for name, stage in results["stages"].items()}
     assert by_invocation["phase0"] == 0
+    assert by_invocation["eval_en"] == 0
+    assert by_invocation["eval_ja"] == 0
     assert by_invocation["transfer_telugu"] == 1
 
 
@@ -346,6 +351,71 @@ def test_a_run_that_finished_nothing_can_be_resubmitted_under_a_corrected_config
     results = _results(run("A_ssl", 7, "--resume", finetune_epochs=2))
 
     assert results["training"]["finetune_en"]["epochs_run"] == 2
+
+
+def test_a_run_is_not_resumed_when_the_capped_subset_changed(
+    run: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The vocabulary check cannot see a corpus change that moves the hash
+    cutoff by a few rows without changing the character set. The subset
+    digest the first invocation recorded can."""
+    import svb.cli as cli
+
+    run("A_ssl", 7, max_train_hours=3.5 / 3600)
+    real = cli.hours_cap_records
+
+    def shifted(cfg: Any, specs: Any) -> dict[str, Any]:
+        record = real(cfg, specs)
+        record["languages"]["en"]["train"]["subset_sha1"] = "0" * 40
+        return record
+
+    monkeypatch.setattr(cli, "hours_cap_records", shifted)
+
+    with pytest.raises(SystemExit, match="data is not what its finished stages"):
+        run("A_ssl", 7, "--resume", max_train_hours=3.5 / 3600)
+
+
+def test_the_starting_checkpoint_is_identified_by_content_not_by_path(
+    run: Callable[..., Path], tmp_path: Path
+) -> None:
+    """A different mount of the same file resumes; a different file at the
+    same path does not. The encoder is a stand-in here, so the file is only
+    ever hashed."""
+    first, second = tmp_path / "a" / "xeus.pth", tmp_path / "b" / "xeus.pth"
+    for path in (first, second):
+        path.parent.mkdir()
+        path.write_bytes(b"weights v1")
+    run("A_ssl", 7, model={"xeus_checkpoint": str(first)})
+
+    results = _results(run("A_ssl", 7, "--resume", model={"xeus_checkpoint": str(second)}))
+    assert [entry["resumed"] for entry in results["invocations"]] == [False, True]
+
+    second.write_bytes(b"weights v2")
+    with pytest.raises(SystemExit, match="xeus_checkpoint_sha256 is not what"):
+        run("A_ssl", 7, "--resume", model={"xeus_checkpoint": str(second)})
+
+
+def test_each_stage_orders_its_data_by_its_own_seed(
+    run: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two stages of one run used to shuffle with the run seed and draw the
+    same permutation; now each is handed its own."""
+    import svb.eval.transfer as transfer
+    import svb.train.trainer as trainer
+
+    seeds: list[int | None] = []
+    real = trainer.train
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        seeds.append(kwargs.get("data_seed"))
+        return real(*args, **kwargs)
+
+    for module in (trainer, transfer):
+        monkeypatch.setattr(module, "train", spy)
+    run("A_ssl")
+
+    assert None not in seeds
+    assert len(set(seeds)) == len(seeds) == 3
 
 
 def test_an_uncapped_run_says_so(run: Callable[..., Path]) -> None:

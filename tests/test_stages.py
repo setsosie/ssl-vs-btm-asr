@@ -19,11 +19,13 @@ class Recorder:
         self.run_dir = run_dir
         self.calls: list[str] = []
 
-    def stage(self, name: str) -> StageOutput:
+    def stage(self, name: str, seed: int) -> StageOutput:
         self.calls.append(name)
         artifact = self.run_dir / f"{name}.pt"
         artifact.write_text("weights", encoding="utf-8")
-        return StageOutput(result={"draw": float(torch.rand(1))}, artifacts=[artifact])
+        return StageOutput(
+            result={"draw": float(torch.rand(1)), "seed": seed}, artifacts=[artifact]
+        )
 
     def run(self, ledger: StageLedger, *names: str) -> list[dict]:
         return [ledger.run(name, partial(self.stage, name)) for name in names]
@@ -93,7 +95,7 @@ def test_a_record_is_withdrawn_from_disk_before_its_stage_runs_again(tmp_path: P
 
     ledger = StageLedger(tmp_path, seed=7, resume=True)
 
-    def killed_partway() -> StageOutput:
+    def killed_partway(seed: int) -> StageOutput:
         (tmp_path / "phase0.pt").write_text("epoch 0", encoding="utf-8")
         raise RuntimeError("wall-clock limit")
 
@@ -161,10 +163,30 @@ def test_a_stage_name_cannot_be_used_twice(tmp_path: Path) -> None:
         work.run(ledger, "phase0")
 
 
+def test_a_stage_is_handed_the_seed_it_was_seeded_with(tmp_path: Path) -> None:
+    """What a stage passes on to a loader must be the stage's own stream."""
+    from svb.seeding import derive_seed
+
+    work = Recorder(tmp_path)
+    (phase0, expert) = work.run(StageLedger(tmp_path, seed=7), "phase0", "expert_en")
+
+    assert phase0["seed"] == derive_seed(7, "stage", "phase0")
+    assert expert["seed"] == derive_seed(7, "stage", "expert_en")
+    assert phase0["seed"] != expert["seed"]
+
+
+def test_a_fact_survives_to_the_next_invocation_and_only_with_resume(tmp_path: Path) -> None:
+    ledger = StageLedger(tmp_path, seed=7)
+    ledger.remember("data", {"en": "abc"})
+
+    assert StageLedger(tmp_path, seed=7, resume=True).recall("data") == {"en": "abc"}
+    assert StageLedger(tmp_path, seed=7).recall("data") is None
+
+
 def test_a_stage_that_raises_leaves_no_record(tmp_path: Path) -> None:
     ledger = StageLedger(tmp_path, seed=7)
 
-    def dies() -> StageOutput:
+    def dies(seed: int) -> StageOutput:
         raise RuntimeError("out of memory")
 
     with pytest.raises(RuntimeError):
