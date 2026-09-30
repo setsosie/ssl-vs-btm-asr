@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import dataclasses
 import os
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -108,6 +108,7 @@ class TextConfig:
 
 # Written into the dumped config for the reader, derived rather than set.
 _DERIVED_TEXT_KEYS = ("policies", "normalizer_module_sha256")
+RESOLVED_CONFIG = "resolved_config.yaml"
 
 
 @dataclass(frozen=True)
@@ -168,13 +169,24 @@ def load_config(
     arm: Arm,
     scale: Scale,
     seed: int,
-    yaml_path: str | Path | None = None,
+    yaml_path: str | Path | Sequence[str | Path] | None = None,
     overrides: dict[str, Any] | None = None,
 ) -> ExperimentConfig:
-    """Build an ExperimentConfig, layering an optional YAML then dict overrides."""
+    """Build an ExperimentConfig, layering optional YAMLs then dict overrides.
+
+    Several YAMLs are layered in the order given, each over the last. That is
+    what lets a study be a small file of the settings it changes, laid over the
+    shared defaults, instead of a copy of them that drifts.
+    """
     cfg: dict[str, Any] = {"arm": arm, "scale": scale, "seed": seed}
-    if yaml_path is not None:
-        with open(yaml_path) as f:
+    if yaml_path is None:
+        layers: list[str | Path] = []
+    elif isinstance(yaml_path, (str, Path)):
+        layers = [yaml_path]
+    else:
+        layers = list(yaml_path)
+    for layer in layers:
+        with open(layer) as f:
             cfg = _nested_update(cfg, yaml.safe_load(f) or {})
     if overrides:
         cfg = _nested_update(cfg, overrides)
@@ -208,10 +220,8 @@ def _text_config(raw: dict[str, Any]) -> TextConfig:
     return TextConfig(**raw)
 
 
-def dump_config(cfg: ExperimentConfig, out_dir: str | Path, specs: Iterable[Any] = ()) -> Path:
-    """Write the fully-resolved config next to a run's results."""
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+def resolved_config(cfg: ExperimentConfig, specs: Iterable[Any] = ()) -> dict[str, Any]:
+    """The configuration as a run records it, policies and digests included."""
     data = cfg.to_dict()
     # Which policy each language actually ran under, by name and by hash. The
     # name is a label for the reader; the hash is what says whether two runs may
@@ -221,7 +231,36 @@ def dump_config(cfg: ExperimentConfig, out_dir: str | Path, specs: Iterable[Any]
         code: {"name": policy_name(policy), "hash": policy.policy_hash()}
         for code, policy in sorted(policies_for_specs(specs, cfg.text.override).items())
     }
-    path = out_dir / "resolved_config.yaml"
+    return data
+
+
+def dump_config(cfg: ExperimentConfig, out_dir: str | Path, specs: Iterable[Any] = ()) -> Path:
+    """Write the fully-resolved config next to a run's results."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / RESOLVED_CONFIG
     with open(path, "w") as f:
-        yaml.safe_dump(data, f, sort_keys=False)
+        yaml.safe_dump(resolved_config(cfg, specs), f, sort_keys=False)
     return path
+
+
+# Settings that decide how fast a run goes and not what it computes. A resumed
+# job may land on a node with a different core count; that is not a different
+# experiment.
+_OPERATIONAL_KEYS = (("train", "num_workers"),)
+
+
+def config_differences(recorded: dict[str, Any], current: dict[str, Any]) -> list[str]:
+    """Dotted paths at which two resolved configs disagree, operational keys aside."""
+
+    def walk(left: Any, right: Any, trail: tuple[str, ...]) -> list[str]:
+        if trail in _OPERATIONAL_KEYS:
+            return []
+        if isinstance(left, dict) and isinstance(right, dict):
+            found: list[str] = []
+            for key in sorted(set(left) | set(right)):
+                found += walk(left.get(key), right.get(key), (*trail, str(key)))
+            return found
+        return [] if left == right else [".".join(trail)]
+
+    return walk(recorded, current, ())

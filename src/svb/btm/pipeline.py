@@ -113,29 +113,35 @@ def run_phase0(
     return train(model, cfg, train_ds, val_ds, collate, cfg.train.phase0_epochs, out_dir, device)
 
 
-def train_experts(
+def train_expert(
     cfg: ExperimentConfig,
     phase0_ckpt: Path,
-    specs: list[LangSpec],
+    spec: LangSpec,
     vocab: CtcVocab,
     out_dir: Path,
     device: str = "cuda",
-) -> dict[str, TrainResult]:
-    """Fine-tune one expert per language, each branched from phase 0."""
+) -> TrainResult:
+    """Fine-tune one language's expert, branched from phase 0.
+
+    One language per call so the caller can record each expert as it finishes:
+    at sixty-four languages the experts are most of a run, and a run that can
+    only resume from before all of them cannot really resume.
+    """
     collate = make_ctc_collate(
         vocab, max_audio_samples=cfg.train.max_audio_samples, drop_overlong=True, drop_empty=True
     )
-    experts: dict[str, TrainResult] = {}
-    for spec in specs:
-        model = make_model(cfg, vocab.size)
-        model.load(phase0_ckpt)
-        lang_dir = out_dir / f"expert_{spec.code}"
-        train_ds = load_split(cfg, spec, "train")
-        val_ds = load_split(cfg, spec, "validation")
-        experts[spec.code] = train(
-            model, cfg, train_ds, val_ds, collate, cfg.train.expert_epochs, lang_dir, device
-        )
-    return experts
+    model = make_model(cfg, vocab.size)
+    model.load(phase0_ckpt)
+    return train(
+        model,
+        cfg,
+        load_split(cfg, spec, "train"),
+        load_split(cfg, spec, "validation"),
+        collate,
+        cfg.train.expert_epochs,
+        out_dir / f"expert_{spec.code}",
+        device,
+    )
 
 
 def merge_experts(

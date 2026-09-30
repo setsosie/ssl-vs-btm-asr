@@ -32,7 +32,7 @@ from ..data.registry import LangSpec
 from ..model.ctc_vocab import CtcVocab, expand_vocab
 from ..model.xeus_ctc import make_model
 from ..text.registry import policy_for_language
-from ..train.trainer import train
+from ..train.trainer import TrainResult, train
 from .evaluate import EvalResult, evaluate
 
 
@@ -55,6 +55,10 @@ class TransferResult:
     #: SHA-1 of the test FileID list: pins the exact held-out set that was
     #: scored, so two runs can be shown to have used the same one.
     test_files_sha1: str | None = None
+    #: The fine-tune behind the number. Transfer is the comparison the central
+    #: claim rests on, so which epoch was selected and what training dropped
+    #: belong in the results as much as they do for the in-distribution stages.
+    training: TrainResult | None = None
 
     def to_record(self) -> dict[str, Any]:
         """The results.json entry for this language."""
@@ -157,5 +161,9 @@ def transfer_one(
     )
     policy, digest = _split_provenance(test_ds)
     return TransferResult(
-        lang=lang.code, result=scored, split_policy=policy, test_files_sha1=digest
+        lang=lang.code,
+        result=scored,
+        split_policy=policy,
+        test_files_sha1=digest,
+        training=result,
     )
