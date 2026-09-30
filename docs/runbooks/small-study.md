@@ -99,7 +99,8 @@ unreadable clip.
 
 ## 4. Timing: one real seed of arm B
 
-Arm B is the cheaper of the two SSL arms and exercises every stage.
+Arm B is the cheaper of the two SSL arms and exercises every stage of the BTM
+arms; arm A's fine-tune is priced from phase 0 below.
 
 ```bash
 CELL=$(uv run python scripts/run_matrix.py --scale 3 --arm B_btm_ssl --n-seeds 1)
@@ -128,9 +129,10 @@ uv run python scripts/run_matrix.py --scale 3 | while read -r cell; do
 done
 ```
 
-Fifteen jobs, one GPU each, cheapest arm first. The cell from step 4 is
-submitted again here and finishes immediately, because every stage is already
-recorded. Add `--n-seeds 3` to `run_matrix.py` if compute forces fewer runs, and
+Fifteen jobs, one GPU each, cheapest arm first — B, then C, then A, which
+fine-tunes every language for more epochs than the two BTM stages together. The
+cell from step 4 is submitted again here and finishes immediately, because
+every stage is already recorded. Add `--n-seeds 3` to `run_matrix.py` if compute forces fewer runs, and
 say so in the table caption.
 
 To resubmit only what is unfinished — **once no job of the study is still
@@ -148,7 +150,8 @@ done
 A second job on a cell that is still running exits at once with "in use by
 another process" rather than training over the first — the run directory is
 locked — so the mistake costs a scheduler slot, not a result. To throw a cell
-away and redo it, pass `--restart` to `svb run` explicitly; nothing in this
+away and redo it, add `--restart` to its `sbatch` line: the launcher then
+omits its usual `--resume`, since the two exclude each other. Nothing in this
 runbook does that.
 
 Without a scheduler, on one machine:

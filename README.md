@@ -25,7 +25,7 @@ an interval that resamples seeds and test utterances together.
 ## Status
 
 **No GPU run has been executed against this code.** Everything below is
-implemented and covered by 1167 CPU tests, which include `svb run` end to end
+implemented and covered by more than a thousand CPU tests, which include `svb run` end to end
 for all three arms against a stand-in encoder, reading real audio files in the
 corpora's layouts. None of it has yet produced a number from the real encoder.
 

@@ -62,7 +62,9 @@ def test_every_populated_cell_is_emitted_once(run_matrix: ModuleType, configs: P
     # 2 scales x 3 arms x 2 seeds.
     assert len(lines) == 12
     assert len(set(lines)) == 12
-    assert lines[0] == "--arm A_ssl --scale 3 --seed 0"
+    # Cheapest arm first: the BTM arms share the smaller budget, arm A the larger.
+    assert lines[0] == "--arm B_btm_ssl --scale 3 --seed 0"
+    assert lines[4] == "--arm A_ssl --scale 3 --seed 0"
 
 
 def test_the_list_can_be_narrowed_to_one_cell_and_a_seed_prefix(

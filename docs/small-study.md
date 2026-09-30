@@ -61,7 +61,7 @@ arm A would pass them through the encoder fifty times per seed.
 | English | 2,703.6 h | 10 h | 24.0 h | 1 h | 24.0 h, whole |
 | Japanese | 349.5 h | 10 h | 11.2 h | 1 h | 11.2 h, whole |
 | Hindi | 7.0 h | 7.0 h, whole | 3.9 h | 1 h | 4.7 h, whole |
-| held-out ×4 | a few hours each | whole | — | whole | whole |
+| held-out ×4 | a few hours each | whole | under 1 h each | whole | whole |
 
 Hours are from [`languages.md`](languages.md), which is generated from Common
 Voice 25's own release statistics; `svb data-stats` measures them from the
@@ -148,11 +148,12 @@ binomial utterance noise, and calls the real statistic:
 | 4-language macro, seed noise dominant | 10 | 0.93 | 0.92 |
 | 4-language macro, utterance noise dominant | 5 | 0.93 | 0.89 |
 
-Nominal 95%, 300 replicates each. So with five seeds a `p < 0.05` on the
-primary contrast is roughly one-in-ten evidence under the null, not
-one-in-twenty, and with three seeds it is nearer one-in-six. The regimes are
-stylised and bracket the study rather than model it; the table is regenerated
-with the script, not edited.
+Nominal 95%, 300 replicates each, so every cell carries a Monte-Carlo error of
+about ±0.02 and another seed of the script moves it by that much. So with five
+seeds a `p < 0.05` on the primary contrast is roughly one-in-ten evidence under
+the null, not one-in-twenty, and with three seeds it is nearer one-in-six. The
+regimes are stylised and bracket the study rather than model it; the table is
+regenerated with the script, not edited.
 
 `svb aggregate` and `svb analyze` remain the per-arm and per-run views.
 
