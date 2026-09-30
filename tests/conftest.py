@@ -55,6 +55,25 @@ def write_silent_wav() -> Callable[..., None]:
     return _write_silent_wav
 
 
+def _write_clip(path: Path, frames: int, sr: int = TARGET_SR) -> None:
+    """Write `frames` of silence in whatever container the suffix names.
+
+    Encoded by soundfile, the library the loaders decode with, so a test that
+    reads the file back exercises the real decode path for that container —
+    mp3 included — rather than a stub standing in for it.
+    """
+    import numpy as np
+    import soundfile as sf
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    sf.write(str(path), np.zeros(frames, dtype="float32"), sr)
+
+
+@pytest.fixture
+def write_clip() -> Callable[..., None]:
+    return _write_clip
+
+
 @pytest.fixture
 def fixtures_dir(pytestconfig: pytest.Config) -> Path:
     return Path(pytestconfig.rootpath) / "tests" / "fixtures"
@@ -96,7 +115,10 @@ def make_cv_lang(tmp_path: Path) -> Callable[..., Path]:
     """Build ``$CV_ROOT`` holding one language; returns the root.
 
     ``columns`` lets a test drop ``client_id`` to check what happens when the
-    speaker guard has nothing to work with.
+    speaker guard has nothing to work with. ``clip_seconds`` writes every row's
+    clip as a real 48 kHz file of that length, named as the row's ``path`` says,
+    along with the release's own ``clip_durations.tsv``; left unset, no audio
+    exists and only the text files can be read.
     """
 
     def build(
@@ -106,11 +128,20 @@ def make_cv_lang(tmp_path: Path) -> Callable[..., Path]:
         columns: tuple[str, ...] = ("client_id", "path", "sentence"),
         with_validated: bool = True,
         root: Path | None = None,
+        clip_seconds: float | None = None,
     ) -> Path:
         rows = CV_ROWS if rows is None else rows
         root = root or (tmp_path / "cv")
         base = root / lang
         (base / "clips").mkdir(parents=True, exist_ok=True)
+        if clip_seconds is not None:
+            for row in rows:
+                _write_clip(base / "clips" / row.path, int(clip_seconds * 48000), sr=48000)
+            (base / "clip_durations.tsv").write_text(
+                "clip\tduration[ms]\n"
+                + "".join(f"{row.path}\t{int(clip_seconds * 1000)}\n" for row in rows),
+                encoding="utf-8",
+            )
         for split, name in (("train", "train.tsv"), ("dev", "dev.tsv"), ("test", "test.tsv")):
             member = [r for r in rows if r.split == split]
             (base / name).write_text(_tsv(member, columns), encoding="utf-8")
