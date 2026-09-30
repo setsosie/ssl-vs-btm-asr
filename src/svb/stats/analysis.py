@@ -311,7 +311,11 @@ def multibootstrap(
             # matrix then turns every run's resampled total into one matrix
             # product instead of a gather per run.
             idx = rng.integers(0, m, size=(size, m))
-            counts = np.stack([np.bincount(draw, minlength=m) for draw in idx]).astype(float)
+            # One bincount over every draw at once, each draw offset into its
+            # own range of bins, rather than one call per draw.
+            offsets = (np.arange(size) * m)[:, None]
+            flat = np.bincount((idx + offsets).ravel(), minlength=size * m)
+            counts = flat.reshape(size, m).astype(float)
             denominator = np.maximum(1.0, counts @ lang.lengths)[:, None]
             rates_a = 100.0 * (counts @ lang.edits_a.T) / denominator  # (size, k_a)
             rates_b = 100.0 * (counts @ lang.edits_b.T) / denominator

@@ -116,11 +116,15 @@ def _require_same_policies(arms: list[ArmRuns]) -> None:
     be shown to have used the same rules as one written after.
     """
     for arm in arms:
-        if not arm.aggregate.policies:
+        # Every run, not the aggregate's copy of the first: a seed written
+        # before policies were recorded is one seed too many to vouch for.
+        silent = [run.seed for run in arm.runs if not run.policies]
+        if silent:
             raise ValueError(
-                f"{arm.arm} records no per-language policies (no text_stats.json in its "
-                "runs), so it cannot be shown to have used the same normalization rules "
-                "as the other arms; re-run it or compare arms that all record them"
+                f"{arm.arm} seed(s) {silent} record no per-language policies (no "
+                "text_stats.json), so the arm cannot be shown to have used the same "
+                "normalization rules as the others; re-run them or compare arms whose "
+                "every run records them"
             )
     for first, other in combinations(arms, 2):
         shared = set(first.aggregate.policies) & set(other.aggregate.policies)
@@ -229,6 +233,16 @@ def contrast_arms(
         )
 
     stacked = [_language_edits(edits, a, b, section, code) for code in everywhere]
+    unscored = [
+        code
+        for code, (language, _) in zip(everywhere, stacked, strict=True)
+        if language.lengths.shape[0] == 0
+    ]
+    if unscored:
+        raise ValueError(
+            f"{', '.join(unscored)}: a prediction sidecar with no pairs is not a scored "
+            "language; the evaluator never writes one, so this run directory was edited"
+        )
     per_language, macro = multibootstrap(
         [language for language, _ in stacked], n=n_resamples, seed=seed
     )

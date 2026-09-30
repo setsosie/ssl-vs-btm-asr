@@ -160,7 +160,7 @@ def test_an_arm_that_records_no_policies_is_refused(root: Path) -> None:
         (root / "B_btm_ssl" / "3" / f"seed{seed}" / "text_stats.json").unlink()
 
     arms = load_arms(root, "3", ["A_ssl", "B_btm_ssl"])
-    with pytest.raises(ValueError, match="records no per-language policies"):
+    with pytest.raises(ValueError, match="record no per-language policies"):
         compare_arms(arms, n_resamples=50)
 
 
@@ -380,3 +380,23 @@ def test_the_coverage_script_runs_the_real_statistic(interval_coverage: ModuleTy
 
     assert 0.0 <= per_language <= 1.0
     assert 0.0 <= macro <= 1.0
+
+
+def test_a_single_run_without_recorded_policies_is_enough_to_refuse(root: Path) -> None:
+    """The aggregate carries the first seed's policies; the check must look at
+    every seed, or one run written before policies were recorded slips by."""
+    (root / "B_btm_ssl" / "3" / "seed33" / "text_stats.json").unlink()
+
+    arms = load_arms(root, "3", ["A_ssl", "B_btm_ssl"])
+    with pytest.raises(ValueError, match=r"B_btm_ssl seed\(s\) \[33\] record no"):
+        compare_arms(arms, n_resamples=50)
+
+
+def test_an_empty_sidecar_is_named_by_language(root: Path) -> None:
+    for arm in ("A_ssl", "B_btm_ssl"):
+        for seed in (11, 22, 33):
+            write_sidecar(root / arm / "3" / f"seed{seed}", "telugu", [], transfer=True)
+
+    arms = load_arms(root, "3", ["A_ssl", "B_btm_ssl"])
+    with pytest.raises(ValueError, match="telugu: a prediction sidecar with no pairs"):
+        compare_arms(arms, n_resamples=50)
