@@ -28,9 +28,10 @@ def test_every_container_the_corpora_ship_decodes_to_16k_mono(
 
     assert wav.dim() == 1
     assert wav.dtype.is_floating_point
-    # One second at 48 kHz is one second at 16 kHz. mp3 pads a frame or two at
-    # the edges, so the length is checked to a tolerance rather than exactly.
-    assert abs(wav.shape[0] - TARGET_SR) < 0.1 * TARGET_SR
+    # One second at 48 kHz is one second at 16 kHz. libsndfile round-trips its
+    # own mp3 to the sample, so the tolerance only covers the resampler's edge;
+    # it is tight enough that a 44.1/48 kHz header confusion (8.8 %) would fail.
+    assert abs(wav.shape[0] - TARGET_SR) < 0.01 * TARGET_SR
 
 
 def test_stereo_is_downmixed_rather_than_returned_as_two_channels(tmp_path: Path) -> None:
@@ -67,10 +68,19 @@ def test_an_empty_clip_at_another_rate_is_returned_empty_rather_than_crashing(
 
 
 def test_the_header_duration_needs_no_decode(
-    tmp_path: Path, write_clip: Callable[..., None]
+    tmp_path: Path, write_clip: Callable[..., None], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Sweeps over whole corpora read these; a decode per clip would make them
+    take as long as an epoch."""
+    import soundfile as sf
+
     clip = tmp_path / "half.wav"
     write_clip(clip, frames=8000, sr=TARGET_SR)
+
+    def decodes(*args: object, **kwargs: object) -> object:
+        raise AssertionError("audio_seconds decoded samples")
+
+    monkeypatch.setattr(sf, "read", decodes)
 
     assert audio_seconds(clip) == pytest.approx(0.5)
     assert audio_seconds(tmp_path / "absent.wav") is None
@@ -85,4 +95,4 @@ def test_a_common_voice_clip_is_read_without_torchcodec(
     wav, text, code = CommonVoiceLocal("en", "test")[0]
 
     assert (text, code) == ("six", "en")
-    assert abs(wav.shape[0] - TARGET_SR // 2) < 0.1 * TARGET_SR
+    assert abs(wav.shape[0] - TARGET_SR // 2) < 0.01 * TARGET_SR

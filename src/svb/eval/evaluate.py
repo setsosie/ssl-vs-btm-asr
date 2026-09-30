@@ -116,6 +116,15 @@ def evaluate(
     for batch in loader:
         input_values = batch["input_values"].to(device)
         attn = batch["attention_mask"].to(device)
+        if input_values.shape[1] == 0:
+            # Every clip in this batch is empty. There is nothing to encode —
+            # the frontend cannot convolve zero samples — and nothing to say:
+            # each scores as an empty hypothesis against its full reference.
+            # An empty clip beside a longer one is handled below, where its
+            # zero output length slices its row to nothing.
+            hyps.extend("" for _ in batch["codes"])
+            refs.extend(batch["texts"])
+            continue
         pred_ids, pred_lens = model.greedy_decode(input_values, attention_mask=attn)  # (B, T')
         for row, valid, code in zip(pred_ids, pred_lens.tolist(), batch["codes"], strict=True):
             # Slice off the padded tail before collapsing: frames past the
