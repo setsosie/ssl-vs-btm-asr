@@ -1,3 +1,16 @@
 # The seeds every (arm, scale) is run over. Reported as mean ± std.
-# Drop to [0, 1, 2] if compute forces it — say so in the table caption.
-seeds: [0, 1, 2, 3, 4]
+#
+# Drawn, not chosen: five values from the operating system's entropy source,
+#
+#   python -c "import secrets; print([secrets.randbelow(2**31) for _ in range(5)])"
+#
+# on 2026-09-30, committed before any run existed. The ordering is the point: a
+# list fixed before the first result cannot have been picked for its results,
+# and one that was drawn cannot share a convenient structure (0, 1, 2, ...) with
+# every other study that seeds the same libraries.
+#
+# Do not re-draw, extend by hand, or reorder. If compute forces fewer runs, take
+# a prefix (`scripts/run_matrix.py --n-seeds 3`) and say so in the table caption.
+# This file is the only place the list lives; the Makefile and the Slurm
+# launcher both read it through scripts/run_matrix.py.
+seeds: [1143266318, 1700914415, 573796963, 1671695611, 1714699088]

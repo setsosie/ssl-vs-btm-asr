@@ -23,6 +23,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from ..config import ExperimentConfig
 from ..model.xeus_ctc import XeusCTC
+from ..seeding import derive_seed
 
 
 @dataclass
@@ -47,12 +48,16 @@ def make_worker_init_fn(seed: int) -> Callable[[int], None]:
     Workers are forked after the parent has been seeded, so without this they
     all inherit the same Python and NumPy state. Torch reseeds its own
     generator per worker; ``random`` and ``numpy`` are the two it leaves alone.
+
+    The worker seed is hashed from the run seed and the worker id, not their
+    sum: with ``seed + worker_id``, worker 1 of one run and worker 0 of the run
+    seeded one higher would share a stream.
     """
 
     def init(worker_id: int) -> None:
-        worker_seed = seed + worker_id
+        worker_seed = derive_seed(seed, "worker", worker_id)
         random.seed(worker_seed)
-        np.random.seed(worker_seed % (2**32))
+        np.random.seed(worker_seed)
 
     return init
 
