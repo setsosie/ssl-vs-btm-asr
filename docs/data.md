@@ -47,9 +47,10 @@ those entries is **not** a Hub id — it is a provenance label for the release
 (`common_voice_25`) that gets recorded in run metadata. Both field names are
 historical; renaming them would touch every preset entry.
 
-The loader reads the `path`, `sentence` and `client_id` columns. mp3 decoding
-goes through torchaudio's ffmpeg backend, so install ffmpeg if clips fail to
-load.
+The loader reads the `path`, `sentence` and `client_id` columns. Clips are
+decoded by `soundfile`, whose bundled libsndfile reads mp3, so no ffmpeg and no
+TorchCodec are needed. `torchaudio.load` is deliberately not used: from
+torchaudio 2.9 it requires TorchCodec, which this project does not install.
 
 ### Split policy
 

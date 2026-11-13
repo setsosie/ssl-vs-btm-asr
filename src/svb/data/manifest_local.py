@@ -31,9 +31,8 @@ manifest, and this module is the only thing that reads audio::
     ``train``, ``validation``, ``test``, or empty. Either every row carries one
     or none does; see :func:`_partition`.
 
-Audio is read with ``soundfile`` where it can be (wav, flac) and through
-``torchaudio`` otherwise (mp3, m4a — which needs an ffmpeg backend), then
-downmixed to mono and resampled to 16 kHz. Items are ``(waveform, text,
+Audio is decoded by :mod:`svb.data.audio` — ``soundfile``, which reads wav, flac
+and mp3 — then downmixed to mono and resampled to 16 kHz. Items are ``(waveform, text,
 language code)``, the same shape the Common Voice and OpenSLR loaders return, so
 the collate can normalize each transcript under its own language's policy.
 """
@@ -49,16 +48,13 @@ from pathlib import Path
 import torch
 from torch.utils.data import Dataset
 
+from .audio import load_waveform
 from .registry import LangSpec
 from .splits import SPLITS
 from .splits import derive_splits as _derive_splits
 
-TARGET_SR = 16000
 MANIFEST = "manifest.tsv"
 COLUMNS = ("utt_id", "path", "text", "speaker", "split")
-#: Extensions ``soundfile`` reads directly. Anything else goes through
-#: torchaudio, which needs an ffmpeg backend for mp3 and m4a.
-_SOUNDFILE_SUFFIXES = {".wav", ".flac", ".ogg", ".opus", ".aiff", ".au"}
 
 
 @dataclass(frozen=True)
@@ -186,30 +182,7 @@ class ManifestLocal(Dataset):
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, str, str]:
         row = self.rows[idx]
-        wav, sr = _read_audio(self.base / row.path)
-        if wav.dim() > 1:
-            wav = wav.mean(dim=1)
-        if sr != TARGET_SR:
-            import torchaudio
-
-            wav = torchaudio.functional.resample(wav, sr, TARGET_SR)
-        if self._max is not None and wav.shape[0] > self._max:
-            wav = wav[: self._max]
-        return wav.float(), row.text, self.spec.code
-
-
-def _read_audio(path: Path) -> tuple[torch.Tensor, int]:
-    """``(samples, rate)``, from soundfile where it can read the container."""
-    if path.suffix.lower() in _SOUNDFILE_SUFFIXES:
-        import soundfile as sf
-
-        data, sr = sf.read(str(path), dtype="float32", always_2d=False)
-        return torch.as_tensor(data, dtype=torch.float32), int(sr)
-
-    import torchaudio
-
-    wav, sr = torchaudio.load(str(path))  # (channels, time)
-    return wav.transpose(0, 1), int(sr)
+        return load_waveform(self.base / row.path, self._max), row.text, self.spec.code
 
 
 def load_manifest_texts(spec: LangSpec, split: str, root: str | None = None) -> list[str]:

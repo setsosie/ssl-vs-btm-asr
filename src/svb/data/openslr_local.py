@@ -64,11 +64,10 @@ from pathlib import Path
 import torch
 from torch.utils.data import Dataset
 
+from .audio import load_waveform
 from .registry import LangSpec
 from .splits import SPLITS
 from .splits import derive_splits as _derive_splits
-
-TARGET_SR = 16000
 
 Row = tuple[str, str]  # (FileID, transcript)
 _FETCH_HINT = "run `python scripts/fetch_openslr.py --root $OPENSLR_ROOT` first"
@@ -167,19 +166,8 @@ class OpenSLRLocal(Dataset):
         return len(self.rows)
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, str, str]:
-        import soundfile as sf
-
         file_id, text = self.rows[idx]
-        data, sr = sf.read(str(self.base / f"{file_id}.wav"), dtype="float32", always_2d=False)
-        wav = torch.as_tensor(data, dtype=torch.float32)
-        if wav.dim() > 1:  # soundfile yields (frames, channels)
-            wav = wav.mean(dim=1)
-        if sr != TARGET_SR:
-            import torchaudio
-
-            wav = torchaudio.functional.resample(wav, sr, TARGET_SR)
-        if self._max is not None and wav.shape[0] > self._max:
-            wav = wav[: self._max]
+        wav = load_waveform(self.base / f"{file_id}.wav", self._max)
         return wav, text, self.spec.code
 
 

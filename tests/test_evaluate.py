@@ -65,6 +65,40 @@ def test_hypothesis_is_independent_of_padding() -> None:
     assert padded.wer == 0.0
 
 
+def test_an_empty_clip_scores_as_an_empty_hypothesis_alone_or_in_company() -> None:
+    """A corpus can carry a zero-length clip. Beside a longer one its row has
+    no frames and decodes to nothing; alone, there is nothing to encode at all,
+    and the batch has to be answered without asking the model."""
+    vocab, _ = build_vocab_from_texts(["ab"])
+    collate = make_ctc_collate(vocab)
+    empty = (torch.zeros(0), "ab", LANG)
+
+    class _NeverForEmpty(FakeXeusCTC):
+        def forward(
+            self,
+            input_values: torch.Tensor,
+            attention_mask: torch.Tensor | None = None,
+            labels: torch.Tensor | None = None,
+        ) -> dict[str, torch.Tensor]:
+            assert input_values.shape[1] > 0, "the model was asked to encode zero samples"
+            return super().forward(input_values, attention_mask, labels)
+
+    model = _NeverForEmpty(vocab.size)
+    alone = evaluate(model, ListDataset([empty]), vocab, collate, device="cpu", batch_size=1)
+    together = evaluate(
+        model,
+        ListDataset([empty, (wav_for(vocab, "ab"), "ab", LANG)]),
+        vocab,
+        collate,
+        device="cpu",
+        batch_size=2,
+    )
+
+    assert alone.hyps == [""]
+    assert alone.wer == 100.0
+    assert together.hyps == ["", "ab"]
+
+
 def test_reference_keeps_characters_absent_from_the_vocab() -> None:
     """A test-set character the training vocab never saw must stay in the ref.
 
